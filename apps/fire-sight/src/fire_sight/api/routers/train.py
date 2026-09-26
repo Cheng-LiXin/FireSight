@@ -259,8 +259,11 @@ async def stream_job(
                 yield f"id: {last}\nevent: {kind}\ndata: {payload}\n\n"
 
             if job.status != "running" and not job.events_since(last):
-                # 收尾：把最终状态作为一条事件送出，客户端据此收流
-                yield f"event: close\ndata: {json.dumps(job.public(), ensure_ascii=False)}\n\n"
+                # 收尾：把最终状态作为一条事件送出，客户端据此收流。
+                # 必须带上 type——客户端按 type 分发，少了它这条会被静默丢弃，
+                # 状态条就永远停在「训练中」。
+                final = {"type": "close", **job.public()}
+                yield f"event: close\ndata: {json.dumps(final, ensure_ascii=False)}\n\n"
                 return
 
             await asyncio.sleep(_STREAM_TICK)

@@ -3,7 +3,7 @@
  *
  * 参数栏横贯在最上方，作用于下方全部内容——不把筛选器塞进取景窗里。
  */
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
 import { api, ApiError, type InferParams } from '@/api/client'
 import { CLASS_CN } from '@/api/types'
@@ -37,6 +37,12 @@ const batch = ref<BatchResult | null>(null)
 const busy = ref(false)
 const dragging = ref(false)
 const error = ref<string | null>(null)
+/** 权重列表要等 /api/models 回来才知道，期间不能开跑。 */
+const modelsLoading = ref(true)
+/** 权重就绪前收到的文件先记在这里，就绪后补跑——丢弃用户的投递更糟。 */
+const pendingRun = ref(false)
+
+const noModels = computed(() => !modelsLoading.value && models.value.length === 0)
 
 const params = computed<InferParams>(() => ({
   weights: weights.value,
@@ -58,6 +64,8 @@ onMounted(async () => {
     sourceKey.value = s[0]?.key ?? ''
   } catch (e) {
     error.value = describe(e)
+  } finally {
+    modelsLoading.value = false
   }
 })
 
@@ -66,12 +74,29 @@ onBeforeUnmount(() => {
 })
 
 function pickFile(f: File): void {
+  if (noModels.value) {
+    error.value = '没有可用的模型，请先运行 fs-train 训练一次'
+    return
+  }
   if (previewUrl.value) URL.revokeObjectURL(previewUrl.value)
   file.value = f
   previewUrl.value = URL.createObjectURL(f)
   result.value = null
+  if (modelsLoading.value) {
+    // 权重还没到，先挂起；下面 watch 会在就绪后补跑
+    pendingRun.value = true
+    return
+  }
   void runSingle()
 }
+
+// 权重就绪后补跑挂起的那次——比直接丢弃用户的投递好
+watch([weights, modelsLoading], () => {
+  if (pendingRun.value && weights.value && !modelsLoading.value) {
+    pendingRun.value = false
+    void runSingle()
+  }
+})
 
 function onDrop(e: DragEvent): void {
   dragging.value = false
@@ -79,13 +104,31 @@ function onDrop(e: DragEvent): void {
   if (f) pickFile(f)
 }
 
+const DROP_HINT = computed(() => {
+  if (modelsLoading.value) return '正在加载模型列表…'
+  if (noModels.value) return '没有可用的模型'
+  return '把图像拖到这里，或点击选择'
+})
+
+const DROP_SUB = computed(() =>
+  noModels.value ? '请先运行 fs-train 训练一次' : '支持 JPG / PNG / BMP / WebP',
+)
+
 function onPick(e: Event): void {
   const f = (e.target as HTMLInputElement).files?.[0]
   if (f) pickFile(f)
 }
 
 async function runSingle(): Promise<void> {
-  if (!file.value || !weights.value) return
+  if (!file.value) return
+  // 不能在这里静默 return：权重还没到时什么都不做，用户看到的是「图传上去了
+  // 但永远没结果、也没有报错」。必须说明为什么没跑。
+  if (!weights.value) {
+    error.value = modelsLoading.value
+      ? '模型列表尚未加载完成，请稍候重试'
+      : '没有可用的模型，请先运行 fs-train 训练一次'
+    return
+  }
   busy.value = true
   error.value = null
   try {
@@ -199,15 +242,15 @@ function fix(v: number | null | undefined, digits = 3): string {
           <div
             v-if="!file"
             class="dropzone"
-            :class="{ 'is-over': dragging }"
-            @dragover.prevent="dragging = true"
+            :class="{ 'is-over': dragging, 'is-blocked': noModels }"
+            @dragover.prevent="dragging = !noModels"
             @dragleave="dragging = false"
             @drop.prevent="onDrop"
           >
             <label class="dropzone__inner">
-              <input type="file" accept="image/*" hidden @change="onPick" />
-              <span class="dropzone__hint">把图像拖到这里，或点击选择</span>
-              <span class="dropzone__sub">支持 JPG / PNG / BMP / WebP</span>
+              <input type="file" accept="image/*" hidden :disabled="noModels" @change="onPick" />
+              <span class="dropzone__hint">{{ DROP_HINT }}</span>
+              <span class="dropzone__sub">{{ DROP_SUB }}</span>
             </label>
           </div>
 
@@ -452,6 +495,21 @@ function fix(v: number | null | undefined, digits = 3): string {
 .dropzone.is-over {
   border-color: var(--fire-3);
   background: rgb(255 154 60 / 6%);
+}
+
+/* 权重列表没就绪或压根没有模型时，明确压暗并说明原因——
+   可点却什么都不发生的控件比不可点更糟。 */
+.dropzone.is-blocked {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.dropzone.is-blocked .dropzone__inner {
+  cursor: not-allowed;
+}
+
+.dropzone.is-blocked .dropzone__inner:hover .dropzone__hint {
+  color: var(--bone);
 }
 
 .dropzone__inner {
