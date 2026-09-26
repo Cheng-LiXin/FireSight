@@ -8,14 +8,14 @@ from __future__ import annotations
 import csv
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 # 序列里允许 None：某一轮某列缺失时留断点，前端据此断开折线而不是画到 0。
 Series = List[Optional[float]]
 
-# results.csv 的列名 → (分组, 前端用的键)。
-# 列名里的 "(B)" 是 ultralytics 的标注、随版本可能变，故集中在此映射。
-_COLUMN_MAP: Dict[str, tuple] = {
+# ultralytics 的指标键 → (分组, 前端用的键)。键名里的 "(B)" 后缀是它的标注、
+# 随版本可能变，故查表前先剥掉。results.csv 的列名与之同构，两条路径共用这份映射。
+_KEY_MAP: Dict[str, tuple] = {
     "epoch": ("axis", "epoch"),
     "train/box_loss": ("losses", "train_box"),
     "train/cls_loss": ("losses", "train_cls"),
@@ -23,16 +23,74 @@ _COLUMN_MAP: Dict[str, tuple] = {
     "val/box_loss": ("losses", "val_box"),
     "val/cls_loss": ("losses", "val_cls"),
     "val/dfl_loss": ("losses", "val_dfl"),
-    "metrics/precision(B)": ("metrics", "precision"),
-    "metrics/recall(B)": ("metrics", "recall"),
-    "metrics/mAP50(B)": ("metrics", "mAP50"),
-    "metrics/mAP50-95(B)": ("metrics", "mAP50_95"),
+    "metrics/precision": ("metrics", "precision"),
+    "metrics/recall": ("metrics", "recall"),
+    "metrics/mAP50": ("metrics", "mAP50"),
+    "metrics/mAP50-95": ("metrics", "mAP50_95"),
     "lr/pg0": ("lr", "pg0"),
     "lr/pg1": ("lr", "pg1"),
     "lr/pg2": ("lr", "pg2"),
 }
 
-_GROUPS = ("losses", "metrics", "lr")
+# 训练损失不出现在 trainer.metrics 里，只有 loss_items 有。
+# 实测 ultralytics 8.4 返回的是 **dict**（{'box_loss': tensor, ...}），
+# 不是按顺序的序列——按序列去迭代 dict 拿到的是键名，float() 会抛异常，
+# 一旦被吞掉就是训练损失静默消失。两种形态都认。
+LOSS_ITEM_ORDER = ("train_box", "train_cls", "train_dfl")
+LOSS_ITEM_KEYS = ("box_loss", "cls_loss", "dfl_loss")
+
+
+def map_key(raw: str) -> Optional[Tuple[str, str]]:
+    """ultralytics 的列名或指标键 → (分组, 前端键)。不认识则返回 None。
+
+    未知键一律跳过而非报错：ultralytics 换版本可能加列，不该因此整份解析失败。
+    """
+    return _KEY_MAP.get(str(raw).replace("(B)", "").strip())
+
+
+def extract_epoch_metrics(
+    metrics: Mapping[str, Any],
+    loss_items: Any = None,
+) -> Tuple[Dict[str, float], Dict[str, float]]:
+    """把某一轮的 trainer.metrics 与 loss_items 收成 (losses, metrics)。
+
+    键与 read_results_csv 的输出完全一致——实时曲线因此可以直接复用历史曲线的
+    图表配置，不必维护两套。trainer.metrics 是 ultralytics 的内部结构，取不到
+    就少几个键，不抛异常。
+    """
+    out_losses: Dict[str, float] = {}
+    out_metrics: Dict[str, float] = {}
+
+    for raw_key, value in (metrics or {}).items():
+        mapped = map_key(raw_key)
+        if not mapped:
+            continue
+        group, name = mapped
+        try:
+            num = float(value)
+        except (TypeError, ValueError):
+            continue
+        if group == "losses":
+            out_losses[name] = num
+        elif group == "metrics":
+            out_metrics[name] = num
+
+    if isinstance(loss_items, Mapping):
+        for name, key in zip(LOSS_ITEM_ORDER, LOSS_ITEM_KEYS):
+            try:
+                out_losses[name] = float(loss_items[key])
+            except (KeyError, TypeError, ValueError):
+                continue
+    elif loss_items is not None:
+        # 老版本按顺序给序列；顺序固定，多出来的项宁可丢掉也不猜
+        try:
+            values = [float(x) for x in loss_items]
+        except (TypeError, ValueError):
+            values = []
+        for name, value in zip(LOSS_ITEM_ORDER, values):
+            out_losses[name] = value
+
+    return out_losses, out_metrics
 
 
 @dataclass
@@ -79,7 +137,11 @@ def read_results_csv(path: Path | str) -> Curves:
         reader = csv.DictReader(fh)
         curves.columns = list(reader.fieldnames or [])
 
-        known = {c: _COLUMN_MAP[c] for c in curves.columns if c in _COLUMN_MAP}
+        known: Dict[str, tuple] = {}
+        for col in curves.columns:
+            mapped = map_key(col)
+            if mapped:
+                known[col] = mapped
         if "epoch" not in known:
             # 没有 epoch 列就不是可用的 results.csv
             return Curves(columns=curves.columns)

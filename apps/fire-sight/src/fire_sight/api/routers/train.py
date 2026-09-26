@@ -6,18 +6,42 @@ run_id 里含斜杠（如 `20260926-190635-D-Fire/train-yolo11n`），走路径�
 
 from __future__ import annotations
 
+import asyncio
+import json
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, AsyncIterator, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException, Query
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, Header, HTTPException, Query
+from fastapi.responses import FileResponse, StreamingResponse
+from pydantic import BaseModel, Field
 
 from fire_sight.api import deps
+from fire_sight.api.jobs import manager
 from fire_sight.api.schemas import ArtifactInfo, CurvesResponse, TrainRun
 from fire_sight_platform.common.paths import PROCESSED_DATA_DIR
 
 router = APIRouter(prefix="/api/train", tags=["train"])
+
+# SSE 取事件的间隔。训练进度是秒级粒度，250ms 足够且实现简单。
+_STREAM_TICK = 0.25
+
+
+class TrainJobRequest(BaseModel):
+    """启动一次训练。字段与 TrainConfig 对齐，未列出的走默认值。"""
+
+    dataset: str
+    model: str = "yolo11n.pt"
+    epochs: int = Field(50, ge=1, le=1000)
+    batch: int = Field(16, ge=1, le=512)
+    imgsz: int = Field(640, ge=32, le=2048)
+    device: str = "0"
+    fraction: float = Field(1.0, gt=0.0, le=1.0)
+    patience: int = Field(10, ge=0, le=1000)
+    workers: int = Field(4, ge=0, le=64)
+    cache: bool = False
+    seed: int = 42
+    experiment: str = ""
 
 
 def _read_args(run_root: Path) -> Dict[str, Any]:
@@ -150,3 +174,104 @@ def get_artifact(run_id: str = Query(...), name: str = Query(...)) -> FileRespon
     if not target.is_file() or target.suffix.lower() not in deps.IMAGE_SUFFIXES:
         raise HTTPException(status_code=404, detail=f"图件不存在: {name}")
     return FileResponse(target)
+
+
+# --------------------------------------------------------------------------
+# 训练任务
+# --------------------------------------------------------------------------
+
+
+@router.post("/jobs", status_code=201)
+def start_job(req: TrainJobRequest) -> Dict[str, Any]:
+    """启动一次训练。GPU 被占用时返回 409 并说明占用者。"""
+    from fire_sight_platform.training.service import _resolve_dataset_yaml
+
+    # 先确认数据集找得到，别把进程起起来才发现——那样只会浪费一次模型加载
+    try:
+        _resolve_dataset_yaml(req.dataset)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    try:
+        job = manager.start(req.model_dump())
+    except deps.GpuBusy as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return job.public()
+
+
+@router.get("/jobs")
+def list_jobs() -> List[Dict[str, Any]]:
+    """本次服务进程起过的训练任务，新→旧。服务重启即清空。"""
+    return [j.public() for j in manager.list()]
+
+
+@router.get("/jobs/{job_id}")
+def get_job(job_id: str) -> Dict[str, Any]:
+    job = manager.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail=f"未找到任务: {job_id}")
+    return job.public()
+
+
+@router.post("/jobs/{job_id}/stop")
+def stop_job(job_id: str) -> Dict[str, Any]:
+    """停止训练。
+
+    进程被强制结束，因此**本次训练不会归档**，但现场记录会留在 runs/ 下，
+    曲线仍可在训练记录里查看。
+    """
+    if manager.get(job_id) is None:
+        raise HTTPException(status_code=404, detail=f"未找到任务: {job_id}")
+    return {"stopped": manager.stop(job_id)}
+
+
+@router.get("/jobs/{job_id}/stream")
+async def stream_job(
+    job_id: str,
+    since: int = Query(0, ge=0),
+    last_event_id: str = Header("", alias="Last-Event-ID"),
+) -> StreamingResponse:
+    """SSE：逐轮指标与日志。
+
+    用轮询事件缓冲实现，不做线程间推送——实现简单，且天然支持断线续传：
+    客户端带上已收到的最后一个 seq，服务端从那里接着发。
+
+    浏览器自动重连时发的是 Last-Event-ID 头而不是查询参数，两个都要认，
+    否则一断线就会从头重放，实时曲线上会出现重复点。
+    """
+    if last_event_id:
+        try:
+            since = max(since, int(last_event_id))
+        except ValueError:
+            pass
+
+    job = manager.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail=f"未找到任务: {job_id}")
+
+    async def gen() -> AsyncIterator[str]:
+        last = since
+        while True:
+            for event in job.events_since(last):
+                last = int(event["seq"])
+                payload = json.dumps(event, ensure_ascii=False)
+                kind = event.get("type", "message")
+                yield f"id: {last}\nevent: {kind}\ndata: {payload}\n\n"
+
+            if job.status != "running" and not job.events_since(last):
+                # 收尾：把最终状态作为一条事件送出，客户端据此收流
+                yield f"event: close\ndata: {json.dumps(job.public(), ensure_ascii=False)}\n\n"
+                return
+
+            await asyncio.sleep(_STREAM_TICK)
+
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            # 反代下若不禁用缓冲，事件会被攒住一起发，实时性全无
+            "X-Accel-Buffering": "no",
+        },
+    )

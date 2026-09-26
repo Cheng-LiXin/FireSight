@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Callable, Dict, Optional
 
 from fire_sight_platform.common.paths import PROCESSED_DATA_DIR, RUNS_DIR
 from fire_sight_platform.common.performance_utils import time_it
@@ -37,8 +37,42 @@ def _resolve_dataset_yaml(dataset: str) -> Path:
 
 
 @time_it(iterations=1, name="模型训练", logger_instance=logger)
-def train_yolo(cfg: TrainConfig) -> TrainResult:
-    """按 TrainConfig 启动一次可归档的 YOLO 训练。"""
+def _epoch_callback(emit: Callable[[Dict[str, Any]], None]):
+    """把 ultralytics 的 trainer 对象收成与 curves API 同构的字典再回调。
+
+    整体包一层 try：回调里抛异常会打断训练，进度上报失败不该毁掉一次几十分钟的任务。
+    """
+    from fire_sight_platform.training.curves import extract_epoch_metrics
+
+    def handler(trainer: Any) -> None:
+        try:
+            epoch = int(getattr(trainer, "epoch", 0)) + 1
+            epochs = int(getattr(trainer, "epochs", 0))
+            if epochs and epoch > epochs:
+                # 训练结束后的收尾验证也会触发本回调，它不是一轮训练。
+                # 放行会在实时曲线上多出一个 epoch+1 的假点。
+                return
+
+            losses, metrics = extract_epoch_metrics(
+                getattr(trainer, "metrics", {}) or {},
+                getattr(trainer, "loss_items", None),
+            )
+            emit({"epoch": epoch, "epochs": epochs, "metrics": metrics, "losses": losses})
+        except Exception:  # noqa: BLE001
+            logger.debug("逐轮进度回调失败", exc_info=True)
+
+    return handler
+
+
+def train_yolo(
+    cfg: TrainConfig,
+    on_epoch: Optional[Callable[[Dict[str, Any]], None]] = None,
+) -> TrainResult:
+    """按 TrainConfig 启动一次可归档的 YOLO 训练。
+
+    on_epoch 每轮结束收到一次 {epoch, epochs, metrics, losses}。网页端据此推实时
+    曲线；命令行不传即可，行为与从前一致。
+    """
     from ultralytics import YOLO
 
     yaml_path = _resolve_dataset_yaml(cfg.dataset)
@@ -51,6 +85,12 @@ def train_yolo(cfg: TrainConfig) -> TrainResult:
     )
 
     model = YOLO(cfg.model)
+    if on_epoch is not None:
+        # 用 on_fit_epoch_end 而非 on_train_epoch_end：后者触发时本轮验证还没跑，
+        # 指标会慢一轮（第一轮全是 0）。ultralytics 也是在这一刻写 results.csv，
+        # 两者因此严格对齐。
+        model.add_callback("on_fit_epoch_end", _epoch_callback(on_epoch))
+
     run_id = make_run_id(cfg.dataset, Path(cfg.model).stem)
     exp = (cfg.experiment or "").strip()
     if exp.lower() in {"", "none", "null"}:

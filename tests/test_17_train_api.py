@@ -114,6 +114,66 @@ def test_unparsable_value_becomes_none_not_zero(tmp_path):
     assert len(c.metrics["mAP50"]) == 2
 
 
+def test_map_key_strips_ultralytics_suffix():
+    """键名里的 "(B)" 是 ultralytics 的标注、随版本可能变，查表前必须剥掉。"""
+    from fire_sight_platform.training.curves import map_key
+
+    for raw in ("metrics/mAP50(B)", "metrics/mAP50"):
+        assert map_key(raw) == ("metrics", "mAP50")
+    assert map_key("train/box_loss") == ("losses", "train_box")
+    assert map_key("不认识的列") is None
+
+
+def test_extract_epoch_metrics_handles_dict_loss_items():
+    """回归：ultralytics 的 loss_items 是 dict，不是序列。
+
+    按序列去迭代 dict 拿到的是键名（字符串），float("box_loss") 抛异常，
+    被容错的 except 吞掉之后训练损失就静默消失了——实测踩到过。
+    """
+    from fire_sight_platform.training.curves import extract_epoch_metrics
+
+    class Tensorish:
+        def __init__(self, v: float) -> None:
+            self.v = v
+
+        def __float__(self) -> float:
+            return self.v
+
+    losses, metrics = extract_epoch_metrics(
+        {"metrics/mAP50(B)": 0.5, "val/box_loss": 1.2},
+        {
+            "box_loss": Tensorish(0.87),
+            "cls_loss": Tensorish(3.16),
+            "dfl_loss": Tensorish(0.74),
+        },
+    )
+
+    assert losses["train_box"] == pytest.approx(0.87)
+    assert losses["train_cls"] == pytest.approx(3.16)
+    assert losses["train_dfl"] == pytest.approx(0.74)
+    assert losses["val_box"] == pytest.approx(1.2)
+    assert metrics["mAP50"] == pytest.approx(0.5)
+
+
+def test_extract_epoch_metrics_handles_sequence_loss_items():
+    """老版本按顺序给序列，也要认。"""
+    from fire_sight_platform.training.curves import extract_epoch_metrics
+
+    losses, _ = extract_epoch_metrics({}, [1.0, 2.0, 3.0])
+    assert losses == {"train_box": 1.0, "train_cls": 2.0, "train_dfl": 3.0}
+
+
+def test_extract_epoch_metrics_tolerates_junk():
+    """元信息是 ultralytics 的内部结构，读不到就少几个键，不该抛。"""
+    from fire_sight_platform.training.curves import extract_epoch_metrics
+
+    losses, metrics = extract_epoch_metrics(
+        {"unknown/key": 1.0, "metrics/mAP50(B)": "坏值"}, {"box_loss": "坏值"}
+    )
+    assert metrics == {}
+    assert losses == {}
+
+
 def test_missing_file_returns_empty(tmp_path):
     from fire_sight_platform.training.curves import read_results_csv
 
@@ -198,3 +258,46 @@ def test_runs_empty_when_no_training_dir(tmp_path, monkeypatch):
 
     monkeypatch.setattr(deps, "RUNS_DIR", tmp_path / "nothing")
     assert deps.training_runs() == []
+
+
+# --------------------------------------------------------------------------
+# 训练任务的守卫
+#
+# 真正起一次训练要几十秒且依赖 GPU，不适合放进自动化测试——那些路径靠人工
+# 验收（见测试说明）。这里只测不需要起进程就能覆盖的分支。
+# --------------------------------------------------------------------------
+
+
+def test_start_job_rejects_unknown_dataset(client):
+    """数据集找不到时不该把进程起起来——那只会白等一次模型加载。"""
+    r = client.post("/api/train/jobs", json={"dataset": "根本不存在的数据集", "epochs": 1})
+    assert r.status_code == 404
+
+
+def test_unknown_job_is_404(client):
+    assert client.get("/api/train/jobs/nope").status_code == 404
+    assert client.post("/api/train/jobs/nope/stop").status_code == 404
+    assert client.get("/api/train/jobs/nope/stream").status_code == 404
+
+
+def test_start_job_conflicts_with_held_gpu_lock(client, tmp_path, monkeypatch):
+    """显存被占用时应返回 409 并说明占用者，而不是让 CUDA 报错。"""
+    from fire_sight.api import deps
+    import fire_sight_platform.training.service as svc
+
+    # 让数据集校验通过，把测试推进到抢锁那一步
+    monkeypatch.setattr(svc, "_resolve_dataset_yaml", lambda _d: tmp_path / "x.yaml")
+
+    assert deps.GPU_LOCK.acquire("infer") is True
+    try:
+        r = client.post("/api/train/jobs", json={"dataset": "任意", "epochs": 1})
+    finally:
+        deps.GPU_LOCK.release()
+
+    assert r.status_code == 409
+    assert "infer" in r.json()["detail"]
+
+
+def test_job_list_empty_initially(client):
+    body = client.get("/api/train/jobs").json()
+    assert isinstance(body, list)
