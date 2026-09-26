@@ -380,6 +380,71 @@ score  = max(24 小时内最高置信度, volume)
 
 ---
 
+### POST `/api/train/jobs`
+
+启动一次训练（**子进程**运行，训练崩溃不会带走 API）。
+
+| 字段 | 默认 | 说明 |
+|---|---:|---|
+| `dataset` | 必填 | 已处理数据集名，如 `D-Fire/train` |
+| `model` | `yolo11n.pt` | |
+| `epochs` | 50 | 1–1000 |
+| `batch` | 16 | |
+| `imgsz` | 640 | |
+| `device` | `0` | `0` 或 `cpu` |
+| `fraction` | 1.0 | 取数据集的比例，>0 且 ≤1。小规模验证很有用 |
+| `patience` | 10 | |
+| `workers` | 4 | Windows 下建议 0，省去子进程开销 |
+| `cache` / `seed` | false / 42 | |
+
+```json
+{
+  "id": "c954c5781b9d", "dataset": "demo_fire", "epochs": 3, "status": "running",
+  "started_at": "2026-09-26T22:11:36", "finished_at": null,
+  "run_id": null, "error": null, "returncode": null, "event_count": 1,
+  "config": { "…回显请求参数…" }
+}
+```
+
+**错误**：404 数据集不存在；409 已有训练在跑（`detail` 里是占用者）。
+
+> 训练全程持有 GPU 全局锁，结束时释放——**包括进程异常退出**。因此训练期间
+> 推理接口会返回 409，训练结束后自动恢复。
+
+### GET `/api/train/jobs`
+
+本次服务进程起过的任务，新→旧。**服务重启即清空**——任务是进程内内存状态。
+真正的训练产物落在 `runs/` 与 `models/trained/` 下，不依赖这份记录。
+
+### GET `/api/train/jobs/{id}/stream`
+
+SSE，推逐轮指标与日志。
+
+```
+event: epoch
+data: {"type":"epoch","epoch":1,"epochs":3,
+       "metrics":{"precision":0.00693,"recall":1.0,"mAP50":0.09021,"mAP50_95":0.08578},
+       "losses":{"val_box":0.44889,"val_cls":2.65732,"val_dfl":0.83776,
+                 "train_box":0.86897,"train_cls":3.16089,"train_dfl":0.74454},
+       "seq":73}
+```
+
+事件类型：`start` / `epoch` / `log` / `done` / `error` / `exit` / `close`。
+`close` 带任务最终状态，客户端收到即可收流。
+
+- **指标键与 `/api/train/curves` 完全一致**，因此实时曲线与历史曲线可以复用
+  同一套图表配置
+- 事件带 `id:` 行（序号）。**断线重连时浏览器发的是 `Last-Event-ID` 头而不是
+  查询参数**，服务端两个都认，否则一断线就会从头重放、实时曲线上出现重复点
+- 也可用 `?since=N` 主动续传
+
+### POST `/api/train/jobs/{id}/stop`
+
+停止训练。**进程被强制结束，本次训练不会归档**，但现场记录留在 `runs/` 下，
+曲线仍可在训练记录里查看。返回 `{"stopped": true|false}`。
+
+---
+
 ## 环境变量
 
 | 变量 | 默认 | 说明 |
@@ -394,9 +459,6 @@ score  = max(24 小时内最高置信度, volume)
 
 | 方法 | 路径 | 用途 |
 |---|---|---|
-| `POST` | `/api/train/jobs` | 启动训练任务 |
-| `GET` | `/api/train/jobs/{id}/stream` | 训练实时日志与指标（SSE） |
-| `POST` | `/api/train/jobs/{id}/stop` | 停止训练 |
 | `GET` | `/api/events` | 告警事件列表（筛选 / 分页） |
 | `POST` | `/api/events/{id}/false-positive` | 标记误报 |
 | `POST` | `/api/eval` | 多权重对比评估 |

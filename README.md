@@ -1,6 +1,6 @@
 # FireSight · 基于 YOLO 的火灾烟雾智能预警系统
 
-[![version](https://img.shields.io/badge/version-v1.2.0-blue)](CHANGELOG.md)
+[![version](https://img.shields.io/badge/version-v1.3.0-blue)](CHANGELOG.md)
 [![python](https://img.shields.io/badge/python-3.12-3776ab)](https://www.python.org/)
 [![vue](https://img.shields.io/badge/vue-3-42b883)](https://vuejs.org/)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
