@@ -157,6 +157,46 @@ class BatchResult(BaseModel):
     device: str = "cpu"
 
 
+# --------------------------------------------------------------------------
+# 训练中心
+# --------------------------------------------------------------------------
+
+
+class TrainRun(BaseModel):
+    """一次训练的现场记录。archived 表示其结果已归档到 models/trained。"""
+
+    run_id: str
+    dataset: Optional[str] = None
+    model: Optional[str] = None
+    epochs_done: int = 0
+    archived: bool = False
+    mAP50: Optional[float] = None
+    mAP50_95: Optional[float] = None
+    precision: Optional[float] = None
+    recall: Optional[float] = None
+    artifact_count: int = 0
+    created: Optional[str] = None
+
+
+class CurvesResponse(BaseModel):
+    """训练曲线。各序列等长于 epochs，缺失值以 null 表示断点。"""
+
+    run_id: str
+    epochs: List[int] = Field(default_factory=list)
+    losses: Dict[str, List[Optional[float]]] = Field(default_factory=dict)
+    metrics: Dict[str, List[Optional[float]]] = Field(default_factory=dict)
+    lr: Dict[str, List[Optional[float]]] = Field(default_factory=dict)
+    total_epochs: int = 0
+
+
+class ArtifactInfo(BaseModel):
+    """训练现场图件。kind 供前端分组，避免把一堆文件名平铺出来。"""
+
+    name: str
+    kind: str
+    size: int
+
+
 class SourceOption(BaseModel):
     """可批量推理的目录。
 

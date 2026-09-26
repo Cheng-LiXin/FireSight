@@ -16,7 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from fire_sight_platform.common.paths import ROOT_DIR
 
 from fire_sight._version import __version__ as fire_sight_version
-from fire_sight.api.routers import infer, models, overview, system
+from fire_sight.api.routers import infer, models, overview, system, train
 
 WEB_DIST: Path = ROOT_DIR / "apps" / "web" / "dist"
 
@@ -46,6 +46,7 @@ def create_app() -> FastAPI:
     app.include_router(overview.router)
     app.include_router(models.router)
     app.include_router(infer.router)
+    app.include_router(train.router)
 
     @app.get("/api/health", tags=["system"])
     def health() -> dict:

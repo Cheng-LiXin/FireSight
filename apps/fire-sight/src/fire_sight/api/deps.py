@@ -17,6 +17,7 @@ from fire_sight_platform.common.paths import (
     DATA_DIR,
     MODELS_DIR,
     ROOT_DIR,
+    RUNS_DIR,
     TRAINED_MODELS_DIR,
 )
 
@@ -218,6 +219,73 @@ def clear_infer_cache() -> None:
     """释放已加载的模型（权重被替换或删除后调用）。"""
     with _INFER_CACHE_LOCK:
         _INFER_CACHE.clear()
+
+
+def training_runs() -> List[ArchivedRun]:
+    """runs/training 下每次训练的现场记录，新→旧。
+
+    判据是 results.csv 存在——只有它才能画出曲线。run_id 是相对
+    runs/training 的路径，与归档侧的 run_id 同构，两边可直接对应。
+    """
+    root = RUNS_DIR / "training"
+    if not root.is_dir():
+        return []
+
+    out: List[ArchivedRun] = []
+    for csv_path in root.rglob("results.csv"):
+        run_root = csv_path.parent
+        if run_root == root:
+            continue
+        run_id = run_root.relative_to(root).as_posix()
+        best = run_root / "weights" / "best.pt"
+        out.append(
+            ArchivedRun(
+                run_id=run_id,
+                root=run_root,
+                best_pt=best if best.exists() else run_root / "best.pt",
+            )
+        )
+    return sorted(out, key=lambda r: r.run_id, reverse=True)
+
+
+def find_training_run(run_id: str) -> ArchivedRun:
+    """按 run_id 取训练现场。只认已发现的，不接受任意路径。"""
+    for run in training_runs():
+        if run.run_id == run_id:
+            return run
+    raise FileNotFoundError(f"未找到训练记录: {run_id}")
+
+
+# 现场图件的用途分类：前端据此分组展示，而不是把一堆文件名平铺出来
+_ARTIFACT_KINDS = (
+    ("confusion_matrix", "confusion"),
+    ("results.png", "curves"),
+    ("BoxPR_curve", "pr"),
+    ("BoxF1_curve", "pr"),
+    ("BoxP_curve", "pr"),
+    ("BoxR_curve", "pr"),
+    ("labels.jpg", "labels"),
+    ("train_batch", "batch"),
+    ("val_batch", "batch"),
+)
+IMAGE_SUFFIXES = (".png", ".jpg", ".jpeg", ".webp")
+
+
+def run_artifacts(run_root: Path) -> List[Dict[str, Any]]:
+    """训练现场的图件清单。只列顶层文件，不递归进 weights/。"""
+    out: List[Dict[str, Any]] = []
+    if not run_root.is_dir():
+        return out
+    for p in sorted(run_root.iterdir()):
+        if not p.is_file() or p.suffix.lower() not in IMAGE_SUFFIXES:
+            continue
+        kind = "other"
+        for needle, label in _ARTIFACT_KINDS:
+            if needle in p.name:
+                kind = label
+                break
+        out.append({"name": p.name, "kind": kind, "size": p.stat().st_size})
+    return out
 
 
 def resolve_run(name: Optional[str]) -> ArchivedRun:
