@@ -1,0 +1,191 @@
+/* ==========================================================================
+   基底样式与三种容器
+   --------------------------------------------------------------------------
+   刻意不做「等权卡片墙」：容器按信息层级分化为三种，各自有不同的形状语言，
+   而不是同一个圆角盒子反复用。
+     .fs-viewfinder  被观察对象（图像 / 曲线）——有四角框标
+     .fs-readout     仪表读数——无边框，只靠顶部分隔线与等宽数字形成节奏
+     .fs-ledger      密集列表——表头 + 细线行，可排序
+   ========================================================================== */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--soot);
+  color: var(--bone);
+  font-family: var(--font-sans);
+  font-size: var(--fs-base);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 所有数字走等宽并对齐——这是仪表读数不是文本 */
+.fs-num,
+.fs-readout__value,
+.fs-ledger td.is-num,
+code,
+kbd {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+}
+
+/* --- 可见键盘焦点：不靠 box-shadow 光晕，用实线表示 ------------------- */
+:focus-visible {
+  outline: 2px solid var(--fire-3);
+  outline-offset: 2px;
+}
+
+/* --- 滚动条 ----------------------------------------------------------- */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: var(--soot);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--cinder);
+  border-radius: 5px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--dross);
+}
+
+/* ==========================================================================
+   容器一：取景窗
+   ========================================================================== */
+
+.fs-viewfinder {
+  position: relative;
+  padding: var(--sp-4);
+  background: var(--ash);
+  border: var(--hairline);
+}
+
+/* 四角框标——全局唯一的记忆点，其余部分保持克制 */
+.fs-viewfinder::before,
+.fs-viewfinder::after {
+  content: '';
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  border-color: var(--dross);
+  border-style: solid;
+  pointer-events: none;
+}
+.fs-viewfinder::before {
+  top: -1px;
+  left: -1px;
+  border-width: 2px 0 0 2px;
+}
+.fs-viewfinder::after {
+  bottom: -1px;
+  right: -1px;
+  border-width: 0 2px 2px 0;
+}
+
+.fs-viewfinder__title {
+  margin: 0 0 var(--sp-3);
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  color: var(--dross);
+}
+
+/* ==========================================================================
+   容器二：读数条
+   ========================================================================== */
+
+.fs-readout {
+  padding-top: var(--sp-2);
+  border-top: var(--hairline);
+}
+
+.fs-readout + .fs-readout {
+  margin-top: var(--sp-3);
+}
+
+.fs-readout__label {
+  font-size: var(--fs-xs);
+  color: var(--dross);
+}
+
+.fs-readout__value {
+  font-size: var(--fs-lg);
+  font-weight: 500;
+  color: var(--bone);
+  text-align: right;
+}
+
+/* ==========================================================================
+   容器三：账册
+   ========================================================================== */
+
+.fs-ledger {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-sm);
+}
+
+.fs-ledger th {
+  padding: var(--sp-2) var(--sp-3);
+  text-align: left;
+  font-weight: 500;
+  color: var(--dross);
+  border-bottom: var(--hairline);
+  white-space: nowrap;
+}
+
+.fs-ledger td {
+  padding: var(--sp-3);
+  border-bottom: 1px solid rgb(51 42 32 / 55%);
+  color: var(--bone);
+}
+
+.fs-ledger tbody tr:hover td {
+  background: rgb(51 42 32 / 35%);
+}
+
+.fs-ledger td.is-num {
+  text-align: right;
+}
+
+/* ==========================================================================
+   工具类
+   ========================================================================== */
+
+.fs-empty {
+  padding: var(--sp-6) var(--sp-4);
+  text-align: center;
+  color: var(--dross);
+  font-size: var(--fs-sm);
+  border: 1px dashed var(--cinder);
+}
+
+.fs-empty__action {
+  display: block;
+  margin-top: var(--sp-3);
+  color: var(--fire-3);
+}
+
+/* 动效：尊重系统偏好，全局一刀切 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

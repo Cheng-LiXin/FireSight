@@ -1,0 +1,107 @@
+/* ==========================================================================
+   FireSight 设计令牌 —— 热成像取景
+   --------------------------------------------------------------------------
+   规则一：数据色遵循热成像的冷端/热端，界面 chrome 保持低饱和暖灰。
+           冷端本就该是饱和的青蓝（真实热像仪里冷物体就是饱和蓝），
+           把它做成灰的等于让数据色退化成 chrome。橙与青都出现在数据位。
+   规则二：类别决定色相家族（烟→冷 / 火→热），置信度决定家族内明度。
+           任取一个色值都能唯一反推出「类别 + 置信度」。
+   规则三：数值字形分两种——需要纵向对齐的（读数条/表格/坐标轴）用等宽；
+           大号独立 hero 数字用比例字形，等宽会让它在大字号下显得松散。
+   ========================================================================== */
+
+:root {
+  /* --- 基底：暖调炭褐，非中性近黑 ------------------------------------- */
+  --soot: #17130e;   /* 页面底 */
+  --ash: #221c15;    /* 面板 / 表头（也是图表校验用的 surface） */
+  --cinder: #332a20; /* 边框 / 分隔线 */
+
+  /* --- 文字 ----------------------------------------------------------- */
+  --bone: #e9e1d4;   /* 主文字，暖白 */
+  --dross: #8c8172;  /* 次要文字 / 标签 */
+
+  /* --- 对照锚点：无目标、正常态 -------------------------------------- */
+  --cool: #5b7c8d;
+
+  /* --- 烟雾家族（冷端）：置信度 低 → 高 ------------------------------- */
+  --smoke-1: #0a3e4e;
+  --smoke-2: #007e9c;
+  --smoke-3: #00a3c4;
+  --smoke-4: #86dcee;
+
+  /* --- 明火家族（热端）：置信度 低 → 高 ------------------------------- */
+  --fire-1: #7a1f1f;
+  --fire-2: #d14a17;
+  --fire-3: #ff9a3c;
+  --fire-4: #ffe9a8;
+
+  /* --- 图表类别槽位 -------------------------------------------------- */
+  /* 经 dataviz 校验器在 surface #221C15 下六项全过：
+     L 均落在 0.48–0.67；C >= 0.10；CVD 分离 deutan ΔE 21.1；
+     常视觉 ΔE 30.8；对比度均 >= 3:1。
+     改动这两个值必须重跑校验，不要凭眼睛调。 */
+  --cat-smoke: #00a3c4;
+  --cat-fire: #d14a17;
+
+  /* --- 风险尺刻度：由明火家族派生，档位越高越亮越热 ------------------ */
+  --risk-normal: var(--cool);
+  --risk-watch: var(--fire-1);
+  --risk-warn: var(--fire-2);
+  --risk-alert: var(--fire-3);
+
+  /* --- 字体 ----------------------------------------------------------- */
+  /* 中文交给系统 CJK（Windows: 微软雅黑 / macOS: 苹方），不下载多 MB 字库。 */
+  --font-sans: 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', 'Segoe UI',
+    system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', 'Consolas', ui-monospace, monospace;
+
+  /* --- 字号阶梯 ------------------------------------------------------- */
+  --fs-xs: 0.75rem;
+  --fs-sm: 0.8125rem;
+  --fs-base: 0.875rem;
+  --fs-md: 1rem;
+  --fs-lg: 1.25rem;
+  --fs-xl: 1.625rem;
+  --fs-2xl: 2.25rem;
+
+  /* --- 间距 ----------------------------------------------------------- */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 24px;
+  --sp-6: 32px;
+  --sp-7: 48px;
+
+  /* --- 结构 ----------------------------------------------------------- */
+  --radius: 3px;
+  --hairline: 1px solid var(--cinder);
+  --shell-h: 52px;
+}
+
+/* Element Plus 暗色适配：把它的语义色接到我们的令牌上，
+   避免组件库默认蓝 #409eff 漏进这套暖褐色系。 */
+html.dark {
+  --el-bg-color: var(--ash);
+  --el-bg-color-page: var(--soot);
+  --el-bg-color-overlay: var(--ash);
+  --el-text-color-primary: var(--bone);
+  --el-text-color-regular: var(--bone);
+  --el-text-color-secondary: var(--dross);
+  --el-text-color-placeholder: var(--dross);
+  --el-border-color: var(--cinder);
+  --el-border-color-light: var(--cinder);
+  --el-border-color-lighter: var(--cinder);
+  --el-fill-color: var(--ash);
+  --el-fill-color-light: var(--ash);
+  --el-fill-color-blank: var(--ash);
+  --el-color-primary: var(--fire-2);
+  --el-color-primary-light-3: var(--fire-3);
+  --el-color-primary-light-5: var(--fire-3);
+  --el-color-primary-light-7: var(--fire-1);
+  --el-color-primary-light-8: var(--fire-1);
+  --el-color-primary-light-9: var(--fire-1);
+  --el-color-primary-dark-2: var(--fire-1);
+  --el-border-radius-base: var(--radius);
+  --el-font-family: var(--font-sans);
+}
