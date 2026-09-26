@@ -1,3 +1,6 @@
-"""帧源核心抽象: Frame 类型、基类、注册表、配置。"""
+"""帧源核心：Frame、基类、注册表。"""
 
-__all__: list[str] = []
+from frame_source.core.types import Frame
+from frame_source.core.base import FrameSource
+
+__all__ = ["Frame", "FrameSource"]

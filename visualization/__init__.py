@@ -1,15 +1,13 @@
-"""visualization —— YOLO 检测结果美化绘制。
-
-提供圆角检测框、中英文标签、类别映射与配色。S3/S4 实装。
-
-使用示例(目标 API):
-    from visualization import BeautifyVisualizer
-    vis = BeautifyVisualizer(
-        labels=["flame", "smoke"],
-        label_mapping={"flame": "明火", "smoke": "烟雾"},
-    )
-"""
+"""visualization — 检测结果美化绘制。"""
 
 from visualization._version import __version__
+from visualization.core.types import Detection
+from visualization.visualizer import DEFAULT_COLORS, DEFAULT_LABEL_MAP, BeautifyVisualizer
 
-__all__ = ["__version__"]
+__all__ = [
+    "__version__",
+    "Detection",
+    "BeautifyVisualizer",
+    "DEFAULT_COLORS",
+    "DEFAULT_LABEL_MAP",
+]

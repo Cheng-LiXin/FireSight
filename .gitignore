@@ -84,3 +84,6 @@ pre-result.txt
 *.onnx
 *.mp4
 *.avi
+
+# 告警运行产物(片段/基准图/临时库)
+data/events/

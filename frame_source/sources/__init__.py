@@ -1,3 +1,5 @@
-"""内置帧源实现: camera / video / image。"""
+"""内置帧源: 导入即注册。"""
 
-__all__: list[str] = []
+from frame_source.sources import image_dir, video, camera  # noqa: F401
+
+__all__ = ["image_dir", "video", "camera"]

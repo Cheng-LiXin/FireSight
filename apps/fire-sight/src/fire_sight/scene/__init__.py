@@ -1,6 +1,13 @@
-"""火灾烟雾场景包：类别定义、告警策略、场景配置。
+"""火灾烟雾场景包：时序确认 + 告警策略。"""
 
-S0 占位：后续填充 flame/smoke 双类定义、多帧时序确认、误报抑制等。
-"""
+from fire_sight.scene.temporal import MultiFrameConfirm
+from fire_sight.scene.alerts import AlertPolicy
+from fire_sight.scene.types import AlertEvent, DetectionLite, FrameObservation
 
-__all__: list[str] = []
+__all__ = [
+    "MultiFrameConfirm",
+    "AlertPolicy",
+    "AlertEvent",
+    "DetectionLite",
+    "FrameObservation",
+]
