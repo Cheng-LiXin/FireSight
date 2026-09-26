@@ -185,3 +185,34 @@ export interface ArtifactInfo {
   kind: 'confusion' | 'curves' | 'pr' | 'labels' | 'batch' | 'other'
   size: number
 }
+
+export type JobStatus = 'running' | 'done' | 'failed' | 'stopped'
+
+export interface TrainJob {
+  id: string
+  dataset: string
+  epochs: number
+  status: JobStatus
+  started_at: string
+  finished_at: string | null
+  run_id: string | null
+  error: string | null
+  returncode: number | null
+  config: Record<string, unknown>
+  event_count: number
+}
+
+/** SSE 事件。type 决定哪些字段有值，其余为 undefined。 */
+export interface TrainStreamEvent {
+  type: 'start' | 'epoch' | 'log' | 'done' | 'error' | 'exit' | 'close'
+  seq?: number
+  epoch?: number
+  epochs?: number
+  metrics?: Record<string, number>
+  losses?: Record<string, number>
+  text?: string
+  message?: string
+  run_id?: string
+  code?: number
+  status?: JobStatus
+}

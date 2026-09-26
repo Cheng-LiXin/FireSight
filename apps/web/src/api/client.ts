@@ -9,6 +9,7 @@ import type {
   Overview,
   SourceOption,
   SystemStatus,
+  TrainJob,
   TrainRun,
 } from './types'
 
@@ -109,4 +110,36 @@ export const api = {
   /** 图件直接给 URL 让 <img> 去取，不必绕一圈 base64。 */
   trainArtifactUrl: (runId: string, name: string) =>
     `${BASE}/train/artifact?run_id=${encodeURIComponent(runId)}&name=${encodeURIComponent(name)}`,
+
+  startTrainJob(payload: TrainJobRequest): Promise<TrainJob> {
+    return request<TrainJob>('/train/jobs', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
+  },
+
+  trainJobs: () => request<TrainJob[]>('/train/jobs'),
+
+  stopTrainJob: (id: string) =>
+    request<{ stopped: boolean }>(`/train/jobs/${encodeURIComponent(id)}/stop`, {
+      method: 'POST',
+    }),
+
+  /** SSE 地址。since 用于断线续传，带上已收到的最后一个 seq。 */
+  trainJobStreamUrl: (id: string, since = 0) =>
+    `${BASE}/train/jobs/${encodeURIComponent(id)}/stream?since=${since}`,
+}
+
+export interface TrainJobRequest {
+  dataset: string
+  model: string
+  epochs: number
+  batch: number
+  imgsz: number
+  device: string
+  fraction: number
+  patience: number
+  workers: number
+  cache: boolean
+  seed: number
 }

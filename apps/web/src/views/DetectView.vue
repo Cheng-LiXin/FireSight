@@ -120,7 +120,7 @@ function fix(v: number | null | undefined, digits = 3): string {
 
 <template>
   <div class="detect">
-    <p v-if="error" class="alert" role="alert">{{ error }}</p>
+    <p v-if="error" class="fs-note-error" role="alert">{{ error }}</p>
 
     <!-- 参数栏：作用于下方全部内容 -->
     <section class="params" aria-label="推理参数">
@@ -263,8 +263,8 @@ function fix(v: number | null | undefined, digits = 3): string {
         </aside>
       </div>
 
-      <section class="block">
-        <h2 class="block__title">检测框</h2>
+      <section class="fs-block">
+        <h2 class="fs-block__title">检测框</h2>
         <table v-if="result?.detections.length" class="fs-ledger">
           <thead>
             <tr>
@@ -315,7 +315,7 @@ function fix(v: number | null | undefined, digits = 3): string {
           <input v-model.number="limit" class="field__control" type="number" min="1" max="300" />
         </label>
 
-        <button type="button" class="run" :disabled="busy || !sourceKey" @click="runBatch">
+        <button type="button" class="fs-btn-primary" :disabled="busy || !sourceKey" @click="runBatch">
           {{ busy ? '推理中…' : '开始批量识别' }}
         </button>
       </section>
@@ -342,8 +342,8 @@ function fix(v: number | null | undefined, digits = 3): string {
           </div>
         </section>
 
-        <section class="block">
-          <h2 class="block__title">逐图结果</h2>
+        <section class="fs-block">
+          <h2 class="fs-block__title">逐图结果</h2>
           <table class="fs-ledger">
             <thead>
               <tr>
@@ -389,16 +389,6 @@ function fix(v: number | null | undefined, digits = 3): string {
   flex-direction: column;
   gap: var(--sp-5);
 }
-
-.alert {
-  margin: 0;
-  padding: var(--sp-3) var(--sp-4);
-  font-size: var(--fs-sm);
-  background: var(--ash);
-  border: var(--hairline);
-  border-left: 3px solid var(--fire-2);
-}
-
 /* --- 参数栏 ----------------------------------------------------------- */
 
 .params,
@@ -411,75 +401,6 @@ function fix(v: number | null | undefined, digits = 3): string {
   background: var(--ash);
   border: var(--hairline);
 }
-
-.field {
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-1);
-  min-width: 180px;
-}
-
-.field--slider {
-  min-width: 200px;
-}
-
-.field--narrow {
-  min-width: 110px;
-}
-
-.field__label {
-  font-size: var(--fs-xs);
-  color: var(--dross);
-}
-
-.field__label b {
-  color: var(--bone);
-  font-weight: 500;
-}
-
-.field__control {
-  height: 32px;
-  padding: 0 var(--sp-2);
-  font-family: var(--font-sans);
-  font-size: var(--fs-sm);
-  color: var(--bone);
-  background: var(--soot);
-  border: 1px solid var(--cinder);
-  border-radius: var(--radius);
-}
-
-input[type='range'].field__control,
-input[type='range'] {
-  height: 32px;
-  padding: 0;
-  background: transparent;
-  border: 0;
-  -webkit-appearance: none;
-  appearance: none;
-  cursor: pointer;
-}
-
-/* 默认滑块是浅色轨道，在这套暖褐底上过于抢眼。轨道分两段着色，
-   已选区间用明火色——滑块停在哪儿一眼可见，不必去读旁边的数字。 */
-input[type='range']::-webkit-slider-runnable-track {
-  height: 4px;
-  border-radius: 2px;
-  background: linear-gradient(
-    to right,
-    var(--fire-2) var(--fill, 0%),
-    var(--cinder) var(--fill, 0%)
-  );
-}
-
-input[type='range']::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  width: 12px;
-  height: 12px;
-  margin-top: -4px;
-  border-radius: 50%;
-  background: var(--fire-3);
-}
-
 .modes {
   display: flex;
   margin-left: auto;
@@ -642,42 +563,9 @@ input[type='range']::-webkit-slider-thumb {
 }
 
 /* --- 块 --------------------------------------------------------------- */
-
-.block {
-  display: flex;
-  flex-direction: column;
-}
-
-.block__title {
-  margin: 0 0 var(--sp-3);
-  font-size: var(--fs-sm);
-  font-weight: 500;
-  color: var(--dross);
-}
-
 .batchbar {
   align-items: flex-end;
 }
-
-.run {
-  height: 32px;
-  padding: 0 var(--sp-5);
-  font: inherit;
-  font-size: var(--fs-sm);
-  font-weight: 500;
-  color: #fff;
-  background: var(--fire-2);
-  border: 0;
-  border-radius: var(--radius);
-  cursor: pointer;
-}
-
-.run:disabled {
-  background: var(--cinder);
-  color: var(--dross);
-  cursor: default;
-}
-
 .tiles {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));

@@ -185,6 +185,155 @@ kbd {
   color: var(--fire-3);
 }
 
+/* ==========================================================================
+   表单与动作控件
+   --------------------------------------------------------------------------
+   识别页与训练中心共用，因此放在全局而不是各页的 scoped 样式里——
+   否则两边会各自演化，同一种控件迟早长得不一样。
+   ========================================================================== */
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  min-width: 180px;
+}
+
+.field--slider {
+  min-width: 200px;
+}
+
+.field--narrow {
+  min-width: 110px;
+}
+
+.field__label {
+  font-size: var(--fs-xs);
+  color: var(--dross);
+}
+
+.field__label b {
+  color: var(--bone);
+  font-weight: 500;
+}
+
+.field__control {
+  height: 32px;
+  padding: 0 var(--sp-2);
+  font-family: var(--font-sans);
+  font-size: var(--fs-sm);
+  color: var(--bone);
+  background: var(--soot);
+  border: 1px solid var(--cinder);
+  border-radius: var(--radius);
+}
+
+/* 默认滑块是浅色轨道，在这套暖褐底上过于抢眼。轨道分两段着色，
+   已选区间用明火色——滑块停在哪儿一眼可见，不必去读旁边的数字。 */
+input[type='range'] {
+  height: 32px;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  -webkit-appearance: none;
+  appearance: none;
+  cursor: pointer;
+}
+
+input[type='range']::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 2px;
+  background: linear-gradient(
+    to right,
+    var(--fire-2) var(--fill, 0%),
+    var(--cinder) var(--fill, 0%)
+  );
+}
+
+input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 12px;
+  height: 12px;
+  margin-top: -4px;
+  border-radius: 50%;
+  background: var(--fire-3);
+}
+
+.fs-btn-primary {
+  height: 32px;
+  padding: 0 var(--sp-5);
+  font: inherit;
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  color: #fff;
+  background: var(--fire-2);
+  border: 0;
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+
+.fs-btn-primary:disabled {
+  color: var(--dross);
+  background: var(--cinder);
+  cursor: default;
+}
+
+.fs-btn-ghost {
+  height: 32px;
+  padding: 0 var(--sp-3);
+  font: inherit;
+  font-size: var(--fs-sm);
+  color: var(--bone);
+  background: transparent;
+  border: 1px solid var(--cinder);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+
+.fs-btn-ghost:hover {
+  border-color: var(--dross);
+}
+
+/* ==========================================================================
+   区块与提示
+   ========================================================================== */
+
+.fs-block {
+  display: flex;
+  flex-direction: column;
+}
+
+.fs-block__title {
+  margin: 0 0 var(--sp-3);
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  color: var(--dross);
+}
+
+.fs-block__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-4);
+}
+
+/* 小倍数图容器的排布 */
+.fs-panels {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--sp-4);
+}
+
+.fs-note-error {
+  margin: 0;
+  padding: var(--sp-3) var(--sp-4);
+  font-size: var(--fs-sm);
+  color: var(--bone);
+  background: var(--ash);
+  border: var(--hairline);
+  border-left: 3px solid var(--fire-2);
+}
+
 /* 动效：尊重系统偏好，全局一刀切 */
 @media (prefers-reduced-motion: reduce) {
   *,

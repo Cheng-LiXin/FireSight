@@ -3,12 +3,20 @@
  *
  * 本次交付「回看」一半；网页启动训练与实时日志流是下一半。
  */
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
-import { api, ApiError } from '@/api/client'
+import { api, ApiError, type TrainJobRequest } from '@/api/client'
 import { trainingLossPanels, trainingMetricOption } from '@/charts/options'
 import EChart from '@/components/EChart.vue'
-import type { ArtifactInfo, CurvesResponse, TrainRun } from '@/api/types'
+import type {
+  ArtifactInfo,
+  CurveSeries,
+  CurvesResponse,
+  SourceOption,
+  TrainJob,
+  TrainRun,
+  TrainStreamEvent,
+} from '@/api/types'
 
 const runs = ref<TrainRun[]>([])
 const selectedId = ref('')
@@ -99,14 +107,275 @@ async function loadRun(id: string): Promise<void> {
 
 onMounted(loadRuns)
 watch(selectedId, (id) => void loadRun(id))
+
+// --------------------------------------------------------------------------
+// 启动训练与实时流
+// --------------------------------------------------------------------------
+
+const sources = ref<SourceOption[]>([])
+// 默认展开：启动训练是这个页面最主要的事，藏起来等于没有
+const launcherOpen = ref(true)
+const job = ref<TrainJob | null>(null)
+const liveEpochs = ref<number[]>([])
+const liveLosses = ref<Record<string, CurveSeries>>({})
+const liveMetrics = ref<Record<string, CurveSeries>>({})
+const logs = ref<string[]>([])
+const logsOpen = ref(false)
+
+let source: EventSource | null = null
+
+/** 数据集名去重——同一个数据集有 train/val/test 三个来源，训练只关心数据集本身。 */
+const datasets = computed(() => [...new Set(sources.value.map((s) => s.dataset))])
+
+const form = ref<TrainJobRequest>({
+  dataset: '',
+  model: 'yolo11n.pt',
+  epochs: 10,
+  batch: 8,
+  imgsz: 480,
+  device: '0',
+  fraction: 1,
+  patience: 10,
+  workers: 4,
+  cache: false,
+  seed: 42,
+})
+
+const running = computed(() => job.value?.status === 'running')
+
+/** 实时曲线的事件结构与历史曲线同构，图表配置因此可以整套复用。 */
+const liveLossPanels = computed(() =>
+  liveEpochs.value.length ? trainingLossPanels(liveEpochs.value, liveLosses.value) : [],
+)
+const liveMetricOption = computed(() =>
+  liveEpochs.value.length ? trainingMetricOption(liveEpochs.value, liveMetrics.value) : null,
+)
+
+const lastEpoch = computed(() => {
+  const m = liveMetrics.value.mAP50
+  if (!m || !m.length) return null
+  const value = m[m.length - 1]
+  return value === null || value === undefined ? null : value
+})
+
+function appendSeries(
+  target: Record<string, CurveSeries>,
+  incoming: Record<string, number> | undefined,
+): void {
+  if (!incoming) return
+  for (const [key, value] of Object.entries(incoming)) {
+    if (!target[key]) target[key] = []
+    target[key].push(value)
+  }
+}
+
+function applyEvent(data: TrainStreamEvent): void {
+  switch (data.type) {
+    case 'epoch':
+      if (typeof data.epoch === 'number') liveEpochs.value.push(data.epoch)
+      appendSeries(liveLosses.value, data.losses)
+      appendSeries(liveMetrics.value, data.metrics)
+      break
+    case 'log':
+      if (data.text) {
+        logs.value.push(data.text)
+        // 日志是无界的，留最近 400 行足够排查
+        if (logs.value.length > 400) logs.value.splice(0, logs.value.length - 400)
+      }
+      break
+    case 'close':
+      job.value = job.value ? { ...job.value, ...data } : job.value
+      break
+    default:
+      break
+  }
+}
+
+function disconnect(): void {
+  source?.close()
+  source = null
+}
+
+function connect(id: string): void {
+  disconnect()
+  const es = new EventSource(api.trainJobStreamUrl(id))
+  source = es
+  for (const kind of ['start', 'epoch', 'log', 'done', 'error', 'exit'] as const) {
+    es.addEventListener(kind, (e) => {
+      try {
+        applyEvent(JSON.parse((e as MessageEvent).data) as TrainStreamEvent)
+      } catch {
+        /* 单条事件坏掉不该中断整条流 */
+      }
+    })
+  }
+  es.addEventListener('close', (e) => {
+    try {
+      applyEvent(JSON.parse((e as MessageEvent).data) as TrainStreamEvent)
+    } catch {
+      /* 收尾事件的载荷解析失败也要收流 */
+    }
+    disconnect()
+    void loadRuns()
+  })
+  // 连接异常时浏览器会自动带 Last-Event-ID 重连，服务端据此续传，不必在这里处理
+}
+
+async function startTraining(): Promise<void> {
+  error.value = null
+  job.value = null
+  liveEpochs.value = []
+  liveLosses.value = {}
+  liveMetrics.value = {}
+  logs.value = []
+  logsOpen.value = true
+  try {
+    const started = await api.startTrainJob(form.value)
+    job.value = started
+    connect(started.id)
+  } catch (e) {
+    error.value = describe(e)
+  }
+}
+
+async function stopTraining(): Promise<void> {
+  if (!job.value) return
+  try {
+    await api.stopTrainJob(job.value.id)
+  } catch (e) {
+    error.value = describe(e)
+  }
+}
+
+onMounted(async () => {
+  try {
+    sources.value = await api.sources()
+    if (!form.value.dataset && sources.value.length) {
+      form.value.dataset = sources.value[0].dataset
+    }
+  } catch {
+    /* 数据集列表拿不到不影响看历史 */
+  }
+})
+
+onBeforeUnmount(disconnect)
 </script>
 
 <template>
   <div class="train">
-    <p v-if="error" class="alert" role="alert">{{ error }}</p>
+    <p v-if="error" class="fs-note-error" role="alert">{{ error }}</p>
 
-    <section class="block">
-      <h2 class="block__title">训练记录</h2>
+    <!-- 启动 -->
+    <section class="fs-block">
+      <div class="fs-block__head">
+        <h2 class="fs-block__title">启动训练</h2>
+        <button type="button" class="fs-btn-ghost" @click="launcherOpen = !launcherOpen">
+          {{ launcherOpen ? '收起' : '展开' }}
+        </button>
+      </div>
+
+      <div v-if="launcherOpen" class="launcher">
+        <label class="field">
+          <span class="field__label">数据集</span>
+          <select v-model="form.dataset" class="field__control">
+            <option v-if="!datasets.length" value="">无可训练的数据集</option>
+            <option v-for="d in datasets" :key="d" :value="d">{{ d }}</option>
+          </select>
+        </label>
+        <label class="field">
+          <span class="field__label">模型</span>
+          <input v-model="form.model" class="field__control" />
+        </label>
+        <label class="field field--narrow">
+          <span class="field__label">轮数</span>
+          <input v-model.number="form.epochs" class="field__control" type="number" min="1" />
+        </label>
+        <label class="field field--narrow">
+          <span class="field__label">批量</span>
+          <input v-model.number="form.batch" class="field__control" type="number" min="1" />
+        </label>
+        <label class="field field--narrow">
+          <span class="field__label">imgsz</span>
+          <input v-model.number="form.imgsz" class="field__control" type="number" min="32" />
+        </label>
+        <label class="field field--narrow">
+          <span class="field__label">子集比例</span>
+          <input
+            v-model.number="form.fraction"
+            class="field__control"
+            type="number"
+            min="0.05"
+            max="1"
+            step="0.05"
+          />
+        </label>
+        <label class="field field--narrow">
+          <span class="field__label">设备</span>
+          <select v-model="form.device" class="field__control">
+            <option value="0">GPU (0)</option>
+            <option value="cpu">CPU</option>
+          </select>
+        </label>
+
+        <div class="actions">
+          <button
+            type="button"
+            class="fs-btn-primary"
+            :disabled="running || !form.dataset"
+            @click="startTraining"
+          >
+            {{ running ? '训练进行中…' : '开始训练' }}
+          </button>
+          <button v-if="running" type="button" class="fs-btn-ghost" @click="stopTraining">停止</button>
+        </div>
+      </div>
+
+      <p v-if="job" class="status" :class="`status--${job.status}`">
+        任务 <span class="mono">{{ job.id }}</span> ·
+        <template v-if="running">
+          训练中 <span class="fs-num">{{ liveEpochs.length }}</span> / {{ job.epochs }} 轮<template
+            v-if="lastEpoch !== null"
+          >
+            · 最新 mAP@50 <span class="fs-num">{{ lastEpoch.toFixed(3) }}</span></template
+          >
+        </template>
+        <template v-else-if="job.status === 'done'">
+          已完成 · 归档为 <span class="mono">{{ job.run_id }}</span>
+        </template>
+        <template v-else-if="job.status === 'failed'">
+          失败 · {{ job.error ?? `退出码 ${job.returncode}` }}
+        </template>
+        <template v-else>已停止（未归档，现场记录仍在）</template>
+      </p>
+    </section>
+
+    <!-- 实时曲线与日志 -->
+    <template v-if="liveEpochs.length || logs.length">
+      <div v-if="liveLossPanels.length" class="fs-panels">
+        <section v-for="p in liveLossPanels" :key="p.title" class="fs-viewfinder">
+          <h2 class="fs-viewfinder__title">{{ p.title }}</h2>
+          <EChart :option="p.option" :height="200" />
+        </section>
+      </div>
+
+      <section v-if="liveMetricOption" class="fs-viewfinder">
+        <h2 class="fs-viewfinder__title">实时验证指标</h2>
+        <EChart :option="liveMetricOption" :height="240" />
+      </section>
+
+      <section class="fs-block">
+        <div class="fs-block__head">
+          <h2 class="fs-block__title">训练日志（最近 {{ logs.length }} 行）</h2>
+          <button type="button" class="fs-btn-ghost" @click="logsOpen = !logsOpen">
+            {{ logsOpen ? '收起' : '展开' }}
+          </button>
+        </div>
+        <pre v-if="logsOpen" class="logs">{{ logs.join('\n') }}</pre>
+      </section>
+    </template>
+
+    <section class="fs-block">
+      <h2 class="fs-block__title">训练记录</h2>
       <table v-if="runs.length" class="fs-ledger">
         <thead>
           <tr>
@@ -145,7 +414,7 @@ watch(selectedId, (id) => void loadRun(id))
     </section>
 
     <template v-if="selected">
-      <div v-if="lossPanels.length" class="panels">
+      <div v-if="lossPanels.length" class="fs-panels">
         <section v-for="p in lossPanels" :key="p.title" class="fs-viewfinder">
           <h2 class="fs-viewfinder__title">{{ p.title }}</h2>
           <EChart :option="p.option" :height="200" />
@@ -172,8 +441,8 @@ watch(selectedId, (id) => void loadRun(id))
         </aside>
       </div>
 
-      <section v-for="group in grouped" :key="group.label" class="block">
-        <h2 class="block__title">{{ group.label }}</h2>
+      <section v-for="group in grouped" :key="group.label" class="fs-block">
+        <h2 class="fs-block__title">{{ group.label }}</h2>
         <div class="gallery">
           <figure v-for="a in group.items" :key="a.name" class="shot">
             <a :href="api.trainArtifactUrl(selectedId, a.name)" target="_blank" rel="noopener">
@@ -193,28 +462,6 @@ watch(selectedId, (id) => void loadRun(id))
   flex-direction: column;
   gap: var(--sp-5);
 }
-
-.alert {
-  margin: 0;
-  padding: var(--sp-3) var(--sp-4);
-  font-size: var(--fs-sm);
-  background: var(--ash);
-  border: var(--hairline);
-  border-left: 3px solid var(--fire-2);
-}
-
-.block {
-  display: flex;
-  flex-direction: column;
-}
-
-.block__title {
-  margin: 0 0 var(--sp-3);
-  font-size: var(--fs-sm);
-  font-weight: 500;
-  color: var(--dross);
-}
-
 .work {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 200px;
@@ -223,12 +470,6 @@ watch(selectedId, (id) => void loadRun(id))
 }
 
 /* 小倍数：每种损失一张，各自自适应量程 */
-.panels {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: var(--sp-4);
-}
-
 .side {
   display: flex;
   flex-direction: column;
@@ -258,6 +499,65 @@ watch(selectedId, (id) => void loadRun(id))
 
 .pick:hover {
   color: var(--fire-3);
+}
+
+/* --- 启动表单 --------------------------------------------------------- */
+
+.launcher {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--sp-4);
+  padding: var(--sp-3) var(--sp-4);
+  margin-bottom: var(--sp-3);
+  background: var(--ash);
+  border: var(--hairline);
+}
+
+.actions {
+  display: flex;
+  gap: var(--sp-3);
+  margin-left: auto;
+}
+
+/* 状态条：左侧一道色条表示状态。failed 用明火色——它确实需要人去看一眼；
+   done 用冷色（完成、无需动作）；stopped 压暗。 */
+.status {
+  margin: 0;
+  padding: var(--sp-2) var(--sp-3);
+  font-size: var(--fs-sm);
+  color: var(--dross);
+  border-left: 2px solid var(--cinder);
+}
+
+.status--running {
+  color: var(--bone);
+  border-left-color: var(--fire-2);
+}
+
+.status--done {
+  color: var(--bone);
+  border-left-color: var(--cool);
+}
+
+.status--failed {
+  color: var(--bone);
+  border-left-color: var(--fire-3);
+}
+
+.logs {
+  max-height: 320px;
+  margin: 0;
+  padding: var(--sp-3);
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  line-height: 1.5;
+  color: var(--dross);
+  background: var(--soot);
+  border: var(--hairline);
+  white-space: pre-wrap;
+  word-break: break-all;
 }
 
 .mono {
