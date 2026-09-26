@@ -1,3 +1,5 @@
-"""数据工程：格式转换、冻结划分、报告生成。S0 占位。"""
+"""data_pipeline - 数据流水线:convert + split + 编排。"""
 
-__all__: list[str] = []
+from fire_sight_platform.data_pipeline.orchestrator import DatasetPipeline, run_transform
+
+__all__ = ["DatasetPipeline", "run_transform"]

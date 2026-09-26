@@ -1,3 +1,5 @@
-"""数据质量验证：完整性/准确性/分布分析。S0 占位。"""
+"""data_validation - 只读数据质检。"""
 
-__all__: list[str] = []
+from fire_sight_platform.data_validation.service import run_all_checks, validate_dataset
+
+__all__ = ["validate_dataset", "run_all_checks"]
