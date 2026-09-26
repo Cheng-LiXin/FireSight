@@ -311,6 +311,75 @@ score  = max(24 小时内最高置信度, volume)
 
 ---
 
+## 训练中心
+
+`run_id` 含斜杠（如 `20260926-190635-D-Fire/train-yolo11n`），走路径参数会被路由
+切碎，因此这四个接口**一律用查询参数**，并只接受已发现的 run，不做任意路径拼接。
+
+### GET `/api/train/runs`
+
+全部训练记录，新→旧。`archived` 表示其结果已归档到 `models/trained/`。
+
+```json
+[
+  {
+    "run_id": "20260926-190635-D-Fire/train-yolo11n",
+    "dataset": "D-Fire/train",
+    "model": "yolo11n.pt",
+    "epochs_done": 50,
+    "archived": true,
+    "mAP50": 0.7446186143380706,
+    "mAP50_95": 0.42897994110357224,
+    "precision": 0.7439023759573586,
+    "recall": 0.6865913701767612,
+    "artifact_count": 20,
+    "created": "2026-09-26T19:48:23"
+  }
+]
+```
+
+`epochs_done` 来自现场 `results.csv` 的行数，因此**中断的训练也会被列出**，
+且轮数就是它实际跑到的地方。未归档的 run（`archived: false`）没有指标，字段为 `null`。
+
+### GET `/api/train/curves?run_id=...`
+
+逐轮曲线，直接来自现场 `results.csv`。
+
+```json
+{
+  "run_id": "20260926-190635-D-Fire/train-yolo11n",
+  "epochs": [1, 2],
+  "losses": { "train_box": [1.695, 1.695], "val_cls": [28.769, 27.156] },
+  "metrics": { "mAP50": [0.3699, 0.3758], "precision": [0.465, 0.400] },
+  "lr": { "pg0": [0.00055, 0.00109] },
+  "total_epochs": 2
+}
+```
+
+各序列**等长于 `epochs`**，缺失值以 `null` 表示。前端应据此断开折线，
+而不是画到 0——那会让曲线砸到谷底，读起来像「指标归零」。
+
+> **注意读数方式**：实测某轮的 `val_cls` 在 28.8 与 87.2 之间震荡，而其余五条损失
+> 全程在 1.1–2.2。同一根线性轴放不下 58 倍的差距——界面用「每种损失一张小倍数图、
+> 各自自适应量程」呈现，不用对数轴掩盖。
+
+### GET `/api/train/artifacts?run_id=...`
+
+现场图件清单。`kind` 供界面分组，避免把一堆文件名平铺出来。
+
+```json
+[ { "name": "confusion_matrix_normalized.png", "kind": "confusion", "size": 213740 } ]
+```
+
+`kind` 取值：`confusion` / `curves` / `pr` / `labels` / `batch` / `other`。
+
+### GET `/api/train/artifact?run_id=...&name=...`
+
+取单张图件（图片二进制）。`name` **只允许现场目录下的顶层文件名**——
+带路径分隔符一律 400，非图片后缀一律 404，避免这个接口变成任意文件读取。
+
+---
+
 ## 环境变量
 
 | 变量 | 默认 | 说明 |
@@ -325,10 +394,9 @@ score  = max(24 小时内最高置信度, volume)
 
 | 方法 | 路径 | 用途 |
 |---|---|---|
-| `GET` | `/api/train/runs` | 历史训练列表与指标 |
-| `GET` | `/api/train/runs/{id}/curves` | 训练曲线数据（解析 `results.csv`） |
 | `POST` | `/api/train/jobs` | 启动训练任务 |
 | `GET` | `/api/train/jobs/{id}/stream` | 训练实时日志与指标（SSE） |
+| `POST` | `/api/train/jobs/{id}/stop` | 停止训练 |
 | `GET` | `/api/events` | 告警事件列表（筛选 / 分页） |
 | `POST` | `/api/events/{id}/false-positive` | 标记误报 |
 | `POST` | `/api/eval` | 多权重对比评估 |
