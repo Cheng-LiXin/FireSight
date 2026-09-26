@@ -21,14 +21,14 @@ authors = [
 keywords = ["fire-detection", "smoke-detection", "yolo", "early-warning"]
 
 dependencies = [
-    "fire-sight-platform>=0.1.0",
+    "fire-sight-platform>=1.0.0",
 ]
 
 [project.optional-dependencies]
 web = [
-    "streamlit>=1.28",
-    "plotly>=5.18",
-    "pandas>=2.0",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.27",
+    "python-multipart>=0.0.9",
 ]
 dev = [
     "pytest>=7.4.0",
@@ -46,4 +46,4 @@ packages = ["src/fire_sight"]
 path = "src/fire_sight/_version.py"
 
 [project.scripts]
-fs-web = "fire_sight.cli:main"
+fs-serve = "fire_sight.cli:main"

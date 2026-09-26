@@ -1,19 +1,29 @@
-"""fs-web: 启动 Streamlit 监测界面。"""
+"""fs-serve: 启动 FireSight REST 服务，并托管打包好的前端。"""
 
 from __future__ import annotations
 
-import subprocess
-import sys
-from pathlib import Path
+import argparse
 
 
 def main() -> None:
-    app = Path(__file__).resolve().parent / "web" / "app.py"
-    if not app.exists():
-        raise FileNotFoundError(f"找不到 web 入口: {app}")
+    ap = argparse.ArgumentParser(
+        prog="fs-serve",
+        description="启动 FireSight 服务（REST + 前端）",
+    )
+    ap.add_argument("--host", default="127.0.0.1", help="监听地址，默认仅本机")
+    ap.add_argument("--port", type=int, default=8000)
+    ap.add_argument("--reload", action="store_true", help="开发模式：代码变更自动重载")
+    args = ap.parse_args()
 
-    cmd = [sys.executable, "-m", "streamlit", "run", str(app)]
-    raise SystemExit(subprocess.call(cmd))
+    import uvicorn
+
+    # 用 import string 而非 app 对象，--reload 才能生效
+    uvicorn.run(
+        "fire_sight.api.app:app",
+        host=args.host,
+        port=args.port,
+        reload=args.reload,
+    )
 
 
 if __name__ == "__main__":

@@ -1,4 +1,4 @@
-"""S4-1 web services 模块测试。"""
+"""数据服务层模块测试（EventService / StatsService / InferService）。"""
 
 from __future__ import annotations
 
@@ -48,7 +48,7 @@ def seeded_db(tmp_path):
 
 
 def test_event_service_list_filter_export(seeded_db, tmp_path):
-    from fire_sight.web.services import EventService
+    from fire_sight.services import EventService
 
     svc = EventService(seeded_db)
     assert svc.count() == 2
@@ -61,7 +61,7 @@ def test_event_service_list_filter_export(seeded_db, tmp_path):
 
 
 def test_stats_service_aggregations(seeded_db):
-    from fire_sight.web.services import StatsService
+    from fire_sight.services import StatsService
 
     stats = StatsService(seeded_db)
     ratio = stats.class_ratio()
@@ -77,7 +77,7 @@ def test_stats_service_aggregations(seeded_db):
 def test_infer_service_batch(tmp_path):
     import cv2
 
-    from fire_sight.web.services import InferService
+    from fire_sight.services import InferService
 
     weights = ROOT / "yolo11n.pt"
     if not weights.exists():
