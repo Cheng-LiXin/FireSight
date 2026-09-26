@@ -8,14 +8,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from fire_sight_platform.common.paths import ROOT_DIR
 
 from fire_sight._version import __version__ as fire_sight_version
-from fire_sight.api.routers import overview, system
+from fire_sight.api.routers import infer, models, overview, system
 
 WEB_DIST: Path = ROOT_DIR / "apps" / "web" / "dist"
 
@@ -43,14 +44,28 @@ def create_app() -> FastAPI:
 
     app.include_router(system.router)
     app.include_router(overview.router)
+    app.include_router(models.router)
+    app.include_router(infer.router)
 
     @app.get("/api/health", tags=["system"])
     def health() -> dict:
         return {"status": "ok", "spa_built": WEB_DIST.exists()}
 
-    # 静态资源最后挂载，避免吞掉 /api 路由
+    # 前端用 HTML5 history 模式，路由由浏览器接管。必须先挂构建产物、
+    # 再用兜底路由把未命中的路径交回 index.html——直接 StaticFiles(html=True)
+    # 挂在根路径只会服务真实存在的文件，访问 /detect 会 404，深链接与刷新全废。
     if WEB_DIST.exists():
-        app.mount("/", StaticFiles(directory=WEB_DIST, html=True), name="spa")
+        app.mount("/assets", StaticFiles(directory=WEB_DIST / "assets"), name="assets")
+
+        @app.get("/{full_path:path}", include_in_schema=False)
+        def spa(full_path: str) -> FileResponse:
+            if full_path.startswith("api/"):
+                # 未匹配的接口路径应显式 404，不要回一份 HTML
+                raise HTTPException(status_code=404, detail="Not Found")
+            candidate = WEB_DIST / full_path
+            if full_path and candidate.is_file():
+                return FileResponse(candidate)
+            return FileResponse(WEB_DIST / "index.html")
 
     return app
 

@@ -91,3 +91,81 @@ class Overview(BaseModel):
     class_ratio: Dict[str, int] = Field(default_factory=dict)
     daily: List[DailyPoint] = Field(default_factory=list)
     model: ModelMetrics
+
+
+# --------------------------------------------------------------------------
+# 模型
+# --------------------------------------------------------------------------
+
+
+class ModelInfo(BaseModel):
+    """一次归档训练。指标缺失时相应字段为 None，前端显示「—」而非 0。"""
+
+    run_id: str
+    mAP50: Optional[float] = None
+    precision: Optional[float] = None
+    recall: Optional[float] = None
+    created: Optional[str] = None
+    is_active: bool = False
+
+
+# --------------------------------------------------------------------------
+# 识别检测
+# --------------------------------------------------------------------------
+
+
+class Detection(BaseModel):
+    """单个检测框。name 是契约名，name_cn 供界面显示。"""
+
+    cls_id: int
+    name: str
+    name_cn: str
+    conf: float
+    xyxy: List[float]
+
+
+class InferResult(BaseModel):
+    detections: List[Detection] = Field(default_factory=list)
+    count: int = 0
+    classes: List[str] = Field(default_factory=list)
+    max_conf: float = 0.0
+    elapsed_ms: float = 0.0
+    width: int = 0
+    height: int = 0
+    weights: str = ""
+    device: str = "cpu"
+    # 标注图的 data URL；批量场景为 None
+    annotated: Optional[str] = None
+
+
+class BatchRow(BaseModel):
+    file: str
+    count: int = 0
+    classes: List[str] = Field(default_factory=list)
+    max_conf: float = 0.0
+    elapsed_ms: float = 0.0
+
+
+class BatchResult(BaseModel):
+    rows: List[BatchRow] = Field(default_factory=list)
+    files: int = 0
+    hit_files: int = 0
+    total_dets: int = 0
+    avg_ms: float = 0.0
+    class_totals: Dict[str, int] = Field(default_factory=dict)
+    weights: str = ""
+    device: str = "cpu"
+
+
+class SourceOption(BaseModel):
+    """可批量推理的目录。
+
+    key 由后端生成、前端只回传，不允许前端拼任意路径——
+    免得接口变成一个能遍历工作区的文件浏览器。
+    """
+
+    key: str
+    dataset: str
+    split: str
+    path: str
+    image_count: int

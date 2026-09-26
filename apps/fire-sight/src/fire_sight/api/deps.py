@@ -8,9 +8,10 @@ from __future__ import annotations
 import os
 import subprocess
 import threading
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from fire_sight_platform.common.paths import (
     DATA_DIR,
@@ -152,3 +153,89 @@ def workspace_info() -> Dict[str, Any]:
         "events_db": str(EVENTS_DB),
         "events_db_exists": EVENTS_DB.exists(),
     }
+
+
+# --------------------------------------------------------------------------
+# GPU 任务
+# --------------------------------------------------------------------------
+
+
+class GpuBusy(RuntimeError):
+    """GPU 已被别的任务占用。携带占用者，便于前端给出可读提示。"""
+
+    def __init__(self, holder: Optional[str]) -> None:
+        self.holder = holder
+        super().__init__(f"GPU 正被「{holder or '其他任务'}」占用")
+
+
+@contextmanager
+def gpu_job(who: str):
+    """占用 GPU 执行任务；已被占用则立刻抛出，不排队。
+
+    8GB 显存下训练与推理不能并行，不拦就是现场 CUDA 溢出。
+    """
+    if not GPU_LOCK.acquire(who):
+        raise GpuBusy(GPU_LOCK.holder)
+    try:
+        yield
+    finally:
+        GPU_LOCK.release()
+
+
+def resolve_device(requested: str) -> str:
+    """设备回退：请求 GPU 但显卡不可用时降级到 CPU，而不是让 CUDA 报错。"""
+    if str(requested).lower() == "cpu":
+        return "cpu"
+    return str(requested) if gpu_info().get("available") else "cpu"
+
+
+# --------------------------------------------------------------------------
+# 模型缓存
+# --------------------------------------------------------------------------
+
+_INFER_CACHE: Dict[Tuple[str, str], Any] = {}
+_INFER_CACHE_LOCK = threading.Lock()
+
+
+def get_infer_service(weights: Path | str, device: str) -> Any:
+    """按 (weights, device) 复用 InferService。
+
+    必须缓存：InferService 的模型是实例级懒加载的，每次请求新建实例就会
+    重新读一遍权重，单图推理要等上一两秒。conf / iou 由调用方逐次传入。
+    """
+    key = (str(weights), str(device))
+    with _INFER_CACHE_LOCK:
+        svc = _INFER_CACHE.get(key)
+        if svc is None:
+            from fire_sight.services import InferService
+
+            svc = InferService(weights=key[0], device=key[1], conf=0.25, iou=0.6)
+            _INFER_CACHE[key] = svc
+    return svc
+
+
+def clear_infer_cache() -> None:
+    """释放已加载的模型（权重被替换或删除后调用）。"""
+    with _INFER_CACHE_LOCK:
+        _INFER_CACHE.clear()
+
+
+def resolve_run(name: Optional[str]) -> ArchivedRun:
+    """把前端传来的 run_id 解析成归档训练（含权重路径）。
+
+    返回整个 ArchivedRun 而不是只有路径：run_id 无法从路径反推——
+    嵌套布局下 best.pt 的父目录是实验名，不是 run_id。
+
+    name 为空时取最新归档。只接受已归档的 run，不接受任意路径，
+    避免接口被用来读取工作区外的文件。
+    """
+    if not name:
+        active = active_run()
+        if active is None:
+            raise FileNotFoundError("尚无已归档的模型，请先运行 fs-train")
+        return active
+
+    for run in archived_runs():
+        if run.run_id == name:
+            return run
+    raise FileNotFoundError(f"未找到归档模型: {name}")

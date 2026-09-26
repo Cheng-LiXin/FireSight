@@ -120,6 +120,29 @@ def test_health(client):
     assert "spa_built" in body
 
 
+def test_spa_deep_link_falls_back_to_index(client):
+    """回归：前端用 HTML5 history 模式，未命中的路径必须交回 index.html。
+
+    曾经把 StaticFiles(html=True) 直接挂在根路径——它只服务真实存在的文件，
+    访问 /detect 会得到 404，于是所有子页面的深链接与刷新全是白屏。
+    """
+    from fire_sight.api.app import WEB_DIST
+
+    if not (WEB_DIST / "index.html").exists():
+        pytest.skip("前端未构建")
+
+    r = client.get("/detect")
+    assert r.status_code == 200
+    assert "text/html" in r.headers["content-type"]
+
+
+def test_unknown_api_path_stays_json_404(client):
+    """兜底路由不能把未匹配的接口路径也吞成 HTML。"""
+    r = client.get("/api/definitely-not-a-route")
+    assert r.status_code == 404
+    assert r.json()["detail"] == "Not Found"
+
+
 def test_system_status_shape(client):
     body = client.get("/api/system/status").json()
 
