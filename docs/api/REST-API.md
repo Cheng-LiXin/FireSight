@@ -191,6 +191,126 @@ score  = max(24 小时内最高置信度, volume)
 
 ---
 
+## GET `/api/models`
+
+已归档训练列表，新→旧。识别页用它填权重下拉，模型库页后续在此扩展。
+
+```json
+[
+  {
+    "run_id": "20260926-190635-D-Fire/train-yolo11n",
+    "mAP50": 0.7446186143380706,
+    "precision": 0.7439023759573586,
+    "recall": 0.6865913701767612,
+    "created": "2026-09-26T19:48:23",
+    "is_active": true
+  }
+]
+```
+
+指标缺失或不可解析时为 `null`，**不是 0**——「没测过」和「测得 0 分」不是一回事，
+前端应显示「—」。同一时刻至多一项 `is_active`。
+
+---
+
+## GET `/api/infer/sources`
+
+可批量推理的图片目录。前端据此填下拉，**不接收前端拼的任意路径**——
+否则这个接口就成了能遍历工作区的文件浏览器。
+
+```json
+[
+  {
+    "key": "D-Fire/train/val",
+    "dataset": "D-Fire/train",
+    "split": "val",
+    "path": "E:\\FireSight\\data\\processed\\D-Fire\\train\\images\\val",
+    "image_count": 1722
+  }
+]
+```
+
+以 `data.yaml` 是否存在作为数据集完整性的标志，只列完整的数据集。
+数据集名可能自带一层子路径（`--dataset "D-Fire/train"` 的产物落在
+`processed/D-Fire/train/`），故扫描最多认两层。
+
+---
+
+## POST `/api/infer/image`
+
+上传单张图像识别。`multipart/form-data`。
+
+| 字段 | 类型 | 默认 | 说明 |
+|---|---|---:|---|
+| `file` | file | 必填 | JPG / PNG / BMP / WebP，上限 20MB |
+| `weights` | str | 最新归档 | `run_id`；留空取最新 |
+| `conf` | float | 0.25 | 置信度阈值 0–1 |
+| `iou` | float | 0.6 | NMS 的 IoU 阈值 0–1 |
+| `device` | str | `0` | `0` 或 `cpu`；显卡不可用时自动降级为 CPU |
+
+```json
+{
+  "detections": [
+    { "cls_id": 1, "name": "fire", "name_cn": "明火", "conf": 0.8723,
+      "xyxy": [611.1, 433.8, 751.2, 546.7] }
+  ],
+  "count": 4,
+  "classes": ["fire", "smoke"],
+  "max_conf": 0.8723,
+  "elapsed_ms": 16.3,
+  "width": 1280,
+  "height": 720,
+  "weights": "20260926-190635-D-Fire/train-yolo11n",
+  "device": "cpu",
+  "annotated": "data:image/jpeg;base64,..."
+}
+```
+
+`annotated` 是标注图的 JPEG data URL。用 JPEG 而非 PNG：照片类图像 PNG 动辄
+数 MB，base64 后更大，单图响应会拖到秒级。
+
+**错误**
+
+| 码 | 场景 |
+|---:|---|
+| 400 | 上传为空、或无法解码 |
+| 404 | `weights` 指定的 run 不存在 |
+| 409 | GPU 被训练占用（`detail` 含占用者） |
+| 413 | 超过体积上限 |
+
+---
+
+## POST `/api/infer/batch`
+
+对已处理数据集的某个划分批量推理。`application/json`。
+
+| 字段 | 类型 | 默认 | 说明 |
+|---|---|---:|---|
+| `source_key` | str | 必填 | 取自 `/api/infer/sources` |
+| `weights` / `conf` / `iou` / `device` | — | 同上 | |
+| `limit` | int | 50 | 1–300 |
+
+```json
+{
+  "rows": [
+    { "file": "AoF04059.jpg", "count": 4, "classes": ["fire", "smoke"],
+      "max_conf": 0.8723, "elapsed_ms": 18.1 }
+  ],
+  "files": 50,
+  "hit_files": 31,
+  "total_dets": 96,
+  "avg_ms": 18.4,
+  "class_totals": { "fire": 60, "smoke": 40 },
+  "weights": "20260926-190635-D-Fire/train-yolo11n",
+  "device": "cpu"
+}
+```
+
+`source_key` 不存在时返回 404。批量**不返回标注图**——只需统计数字，
+渲染标注图在批量规模下是纯浪费。
+
+---
+
 ## 环境变量
 
 | 变量 | 默认 | 说明 |
@@ -205,13 +325,11 @@ score  = max(24 小时内最高置信度, volume)
 
 | 方法 | 路径 | 用途 |
 |---|---|---|
-| `POST` | `/api/infer/image` | 上传图像识别，返回检测框与标注图 |
-| `POST` | `/api/infer/batch` | 目录批量推理 |
 | `GET` | `/api/train/runs` | 历史训练列表与指标 |
 | `GET` | `/api/train/runs/{id}/curves` | 训练曲线数据（解析 `results.csv`） |
 | `POST` | `/api/train/jobs` | 启动训练任务 |
 | `GET` | `/api/train/jobs/{id}/stream` | 训练实时日志与指标（SSE） |
 | `GET` | `/api/events` | 告警事件列表（筛选 / 分页） |
 | `POST` | `/api/events/{id}/false-positive` | 标记误报 |
-| `GET` | `/api/models` | 归档权重列表 |
 | `POST` | `/api/eval` | 多权重对比评估 |
+| `GET` | `/api/models/{run_id}/download` | 下载权重 |
