@@ -6,7 +6,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Dict, List, Tuple
 
-from fire_sight_platform.data_pipeline.convert.converters._geometry import format_yolo_line, normalize_box
+from fire_sight_platform.data_pipeline.convert.converters._geometry import format_yolo_line, is_degenerate, normalize_box
 from fire_sight_platform.data_pipeline.convert.registry import register_converter
 
 
@@ -43,6 +43,8 @@ def convert_pascal_voc(
                 width,
                 height,
             )
+            if is_degenerate(box[2], box[3]):
+                continue
             lines.append(format_yolo_line(class_to_id[name], box))
         (labels_dir / f"{xml_path.stem}.txt").write_text(
             "\n".join(lines) + ("\n" if lines else ""), encoding="utf-8"

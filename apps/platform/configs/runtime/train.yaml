@@ -1,0 +1,40 @@
+# FireSight 运行配置模板(由 fs-gen-config 生成)
+# 优先级: DEFAULT < 本 YAML < CLI
+
+# processed/<dataset> 名称 (string)
+dataset: demo_fire
+
+# 随机种子 (integer)
+seed: 42
+
+# cuda 设备号或 cpu (string)
+device: 0
+
+# 预训练权重名或路径 (string)
+model: yolo11n.pt
+
+# integer
+epochs: 50
+
+# integer
+imgsz: 640
+
+# integer
+batch: 8
+
+# number
+lr0: 0.01
+
+# integer
+patience: 10
+
+# integer
+workers: 2
+
+# runs 子目录名 (string)
+project_name: fire-sight
+
+# 实验名,缺省自动生成 (any)
+experiment: null
+
+# 火灾烟雾类别参考: flame, smoke

@@ -27,3 +27,8 @@ def format_yolo_line(class_id: int, box: Sequence[float], conf: float | None = N
     cx, cy, w, h = box
     base = f"{int(class_id)} {cx:.6f} {cy:.6f} {w:.6f} {h:.6f}"
     return base if conf is None else f"{base} {conf:.6f}"
+
+
+def is_degenerate(w: float, h: float, min_size: float = 1e-6) -> bool:
+    """宽/高非正或过小视为退化框,应在转换时剔除。"""
+    return w <= min_size or h <= min_size

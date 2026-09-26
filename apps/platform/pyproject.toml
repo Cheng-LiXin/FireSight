@@ -59,6 +59,9 @@ dev = [
 fs-init = "fire_sight_platform.cli.init_project:initialize_project"
 fs-transform = "fire_sight_platform.cli.transform_data:_entry"
 fs-validate = "fire_sight_platform.cli.validate_data:_entry"
+fs-gen-config = "fire_sight_platform.runtime_config.generator:main"
+fs-train = "fire_sight_platform.cli.train_model:_entry"
+fs-val = "fire_sight_platform.cli.eval_model:_entry"
 
 
 # =============================================================================

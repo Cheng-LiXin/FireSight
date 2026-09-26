@@ -1,3 +1,5 @@
-"""模型训练服务：训练封装、实验归档、断点续训。S0 占位。"""
+"""training: 训练编排、归档、指标。"""
 
-__all__: list[str] = []
+from fire_sight_platform.training.service import TrainResult, train_yolo
+
+__all__ = ["train_yolo", "TrainResult"]

@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 from typing import Dict, List, Tuple
 
-from fire_sight_platform.data_pipeline.convert.converters._geometry import format_yolo_line, normalize_box
+from fire_sight_platform.data_pipeline.convert.converters._geometry import format_yolo_line, is_degenerate, normalize_box
 from fire_sight_platform.data_pipeline.convert.registry import register_converter
 
 
@@ -38,6 +38,8 @@ def convert_coco(
             raise ValueError(f"COCO 未知类别 {name!r}")
         x, y, w, h = ann["bbox"]
         box = normalize_box(x, y, x + w, y + h, float(img["width"]), float(img["height"]))
+        if is_degenerate(box[2], box[3]):
+            continue
         by_image.setdefault(img["id"], []).append(format_yolo_line(class_to_id[name], box))
 
     for img_id, img in images.items():

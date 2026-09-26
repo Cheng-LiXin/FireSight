@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Dict, Tuple
 
-from fire_sight_platform.data_pipeline.convert.converters._geometry import format_yolo_line
+from fire_sight_platform.data_pipeline.convert.converters._geometry import format_yolo_line, is_degenerate
 from fire_sight_platform.data_pipeline.convert.registry import register_converter
 
 
@@ -36,6 +36,8 @@ def convert_yolo(
             box = tuple(float(x) for x in parts[1:5])
             if any(v < 0 or v > 1 for v in box):
                 raise ValueError(f"{src.name}:{line_no} 归一化坐标越界: {box}")
+            if is_degenerate(box[2], box[3]):
+                continue  # 剔除退化框(w/h 非正)
             out_lines.append(format_yolo_line(cid, box))
         (labels_dir / src.name).write_text(
             "\n".join(out_lines) + ("\n" if out_lines else ""), encoding="utf-8"
