@@ -83,3 +83,69 @@ export const CLASS_CN: Record<string, string> = {
   smoke: '烟雾',
   fire: '明火',
 }
+
+// --------------------------------------------------------------------------
+// 模型
+// --------------------------------------------------------------------------
+
+export interface ModelInfo {
+  run_id: string
+  /** 指标缺失时为 null——「没测过」和「测得 0 分」不是一回事，不要显示 0 */
+  mAP50: number | null
+  precision: number | null
+  recall: number | null
+  created: string | null
+  is_active: boolean
+}
+
+// --------------------------------------------------------------------------
+// 识别检测
+// --------------------------------------------------------------------------
+
+export interface Detection {
+  cls_id: number
+  name: string
+  name_cn: string
+  conf: number
+  xyxy: number[]
+}
+
+export interface InferResult {
+  detections: Detection[]
+  count: number
+  classes: string[]
+  max_conf: number
+  elapsed_ms: number
+  width: number
+  height: number
+  weights: string
+  device: string
+  annotated: string | null
+}
+
+export interface SourceOption {
+  key: string
+  dataset: string
+  split: string
+  path: string
+  image_count: number
+}
+
+export interface BatchRow {
+  file: string
+  count: number
+  classes: string[]
+  max_conf: number
+  elapsed_ms: number
+}
+
+export interface BatchResult {
+  rows: BatchRow[]
+  files: number
+  hit_files: number
+  total_dets: number
+  avg_ms: number
+  class_totals: Record<string, number>
+  weights: string
+  device: string
+}

@@ -12,8 +12,8 @@ const router = createRouter({
     {
       path: '/detect',
       name: 'detect',
-      component: () => import('@/views/PendingView.vue'),
-      meta: { title: '识别检测', plan: '上传图像识别、原图与结果对比、检测框列表、目录批量推理' },
+      component: () => import('@/views/DetectView.vue'),
+      meta: { title: '识别检测' },
     },
     {
       path: '/training',
