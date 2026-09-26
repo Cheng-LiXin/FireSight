@@ -16,9 +16,11 @@ from pathlib import Path
 from PIL import Image, ImageDraw
 
 from fire_sight_platform.common import paths as paths_mod
+from fire_sight_platform.common.constants import DEFAULT_FIRE_SMOKE_CLASSES
 
-CLASSES = ["flame", "smoke"]
-COLORS = {"flame": (220, 80, 40), "smoke": (120, 120, 120)}
+# 类别契约唯一真相：0=smoke，1=fire（见 scene/class_map.py 与 FireSmokeClass）
+CLASSES = list(DEFAULT_FIRE_SMOKE_CLASSES)
+COLORS = {"fire": (220, 80, 40), "smoke": (120, 120, 120)}
 
 
 def _make_image(path: Path, boxes, size=(320, 240)) -> None:
@@ -42,7 +44,7 @@ def build(format: str, name: str, n: int = 12, out_root: Path | None = None) -> 
         boxes = []
         # 1-2 boxes per image
         if i % 3 != 0:
-            boxes.append(("flame", 40 + i * 3, 30, 120 + i * 3, 110))
+            boxes.append(("fire", 40 + i * 3, 30, 120 + i * 3, 110))
         if i % 2 == 0:
             boxes.append(("smoke", 150, 80 + (i % 5) * 4, 260, 180))
         samples.append((i, boxes))
