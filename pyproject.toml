@@ -1,0 +1,62 @@
+# pyproject.toml(仓库根)
+# =============================================================================
+# FireSight Monorepo —— 仓库根配置
+#
+# 这份 pyproject 不描述任何包，所以它【既没有 [build-system]、也没有 [project]】。
+# 它唯一的职责是放【全仓共享的工具配置】。ruff / mypy / pytest 从仓库根运行时
+# 会自动读到这里的 [tool.*]，于是 apps/ 下所有端、加上顶层 tests/，用的都是同一套
+# 代码风格 / 类型检查 / 测试规则——配置只此一份，不必每个端各抄一遍。
+# =============================================================================
+
+
+# =============================================================================
+# Ruff 配置(代码风格 + isort)
+# =============================================================================
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+src = [
+    "apps/platform/src",
+    "apps/fire-sight/src",
+]
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "B", "C4", "UP"]
+ignore = ["E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["fire_sight_platform", "fire_sight"]
+
+
+# =============================================================================
+# Mypy 配置(类型检查)
+# =============================================================================
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_ignores = true
+no_implicit_optional = true
+
+[[tool.mypy.overrides]]
+module = ["colorlog.*", "psutil.*", "ultralytics.*", "torch.*"]
+ignore_missing_imports = true
+
+
+# =============================================================================
+# Pytest 配置(测试发现 + 标记)
+# =============================================================================
+[tool.pytest.ini_options]
+minversion = "7.0"
+testpaths = [
+    "apps/platform/tests",
+    "apps/fire-sight/tests",
+    "tests",
+]
+python_files = ["test_*.py"]
+addopts = ["-v", "--strict-markers", "--tb=short"]
+
+markers = [
+    "unit: 单元测试 (快、少 IO)",
+    "integration: 集成测试 (有 IO)",
+    "slow: 慢测试(> 1s)",
+]

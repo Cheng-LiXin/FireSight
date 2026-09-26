@@ -1,0 +1,41 @@
+# apps/fire-sight/pyproject.toml
+# =============================================================================
+# FireSight - 火灾烟雾应用端配置(hatchling backend)
+# =============================================================================
+
+[build-system]
+requires = ["hatchling>=1.18.0"]
+build-backend = "hatchling.build"
+
+
+[project]
+name = "fire-sight"
+dynamic = ["version"]
+description = "FireSight - 火灾烟雾智能预警系统应用端(场景包)"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [
+    { name = "FireSight Team" },
+]
+keywords = ["fire-detection", "smoke-detection", "yolo", "early-warning"]
+
+dependencies = [
+    "fire-sight-platform>=0.1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "ruff>=0.1.0",
+]
+
+
+# =============================================================================
+# Hatchling 配置
+# =============================================================================
+[tool.hatch.build.targets.wheel]
+packages = ["src/fire_sight"]
+
+[tool.hatch.version]
+path = "src/fire_sight/_version.py"
