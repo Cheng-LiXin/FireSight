@@ -3,7 +3,7 @@
 新增规则:值属于"两个以上子系统都要引用的业务决策"才进这里;子系统私有默认值留在子系统。
 """
 
-from typing import Tuple
+from typing import Sequence, Tuple
 
 
 class AnnotationFormat:
@@ -64,3 +64,31 @@ class FireSmokeClass:
 
 
 DEFAULT_FIRE_SMOKE_CLASSES: Tuple[str, ...] = FireSmokeClass.all()
+
+
+class ClassOrderError(ValueError):
+    """类别顺序不符合全链路契约。"""
+
+
+def assert_canonical_class_order(class_names: Sequence[str]) -> None:
+    """校验类别顺序是否为契约顺序，不是则拒绝执行。
+
+    顺序即 class_id，且被全链路依赖——包括前端的类别显示与配色。
+    放行任何一种别的顺序，都可能让「明火」和「烟雾」整体互换。
+
+    对 VOC / COCO 输入尤其危险：转换器按**名字**查表，错误顺序会直接把
+    数字标签写反，而 data.yaml 仍按契约声明，于是模型照常训练、指标照常
+    好看，事后几乎无法察觉。YOLO 输入因为原样透传数字 id 反而不会中招，
+    这使得错误可能在换数据集时才突然暴露。
+    """
+    expected = list(DEFAULT_FIRE_SMOKE_CLASSES)
+    got = [str(n).strip() for n in class_names]
+    if got == expected:
+        return
+    raise ClassOrderError(
+        f"类别顺序必须严格为 {expected}（顺序即 class_id），收到 {got}。\n"
+        f"  正确：--classes {'/'.join(expected)}      "
+        f"即 class_id 0={expected[0]}、1={expected[1]}\n"
+        f"  若你的数据集标注顺序与此不同，先按名字转换，不要靠调换 --classes 迁就。\n"
+        f"  契约唯一真相：fire_sight/scene/class_map.py"
+    )

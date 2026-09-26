@@ -9,10 +9,12 @@ from pathlib import Path
 from typing import Dict, List, Mapping, Optional, Sequence
 
 from fire_sight_platform.common.constants import (
+    DEFAULT_FIRE_SMOKE_CLASSES,
     DEFAULT_RANDOM_STATE,
     DEFAULT_SPLIT_STRATEGY,
     DEFAULT_TRAIN_RATE,
     DEFAULT_VAL_RATE,
+    assert_canonical_class_order,
 )
 from fire_sight_platform.common import paths as paths_mod
 from fire_sight_platform.common.performance_utils import time_it
@@ -50,6 +52,7 @@ class DatasetPipeline:
         split_strategy: str = DEFAULT_SPLIT_STRATEGY,
         raw_root: Optional[Path] = None,
         processed_root: Optional[Path] = None,
+        name: Optional[str] = None,
     ) -> None:
         self.dataset = dataset
         self.source_format = source_format
@@ -60,9 +63,20 @@ class DatasetPipeline:
         )
         self.seed = seed
         self.split_strategy = split_strategy
+
+        # 输入与输出分开：dataset 定位 data/raw/ 下的原始数据（可能形如
+        # "D-Fire/train"，带斜杠表示原始数据集已自行切分），name 是产物目录名，
+        # 默认与 dataset 相同。想要一个不同的产物名时显式传 name，
+        # 不必再靠改动 dataset 去迁就路径。
+        self.name = name or dataset
         self.raw_root = Path(raw_root or (paths_mod.RAW_DATA_DIR / dataset))
-        self.out_root = Path(processed_root or (paths_mod.PROCESSED_DATA_DIR / dataset))
-        self.class_names = list(class_names) if class_names else ["smoke", "fire"]
+        self.out_root = Path(processed_root or (paths_mod.PROCESSED_DATA_DIR / self.name))
+
+        self.class_names = (
+            list(class_names) if class_names else list(DEFAULT_FIRE_SMOKE_CLASSES)
+        )
+        # 顺序即 class_id，错序会静默调换明火与烟雾，故在入口直接拒绝
+        assert_canonical_class_order(self.class_names)
         self.class_to_id = {name: i for i, name in enumerate(self.class_names)}
 
     def _resolve_source_annotation_dir(self) -> Path:
@@ -174,6 +188,7 @@ def run_transform(
     val_rate: float = DEFAULT_VAL_RATE,
     test_rate: Optional[float] = None,
     split_strategy: str = DEFAULT_SPLIT_STRATEGY,
+    name: Optional[str] = None,
 ) -> TransformResult:
     pipeline = DatasetPipeline(
         dataset=dataset,
@@ -184,5 +199,6 @@ def run_transform(
         val_rate=val_rate,
         test_rate=test_rate,
         split_strategy=split_strategy,
+        name=name,
     )
     return pipeline.run()

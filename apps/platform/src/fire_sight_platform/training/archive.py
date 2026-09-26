@@ -8,14 +8,21 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
+from fire_sight_platform.common.naming import sanitize
 from fire_sight_platform.common.paths import RUNS_DIR, TRAINED_MODELS_DIR
 
 logger = logging.getLogger(__name__)
 
 
 def make_run_id(dataset: str, model: str) -> str:
+    """实验标识，用作归档目录名。
+
+    两段都过 sanitize：数据集名可能带斜杠（如 "D-Fire/train"），
+    直接拼进路径会让归档多出一层嵌套目录，那些实验会被按
+    `trained/*/best.pt` 查找的旧代码整轮漏掉——实际踩过这个坑。
+    """
     ts = datetime.now().strftime("%Y%m%d-%H%M%S")
-    return f"{ts}-{dataset}-{model}"
+    return f"{ts}-{sanitize(dataset)}-{sanitize(Path(model).stem)}"
 
 
 def archive_best_weight(
