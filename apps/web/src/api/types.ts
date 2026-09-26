@@ -149,3 +149,39 @@ export interface BatchResult {
   weights: string
   device: string
 }
+
+// --------------------------------------------------------------------------
+// 训练中心
+// --------------------------------------------------------------------------
+
+export interface TrainRun {
+  run_id: string
+  dataset: string | null
+  model: string | null
+  epochs_done: number
+  archived: boolean
+  mAP50: number | null
+  mAP50_95: number | null
+  precision: number | null
+  recall: number | null
+  artifact_count: number
+  created: string | null
+}
+
+/** 曲线序列可含 null：那一轮该列缺失，前端应断开折线而非画到 0。 */
+export type CurveSeries = (number | null)[]
+
+export interface CurvesResponse {
+  run_id: string
+  epochs: number[]
+  losses: Record<string, CurveSeries>
+  metrics: Record<string, CurveSeries>
+  lr: Record<string, CurveSeries>
+  total_epochs: number
+}
+
+export interface ArtifactInfo {
+  name: string
+  kind: 'confusion' | 'curves' | 'pr' | 'labels' | 'batch' | 'other'
+  size: number
+}

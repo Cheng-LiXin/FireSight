@@ -1,12 +1,15 @@
 /** HTTP 客户端。开发时经 Vite 代理到 fs-serve，故一律用相对路径。 */
 
 import type {
+  ArtifactInfo,
   BatchResult,
+  CurvesResponse,
   InferResult,
   ModelInfo,
   Overview,
   SourceOption,
   SystemStatus,
+  TrainRun,
 } from './types'
 
 const BASE = '/api'
@@ -95,4 +98,15 @@ export const api = {
       body: JSON.stringify({ source_key: sourceKey, limit, ...params }),
     })
   },
+
+  // run_id 里含斜杠，走查询参数而不是路径段——否则路由会把它切碎
+  trainRuns: () => request<TrainRun[]>('/train/runs'),
+  trainCurves: (runId: string) =>
+    request<CurvesResponse>(`/train/curves?run_id=${encodeURIComponent(runId)}`),
+  trainArtifacts: (runId: string) =>
+    request<ArtifactInfo[]>(`/train/artifacts?run_id=${encodeURIComponent(runId)}`),
+
+  /** 图件直接给 URL 让 <img> 去取，不必绕一圈 base64。 */
+  trainArtifactUrl: (runId: string, name: string) =>
+    `${BASE}/train/artifact?run_id=${encodeURIComponent(runId)}&name=${encodeURIComponent(name)}`,
 }

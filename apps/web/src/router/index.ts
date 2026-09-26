@@ -18,8 +18,8 @@ const router = createRouter({
     {
       path: '/training',
       name: 'training',
-      component: () => import('@/views/PendingView.vue'),
-      meta: { title: '训练中心', plan: '历史 run 指标对比、训练曲线、网页启动训练与实时日志流' },
+      component: () => import('@/views/TrainingView.vue'),
+      meta: { title: '训练中心' },
     },
     {
       path: '/events',

@@ -10,7 +10,10 @@ import type { EChartsOption } from 'echarts'
 
 import type { DailyPoint } from '@/api/types'
 
-import { AXIS_FONT, PALETTE } from './palette'
+import { AXIS_FONT, PALETTE, TRAIN_PALETTE } from './palette'
+
+/** 曲线里允许 null：缺失的那一轮留断点，不要连过去，也不要画成 0。 */
+type Series = (number | null)[]
 
 const axisLabel = { color: PALETTE.inkMuted, fontSize: 11, fontFamily: AXIS_FONT }
 
@@ -104,6 +107,146 @@ export function alertTrendOption(daily: DailyPoint[]): EChartsOption {
         },
       },
     ],
+  }
+}
+
+// --------------------------------------------------------------------------
+// 训练曲线
+// --------------------------------------------------------------------------
+
+/** 训练曲线共用的坐标轴与网格。 */
+function trainAxes(epochs: number[]) {
+  return {
+    grid: { left: 56, right: 76, top: 44, bottom: 34 },
+    xAxis: {
+      type: 'category' as const,
+      data: epochs.map(String),
+      boundaryGap: false,
+      name: 'epoch',
+      nameLocation: 'end' as const,
+      nameGap: 8,
+      nameTextStyle: { color: PALETTE.inkMuted, fontSize: 11, fontFamily: AXIS_FONT },
+      axisLine: { lineStyle: { color: PALETTE.hairline } },
+      axisTick: { show: false },
+      axisLabel: { ...axisLabel, interval: Math.max(0, Math.floor(epochs.length / 10) - 1) },
+    },
+    yAxis: {
+      type: 'value' as const,
+      scale: true,
+      axisLine: { show: false },
+      axisTick: { show: false },
+      axisLabel,
+      splitLine,
+    },
+  }
+}
+
+const TRAIN_TOOLTIP = {
+  trigger: 'axis' as const,
+  axisPointer: { type: 'line' as const, lineStyle: { color: PALETTE.inkMuted, width: 1 } },
+  ...tooltipBase,
+}
+
+/** 一条曲线。线宽 2、不画点（50 个点会把图糊掉），断点不连。 */
+function line(name: string, data: Series, color: string, dashed = false) {
+  return {
+    name,
+    type: 'line' as const,
+    data,
+    symbol: 'circle' as const,
+    showSymbol: false,
+    connectNulls: false,
+    lineStyle: { width: 2, color, type: dashed ? ('dashed' as const) : ('solid' as const) },
+    itemStyle: { color },
+  }
+}
+
+export interface LossPanel {
+  title: string
+  option: EChartsOption
+}
+
+/**
+ * 损失曲线 —— 每种损失一张小倍数图。
+ *
+ * 不做「六条线一张图」：实测某一轮 val/cls_loss 能到 87，而其余五条全程在 1.1–2.2，
+ * 58 倍的差距摆在同一根线性轴上会把其余五条压成贴底的直线，整张图失去作用。
+ * 也不改用对数轴——那是对读者耍花招。分成三张、各自自适应量程，震荡照实显示，
+ * 别的图照样看得清。
+ *
+ * 每张图内只有「训练 / 验证」两条，用实线与虚线区分，因此一个颜色就够，
+ * 不需要类别色板。哪种损失由图的标题说明。
+ */
+export function trainingLossPanels(
+  epochs: number[],
+  losses: Record<string, Series>,
+): LossPanel[] {
+  const color = TRAIN_PALETTE[0]
+  const kinds: [string, string, string][] = [
+    ['box', 'train_box', 'val_box'],
+    ['cls', 'train_cls', 'val_cls'],
+    ['dfl', 'train_dfl', 'val_dfl'],
+  ]
+
+  return kinds
+    .filter(([, trainKey, valKey]) => trainKey in losses || valKey in losses)
+    .map(([cn, trainKey, valKey]) => ({
+      title: `${cn} 损失`,
+      option: {
+        backgroundColor: 'transparent',
+        ...trainAxes(epochs),
+        legend: {
+          top: 0,
+          left: 0,
+          itemWidth: 14,
+          itemHeight: 8,
+          itemGap: 16,
+          textStyle: { color: PALETTE.inkMuted, fontSize: 11 },
+          data: ['训练', '验证'],
+        },
+        tooltip: TRAIN_TOOLTIP,
+        series: [
+          line('训练', losses[trainKey] ?? [], color),
+          line('验证', losses[valKey] ?? [], color, true),
+        ],
+      } as EChartsOption,
+    }))
+}
+
+/**
+ * 指标曲线。四条都是 0–1 的同量纲指标，放在一张图上。
+ *
+ * 不做双轴：它们刻度相同，没有对齐问题。
+ */
+export function trainingMetricOption(
+  epochs: number[],
+  metrics: Record<string, Series>,
+): EChartsOption {
+  const specs: [string, string, string][] = [
+    ['mAP@50', 'mAP50', TRAIN_PALETTE[3]],
+    ['mAP@50-95', 'mAP50_95', TRAIN_PALETTE[0]],
+    ['精确率 P', 'precision', TRAIN_PALETTE[1]],
+    ['召回率 R', 'recall', TRAIN_PALETTE[2]],
+  ]
+  const series = specs
+    .filter(([, key]) => key in metrics)
+    .map(([cn, key, color]) => line(cn, metrics[key] ?? [], color))
+
+  return {
+    backgroundColor: 'transparent',
+    ...trainAxes(epochs),
+    yAxis: { ...trainAxes(epochs).yAxis, scale: false, min: 0, max: 1 },
+    legend: {
+      top: 0,
+      left: 0,
+      itemWidth: 14,
+      itemHeight: 8,
+      itemGap: 14,
+      textStyle: { color: PALETTE.inkMuted, fontSize: 11 },
+      data: series.map((s) => s.name),
+    },
+    tooltip: TRAIN_TOOLTIP,
+    series,
   }
 }
 

@@ -23,5 +23,20 @@ export const PALETTE = {
   catFire: '#D14A17',
 } as const
 
+/**
+ * 训练曲线调色板 —— 与类别色分开管理。
+ *
+ * 青/橙已经表示烟雾与明火，不能挪来表示训练/验证或损失类型，否则同一套界面里
+ * 同一个颜色会有两种含义。训练曲线因此有自己的一组色。
+ *
+ * 校验（surface #221C15，dark）：
+ *   node <dataviz>/scripts/validate_palette.js "#4C8FE0,#BE8219,#B85FA8,#4FA050" \
+ *        --mode dark --surface "#221C15"
+ *   L 均在 0.48–0.67 · C >= 0.10 · CVD 最差相邻 deutan ΔE 13.0 · 常视觉 ΔE 21.6 · 对比度 >= 3:1
+ *
+ * 顺序即分配顺序，不要重排：把绿与琥珀排到相邻会掉到 ΔE 4（protan 下几乎同色）。
+ */
+export const TRAIN_PALETTE = ['#4C8FE0', '#BE8219', '#B85FA8', '#4FA050'] as const
+
 /** 轴标签用等宽：它们需要纵向对齐，这正是等宽该出场的地方。 */
 export const AXIS_FONT = "'IBM Plex Mono', Consolas, monospace"
