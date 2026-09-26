@@ -29,7 +29,11 @@ def build_parser() -> argparse.ArgumentParser:
         choices=list(AnnotationFormat.all()),
         help="源标注格式",
     )
-    p.add_argument("--classes", default="flame,smoke", help="类别名,逗号分隔")
+    p.add_argument(
+        "--classes",
+        default="smoke,fire",
+        help="类别名,逗号分隔;顺序=class_id(默认 0=smoke,1=fire)",
+    )
     p.add_argument("--seed", type=int, default=DEFAULT_RANDOM_STATE)
     p.add_argument("--train-rate", type=float, default=DEFAULT_TRAIN_RATE)
     p.add_argument("--val-rate", type=float, default=DEFAULT_VAL_RATE)

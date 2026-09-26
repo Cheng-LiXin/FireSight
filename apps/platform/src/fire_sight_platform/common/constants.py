@@ -52,14 +52,15 @@ IMAGE_EXTENSIONS: Tuple[str, ...] = (".jpg", ".jpeg", ".png", ".bmp", ".webp")
 
 
 class FireSmokeClass:
-    """火灾烟雾场景双类(应用层也引用,故进共享常量)。"""
+    """火灾烟雾双类。顺序即 class_id：0=smoke，1=fire（与 scene.class_map 一致）。"""
 
-    FLAME = "flame"
     SMOKE = "smoke"
+    FIRE = "fire"
 
     @classmethod
     def all(cls) -> Tuple[str, ...]:
-        return (cls.FLAME, cls.SMOKE)
+        """有序类名，index == class_id。"""
+        return (cls.SMOKE, cls.FIRE)
 
 
 DEFAULT_FIRE_SMOKE_CLASSES: Tuple[str, ...] = FireSmokeClass.all()

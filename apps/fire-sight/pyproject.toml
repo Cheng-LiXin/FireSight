@@ -25,6 +25,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+web = [
+    "streamlit>=1.28",
+    "plotly>=5.18",
+    "pandas>=2.0",
+]
 dev = [
     "pytest>=7.4.0",
     "ruff>=0.1.0",
@@ -39,3 +44,6 @@ packages = ["src/fire_sight"]
 
 [tool.hatch.version]
 path = "src/fire_sight/_version.py"
+
+[project.scripts]
+fs-web = "fire_sight.cli:main"

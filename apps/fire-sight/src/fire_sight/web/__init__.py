@@ -1,3 +1,3 @@
-"""监测业务界面占位(Streamlit 等)。"""
+"""FireSight Web 监测界面(S4)。"""
 
-__all__: list[str] = []
+__all__: list = []

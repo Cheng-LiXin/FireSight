@@ -13,13 +13,13 @@ from visualization.core.types import Detection
 # 火灾场景默认配色 (BGR)
 DEFAULT_COLORS: Dict[str, Tuple[int, int, int]] = {
     "fire": (0, 64, 255),      # 橙红
-    "flame": (0, 64, 255),
+    "fire": (0, 64, 255),
     "smoke": (160, 160, 160),  # 灰
 }
 
 DEFAULT_LABEL_MAP: Dict[str, str] = {
     "fire": "明火",
-    "flame": "明火",
+    "fire": "明火",
     "smoke": "烟雾",
 }
 

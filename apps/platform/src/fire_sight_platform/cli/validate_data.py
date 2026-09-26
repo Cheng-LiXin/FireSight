@@ -27,13 +27,16 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     get_logger(base_path=LOGGING_DIR, log_type="validate")
 
-    ds = Path(args.dataset)
+    raw = args.dataset.strip()
+    ds = Path(raw)
     if ds.suffix.lower() in {".yaml", ".yml"}:
         yaml_path = ds
-        dataset_name = ds.parent.name
+        dataset_name = ds.parent.name or "dataset"
     else:
-        dataset_name = ds.name
-        yaml_path = PROCESSED_DATA_DIR / dataset_name / "data.yaml"
+        # 保留完整相对路径：支持 "D-Fire/train" 这类多级数据集名
+        rel = raw.replace("\\", "/").strip("/")
+        dataset_name = rel
+        yaml_path = PROCESSED_DATA_DIR / Path(rel) / "data.yaml"
     if not yaml_path.exists():
         logger.error(f"找不到数据集 yaml: {yaml_path}")
         return 1

@@ -60,7 +60,7 @@ def run_inference(cfg: InferConfig) -> InferStats:
     from ultralytics import YOLO
 
     model = YOLO(cfg.weights)
-    names = model.names if isinstance(model.names, dict) else {i: n for i, n in enumerate(model.names)}
+    from fire_sight.scene.class_map import display_name
 
     visualizer = BeautifyVisualizer()
     confirm = MultiFrameConfirm(confirm_frames=cfg.confirm_frames)
@@ -98,7 +98,7 @@ def run_inference(cfg: InferConfig) -> InferStats:
             if r.boxes is not None and len(r.boxes) > 0:
                 for b in r.boxes:
                     cls_id = int(b.cls[0])
-                    name = str(names.get(cls_id, cls_id))
+                    name = display_name(cls_id)
                     conf = float(b.conf[0])
                     x1, y1, x2, y2 = [float(v) for v in b.xyxy[0].tolist()]
                     lite.append(DetectionLite(name=name, conf=conf, box=(x1, y1, x2, y2)))

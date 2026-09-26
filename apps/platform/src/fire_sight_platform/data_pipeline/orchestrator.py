@@ -62,7 +62,7 @@ class DatasetPipeline:
         self.split_strategy = split_strategy
         self.raw_root = Path(raw_root or (paths_mod.RAW_DATA_DIR / dataset))
         self.out_root = Path(processed_root or (paths_mod.PROCESSED_DATA_DIR / dataset))
-        self.class_names = list(class_names) if class_names else ["flame", "smoke"]
+        self.class_names = list(class_names) if class_names else ["smoke", "fire"]
         self.class_to_id = {name: i for i, name in enumerate(self.class_names)}
 
     def _resolve_source_annotation_dir(self) -> Path:
