@@ -51,6 +51,12 @@ node_modules/
 *.tsbuildinfo
 # 构建产物 apps/web/dist 由上方 Python 段的通用规则 dist/ 一并覆盖
 
+# Playwright：失败时的截图、trace 与 HTML 报告都是本地产物
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/
+
 # ============================================================
 # 参考资料不入库（开发时对齐后写入 docs/）
 references/
