@@ -6,6 +6,7 @@ import logging
 import time
 import uuid
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 
@@ -74,7 +75,15 @@ def run_inference(cfg: InferConfig) -> InferStats:
 
     visualizer = BeautifyVisualizer()
     confirm = MultiFrameConfirm(confirm_frames=cfg.confirm_frames)
-    policy = AlertPolicy(cooldown_sec=cfg.cooldown_sec, location=cfg.camera_name)
+    # 本次运行的唯一前缀。没有它，event_id 每次运行都从 evt-1 重新开始，而它是
+    # 事件库主键 + INSERT OR REPLACE——第二次推理会把第一次的事件逐条覆盖，
+    # 片段文件同名也会被覆盖，历史就这样无声地少掉一半。
+    run_stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    policy = AlertPolicy(
+        cooldown_sec=cfg.cooldown_sec,
+        location=cfg.camera_name,
+        id_prefix=f"{run_stamp}-",
+    )
     buffer = RingClipBuffer(max_frames=cfg.buffer_frames)
     tts = TtsNotifier(enabled=cfg.enable_tts)
 
@@ -123,13 +132,15 @@ def run_inference(cfg: InferConfig) -> InferStats:
                 event = policy.fire(confirmed, conf=conf, frame_index=frame.index)
                 # 导出缓冲 + 后续几帧
                 tail = list(buffer.snapshot())[-cfg.buffer_frames :]
-                clip_name = f"{event.event_id}.mp4"
-                clip_path = clip_dir / clip_name
+                # 用返回路径而不是自己拼的那条：write_clip 会按可用编码挑后缀
+                # （webm / mp4），拼死的 .mp4 会指向一个不存在的文件。
                 try:
-                    write_clip(tail, clip_path, fps=25.0)
-                    clip_str = str(clip_path)
+                    written = write_clip(tail, clip_dir / f"{event.event_id}.mp4", fps=25.0)
+                    clip_str = str(written)
                 except Exception as exc:
-                    logger.warning(f"片段写出失败: {exc}")
+                    # 写不出可播放片段就不记路径：界面宁可显示「未留存」，
+                    # 也不要给一个点了没反应的「回放」按钮。
+                    logger.warning(f"片段写出失败，本次不记片段: {exc}")
                     clip_str = ""
                 store.insert(event, clip_path=clip_str)
                 tts.speak(event.message)

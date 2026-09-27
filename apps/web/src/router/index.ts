@@ -24,8 +24,8 @@ const router = createRouter({
     {
       path: '/events',
       name: 'events',
-      component: () => import('@/views/PendingView.vue'),
-      meta: { title: '告警事件', plan: '事件筛选分页、片段回放、标记误报、导出 CSV' },
+      component: () => import('@/views/EventsView.vue'),
+      meta: { title: '告警事件' },
     },
     {
       path: '/models',

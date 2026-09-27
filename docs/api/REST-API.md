@@ -518,6 +518,79 @@ OOM。**本次训练不会归档**，但现场记录留在 `runs/` 下，曲线�
 
 ---
 
+## 告警事件
+
+事件来自 `fs-infer` 的告警副作用，落在 `data/events/events.db`（表 `alerts`）。
+**库不存在时所有接口按空处理，不报错**——首次部署就是这个状态。
+
+### GET `/api/events`
+
+事件列表，新→旧。**筛选与分页都在 SQL 里做。**
+
+| 参数 | 默认 | 说明 |
+|---|---|---|
+| `keyword` | 空 | 匹配 消息 / 位置 / 事件号，不区分大小写 |
+| `label` | 空 | `smoke` 或 `fire`；空表示不限 |
+| `status` | `all` | `all` / `pending`（待复核）/ `false_positive`（已标误报） |
+| `start` / `end` | 空 | 日期范围 `YYYY-MM-DD`，含端点 |
+| `limit` | 50 | 1–200 |
+| `offset` | 0 | |
+
+```json
+{
+  "items": [
+    {
+      "event_id": "20260927-150317-evt-40", "ts": "2026-09-27T15:03:17",
+      "frame_index": 44, "labels": ["fire"], "conf": 0.871,
+      "location": "D-Fire test 机位", "message": "检测到明火，位置：D-Fire test 机位",
+      "has_clip": true, "is_false_positive": false
+    }
+  ],
+  "total": 80, "limit": 50, "offset": 0
+}
+```
+
+- **`total` 是当前筛选下的总数**，不是全库总数——前端据此算页码
+- `labels` 已拆成数组；`message` 用中文类别名（`labels` 仍是契约名）
+- **不外泄 `clip_path`**：只给 `has_clip`，且以磁盘为准（库里可能留着已失效的路径）
+- 排序为 `ts DESC, event_id DESC`。ts 只到秒，同一秒的多条必须靠第二个键定序，
+  否则分页会漂
+
+**错误**：400 `label` / `status` 取值非法（见下）；422 参数越界。
+
+> `label` 与 `status` 会**显式拒绝**未知取值。不校验的话 `label=flame` 会安静地返回
+> 0 条——用户看到的是「这段时间没有告警」，而事实是参数写错了。
+
+### POST `/api/events/{event_id}/false-positive`
+
+标记误报。返回 `{"event_id": "...", "is_false_positive": true}`。
+重复标记同一事件是幂等的（界面可能重放请求）。
+
+**错误**：404 事件不存在——原实现无条件 UPDATE，影响行数为 0 也当成功，
+前端会以为标上了。
+
+### GET `/api/events/export`
+
+按当前筛选导出**全部**事件为 CSV（不分页）。参数与列表接口相同（无 `limit`/`offset`）。
+
+响应带 `Content-Disposition: attachment`，交给浏览器原生下载。**带 UTF-8 BOM**，
+否则 Excel 打开中文列是乱码。
+
+### GET `/api/events/{event_id}/clip`
+
+事件片段（告警前后各若干帧）。
+
+只提供事件目录（`data/events/`）内的文件：`clip_path` 是库里的绝对路径，
+不做归属校验这个接口就是任意文件读取。支持 `.webm` / `.mp4` / `.mkv` / `.avi`。
+
+**错误**：404 事件不存在 / 该事件没有片段 / 路径指向的文件已丢；400 路径越界或格式不支持。
+
+> 片段编码必须是浏览器能解的（H.264 / VP8 / VP9 / AV1）。`write_clip` 会逐个候选
+> 编码试写并**回读验证**，全都不行就抛错、不记片段——界面宁可显示「未留存」，
+> 也不要给一个点了不出画面的「回放」。
+
+---
+
 ## 环境变量
 
 | 变量 | 默认 | 说明 |
@@ -533,7 +606,5 @@ OOM。**本次训练不会归档**，但现场记录留在 `runs/` 下，曲线�
 
 | 方法 | 路径 | 用途 |
 |---|---|---|
-| `GET` | `/api/events` | 告警事件列表（筛选 / 分页） |
-| `POST` | `/api/events/{id}/false-positive` | 标记误报 |
 | `POST` | `/api/eval` | 多权重对比评估 |
 | `GET` | `/api/models/{run_id}/download` | 下载权重 |

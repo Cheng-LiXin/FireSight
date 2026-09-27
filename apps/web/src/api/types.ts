@@ -188,6 +188,46 @@ export interface ArtifactInfo {
 
 export type JobStatus = 'running' | 'stopping' | 'done' | 'failed' | 'stopped'
 
+// --------------------------------------------------------------------------
+// 告警事件
+// --------------------------------------------------------------------------
+
+/** 一条告警事件。labels 后端已拆成数组；片段地址由 eventClipUrl 拼，不在这里。 */
+export interface AlertEventInfo {
+  event_id: string
+  /** ISO 字符串，形如 2026-09-27T15:03:07 */
+  ts: string
+  frame_index: number | null
+  labels: string[]
+  conf: number
+  location: string
+  message: string
+  has_clip: boolean
+  is_false_positive: boolean
+}
+
+/** 分页结果。total 是**当前筛选下**的总数，不是全库总数。 */
+export interface EventPage {
+  items: AlertEventInfo[]
+  total: number
+  limit: number
+  offset: number
+}
+
+export type EventStatusFilter = 'all' | 'pending' | 'false_positive'
+
+/** 用 type 而不是 interface：interface 没有隐式索引签名，
+ *  不能赋给 client.ts 里 qs() 的 Record<string, ...> 形参。 */
+export type EventQuery = {
+  keyword?: string
+  label?: string
+  status?: EventStatusFilter
+  start?: string
+  end?: string
+  limit?: number
+  offset?: number
+}
+
 export interface TrainJob {
   id: string
   dataset: string

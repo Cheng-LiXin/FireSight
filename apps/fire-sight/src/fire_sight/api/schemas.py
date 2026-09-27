@@ -94,6 +94,38 @@ class Overview(BaseModel):
 
 
 # --------------------------------------------------------------------------
+# 告警事件
+# --------------------------------------------------------------------------
+
+
+class AlertEventInfo(BaseModel):
+    """一条告警事件。labels 已拆成数组，前端不必再切逗号。
+
+    clip_path 不外泄：只给 has_clip，取片段走 `/api/events/{id}/clip`，
+    否则这个字段就是一个能读出任意路径的窗口。
+    """
+
+    event_id: str
+    ts: str
+    frame_index: Optional[int] = None
+    labels: List[str] = Field(default_factory=list)
+    conf: float = 0.0
+    location: str = ""
+    message: str = ""
+    has_clip: bool = False
+    is_false_positive: bool = False
+
+
+class EventPage(BaseModel):
+    """分页结果。total 是**当前筛选下**的总数，不是全库总数——前端据此算页码。"""
+
+    items: List[AlertEventInfo] = Field(default_factory=list)
+    total: int = 0
+    limit: int = 50
+    offset: int = 0
+
+
+# --------------------------------------------------------------------------
 # 模型
 # --------------------------------------------------------------------------
 

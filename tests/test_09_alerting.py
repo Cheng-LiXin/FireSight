@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -38,6 +39,8 @@ def test_event_store_roundtrip(tmp_path):
 
 
 def test_ring_buffer_and_write_clip(tmp_path):
+    import cv2
+
     from fire_sight.alerting import RingClipBuffer
     from fire_sight.alerting.clip_buffer import write_clip
 
@@ -48,7 +51,29 @@ def test_ring_buffer_and_write_clip(tmp_path):
     frames = buf.snapshot()
     assert len(frames) == 5  # 只保留最近
     out = write_clip(frames, tmp_path / "clip.mp4", fps=5)
+
+    # 返回的是**实际**路径，后缀可能不是 .mp4——浏览器播不了 mp4v，
+    # write_clip 会按可用编码挑一个（webm / mp4）
     assert out.exists() and out.stat().st_size > 0
+    assert out.suffix in {".webm", ".mp4"}
+
+    # 关键：必须真的可解码。只信 isOpened() 会漏掉「写出空容器」那种静默失败
+    cap = cv2.VideoCapture(str(out))
+    got = 0
+    while True:
+        ok, _ = cap.read()
+        if not ok:
+            break
+        got += 1
+    cap.release()
+    assert got == len(frames), "写出的片段回读帧数不符"
+
+
+def test_write_clip_rejects_empty_frames(tmp_path):
+    from fire_sight.alerting.clip_buffer import write_clip
+
+    with pytest.raises(ValueError):
+        write_clip([], tmp_path / "x.mp4")
 
 
 def test_tts_disabled_or_fallback():

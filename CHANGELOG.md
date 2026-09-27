@@ -9,6 +9,81 @@
 
 ---
 
+## [v1.5.0] — 2026-09-27
+
+补齐 S5 规划的**告警事件**模块（筛选分页、片段回放、标记误报、导出 CSV）。
+过程中挖出并修掉两个此前一直存在、但没人碰到的静默缺陷。
+
+### 新增
+
+**告警事件页面**（`apps/web/src/views/EventsView.vue`，替换原占位页）
+- 筛选：关键词（消息 / 位置 / 事件号）、类别、状态（全部 / 待复核 / 已标误报）、日期范围
+- 分页：每页 20 / 50 / 100，翻页不重不漏；筛选变化自动回到第一页
+- 片段回放：点击展开 `<video>`，走「取景窗」容器
+- 标记误报：就地复核；导出 CSV 交给浏览器原生下载
+- 类别中文名从 `/api/system/status` 取，不在前端再抄一份契约
+- 空态区分「一条都没有」与「当前筛选没匹配」——全库数量取自 system status
+
+**REST 接口**（`apps/fire-sight/src/fire_sight/api/routers/events.py`）
+- `GET /api/events` — 筛选 + 分页，返回 `{items, total, limit, offset}`
+- `POST /api/events/{id}/false-positive` — 标记误报，幂等
+- `GET /api/events/export` — 按当前筛选导出全部为 CSV（带 BOM，Excel 不乱码）
+- `GET /api/events/{id}/clip` — 片段回放，限定事件目录内
+
+### 修复
+
+- **第二次推理会静默覆盖第一次的事件**。`event_id` 是 `evt-{seq}` 这样的**每次运行
+  从 1 开始**的计数器，而它是事件库主键 + `INSERT OR REPLACE`——跑第二次就把第一次
+  逐条改写成新时间，片段文件同名也被覆盖。事件历史因此被无声截断在一轮之内。
+  改为 `AlertPolicy(id_prefix=...)`，`run_inference` 传入运行时间戳前缀。
+  实测：连续两次推理，事件数 40 → **80**（修复前会停在 40），来自 2 个不同运行。
+- **片段编码浏览器放不出来**。`write_clip` 用的是 `mp4v`（MPEG-4 Part 2），
+  而浏览器只认 H.264 / VP8 / VP9 / AV1。实测 `<video>` 直接报
+  `DEMUXER_ERROR_NO_SUPPORTED_STREAMS`：src 正确、readyState 0、尺寸 0×0，
+  界面上只剩一条控制栏。片段回放从上线起就是坏的。
+  改为逐个候选编码试写（VP9/WebM → VP8 → avc1 → AV1），**每个都回读帧数验证**。
+- **`write_clip` 会静默写出空容器**。本机缺 OpenH264 时 `writer.isOpened()` 照样返回
+  `True`，不抛异常，却写出一个只有文件头、没有帧的 1001 字节 mp4。
+  现在以「回读帧数 == 写入帧数」为准；全都不行就抛错，**`mp4v` 故意不作兜底**——
+  浏览器播不了的片段比「没有片段」更糟：界面会给出回放按钮，用户点了永远没画面。
+- **禁用态的 ghost 按钮看不出来**。`base.css` 只有 `.fs-btn-primary:disabled`，
+  `.fs-btn-ghost` 没有。功能上确实 disabled（`toBeDisabled()` 通过），外观却和可点的
+  一模一样——告警事件的「标为误报」与训练页的「停止中…」都受影响。
+- **`fs-val` / `evaluate_weights` 与归档 `metrics.txt` 口径不一致**（评估路径修复，
+  详见 v1.4.0 条目）。
+
+### 变更
+
+- **筛选从 Python 移到 SQL**（`EventStore._where` / `query_events` / `count_events`）。
+  原实现是「取前 N 条再在 Python 里过滤」——分页会重复或漏记录，总数无从得知，
+  筛稀有类别时还可能明明有匹配却返回空。
+- 排序加 `event_id` 作为第二键。`ts` 只到秒，同一秒的多条没有稳定定序时分页会漂。
+- **事件消息改用中文类别名**（「检测到明火、烟雾，位置：…」）。`labels` 字段仍是契约名。
+- `label` / `status` 传未知值**显式返回 400**。不校验的话 `label=flame` 会安静地
+  返回 0 条，看起来像「这段时间没有告警」。
+- `mark_false_positive` 返回是否命中，事件不存在时 404；原实现无条件 UPDATE。
+- 不外泄 `clip_path`：列表只给 `has_clip`，且以磁盘为准。
+
+### 回归测试
+
+- `tests/test_21_events_api.py`（24 条）：筛选各维度、分页不重不漏、参数校验 400、
+  误报 404 与幂等、CSV 的 BOM 与 `\r\r\n` 检查、片段的越界与失效路径
+- `tests/test_09_alerting.py`：片段写完后**回读帧数**，锁住「空容器」那类静默失败
+- `apps/web/e2e/events.spec.ts`（8 条）：片段回放断言的是**解码结果**
+  （readyState ≥ 2 且 videoWidth > 0），不是 src 字符串——mp4v 那版 src 完全正确
+
+后端 117 → **142 passed**；前端 E2E 6 → **14 passed**（另 2 条按既有 skip 作用域跳过）。
+
+### 未做
+
+- 事件库的演示数据由**真实推理**生成（选 `data/processed/D-Fire/train` test 集里有标注的
+  45 张图，`--cooldown 0 --buffer-frames 20`），两次运行共 80 条。
+  **`cooldown=0` 是为凑够演示数据刻意关掉的**——告警冷却按墙钟计时，图片目录跑得远快于
+  真实时间，保持默认 30 秒冷却几十张图只会响一两次。事件本身没有伪造。
+- 片段目前只留 20 帧（0.8 秒），够验证回放，不够看火势发展过程。
+
+---
+
 ## [v1.4.0] — 2026-09-27
 
 把整套视觉方向从「热成像取景」换成「现代简约 · 灰白黑」，并重建了已经丢失的配色校验器。

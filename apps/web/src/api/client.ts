@@ -4,6 +4,8 @@ import type {
   ArtifactInfo,
   BatchResult,
   CurvesResponse,
+  EventPage,
+  EventQuery,
   InferResult,
   ModelInfo,
   Overview,
@@ -14,6 +16,17 @@ import type {
 } from './types'
 
 const BASE = '/api'
+
+/** 把查询对象拼成 query string，跳过空值——空参数不该出现在 URL 里。 */
+function qs(params: Record<string, string | number | undefined>): string {
+  const sp = new URLSearchParams()
+  for (const [k, v] of Object.entries(params)) {
+    if (v === undefined || v === '') continue
+    sp.set(k, String(v))
+  }
+  const s = sp.toString()
+  return s ? `?${s}` : ''
+}
 
 export class ApiError extends Error {
   constructor(
@@ -100,9 +113,26 @@ export const api = {
     })
   },
 
+  // ------------------------------------------------------------------
+  // 告警事件
+  // ------------------------------------------------------------------
+
+  events: (query: EventQuery = {}) => request<EventPage>(`/events${qs(query)}`),
+
+  markEventFalsePositive: (id: string) =>
+    request<{ event_id: string; is_false_positive: boolean }>(
+      `/events/${encodeURIComponent(id)}/false-positive`,
+      { method: 'POST' },
+    ),
+
+  /** 片段直接给 URL 让 <video> 去取，不必把几十 MB 视频走一遍 JS。 */
+  eventClipUrl: (id: string) => `${BASE}/events/${encodeURIComponent(id)}/clip`,
+
+  /** 导出交给浏览器原生下载（带 Content-Disposition），前端不解析 CSV。 */
+  eventsExportUrl: (query: EventQuery = {}) => `${BASE}/events/export${qs(query)}`,
+
   // run_id 里含斜杠，走查询参数而不是路径段——否则路由会把它切碎
-  trainRuns: () => request<TrainRun[]>('/train/runs'),
-  trainCurves: (runId: string) =>
+  trainRuns: () => request<TrainRun[]>('/train/runs'),  trainCurves: (runId: string) =>
     request<CurvesResponse>(`/train/curves?run_id=${encodeURIComponent(runId)}`),
   trainArtifacts: (runId: string) =>
     request<ArtifactInfo[]>(`/train/artifacts?run_id=${encodeURIComponent(runId)}`),

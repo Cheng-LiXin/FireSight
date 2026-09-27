@@ -360,9 +360,9 @@ venv 是在这条入口加进 `pyproject.toml` 之前装的（`.venv\Scripts\` �
 欢迎提 Issue 与 PR。提交前请确保：
 
 ```bash
-pytest tests apps/platform/tests -q      # 后端，预期 116 passed
+pytest tests apps/platform/tests -q      # 后端，预期 142 passed
 cd apps/web && npm run typecheck         # 前端类型检查通过
-npm run test:e2e                         # 前端端到端（需先起 fs-serve）
+npm run test:e2e                         # 前端端到端（需先起 fs-serve），预期 14 passed / 2 skipped
 ```
 
 前端 E2E 用 Playwright 驱动系统已装的 Edge，不下载自带浏览器；

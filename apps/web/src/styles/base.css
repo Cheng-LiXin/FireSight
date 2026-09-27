@@ -295,6 +295,16 @@ input[type='range']::-webkit-slider-thumb {
   border-color: var(--dross);
 }
 
+/* 禁用态必须看得出来。原来没有这条：按钮功能上确实 disabled，
+   外观却和可点的一模一样——告警事件页的「标为误报」与训练页的「停止中…」
+   都受此影响，自动化断言 toBeDisabled() 通过，人眼却分不出。 */
+.fs-btn-ghost:disabled,
+.fs-btn-ghost:disabled:hover {
+  color: var(--ink-3);
+  border-color: var(--cinder);
+  cursor: default;
+}
+
 /* ==========================================================================
    区块与提示
    ========================================================================== */
