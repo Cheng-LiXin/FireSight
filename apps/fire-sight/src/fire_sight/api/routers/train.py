@@ -185,13 +185,15 @@ def get_artifact(run_id: str = Query(...), name: str = Query(...)) -> FileRespon
 def get_limits(
     imgsz: int = Query(480, ge=32, le=2048),
     device: str = Query("0"),
+    model: str = Query("yolo11n.pt", description="权重名或路径；决定模型规模因子"),
 ) -> Dict[str, Any]:
-    """本机在给定 imgsz 下的 batch 上限。
+    """本机在给定 imgsz 与模型下的 batch 上限。
 
     前端据此提前提示，用户不必先提交一次、拿到 400 才知道超了。
-    `checked=false` 表示没做限制（CPU 或探测不到显卡）。
+    `checked=false` 表示没做限制（CPU 或探测不到显卡）；
+    `model_measured=false` 表示该模型规模没有实测数据，上限是估的。
     """
-    return deps.vram_limits(device, imgsz)
+    return deps.vram_limits(device, imgsz, model)
 
 
 @router.post("/jobs", status_code=201)
@@ -207,10 +209,15 @@ def start_job(req: TrainJobRequest) -> Dict[str, Any]:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     # 再挡显存。等 ultralytics 自己报 OOM，已经烧掉一次模型加载和几分钟了。
-    limits = deps.vram_limits(req.device, req.imgsz)
+    # 必须带上模型：不同规模的激活开销差到 7 倍，只看 batch × imgsz² 会放行 yolo11m
+    # 在 n 的额度上跑，实测那会超预算 2.2 倍。
+    limits = deps.vram_limits(req.device, req.imgsz, req.model)
     if limits["checked"]:
         verdict = check_vram(
-            imgsz=req.imgsz, batch=req.batch, total_mb=limits["total_mb"]
+            imgsz=req.imgsz,
+            batch=req.batch,
+            total_mb=limits["total_mb"],
+            model=req.model,
         )
         if not verdict.ok:
             raise HTTPException(status_code=400, detail=verdict.message)

@@ -195,16 +195,20 @@ def resolve_device(requested: str) -> str:
 # --------------------------------------------------------------------------
 
 
-def vram_limits(device: str, imgsz: int) -> Dict[str, Any]:
-    """给定设备与 imgsz，本机允许的最大 batch。
+def vram_limits(device: str, imgsz: int, model: str = "yolo11n.pt") -> Dict[str, Any]:
+    """给定设备、imgsz 与模型，本机允许的最大 batch。
 
-    预算模型与标定依据见 `fire_sight_platform.training.vram`。
+    预算模型、标定点与**模型规模因子**的实测依据见
+    `fire_sight_platform.training.vram`。
 
     探测不到显卡（或显式选了 CPU）时一律不拦：探测失败是环境问题，
     不该变成训练的拦路石。拦错比不拦更烦人。
     """
+    from fire_sight_platform.training import vram
+
+    stem = vram.model_stem(model)
     if str(device).lower() == "cpu":
-        return {"checked": False, "reason": "cpu", "max_batch": None}
+        return {"checked": False, "reason": "cpu", "max_batch": None, "model": stem}
 
     info = gpu_info()
     if not info.get("available"):
@@ -212,16 +216,20 @@ def vram_limits(device: str, imgsz: int) -> Dict[str, Any]:
             "checked": False,
             "reason": info.get("reason", "GPU 不可用"),
             "max_batch": None,
+            "model": stem,
         }
 
-    from fire_sight_platform.training import vram
-
     total = int(info["memory_total_mb"])
+    factor, measured = vram.model_factor(model)
     return {
         "checked": True,
         "total_mb": total,
         "px_budget": vram.px_budget(total),
-        "max_batch": vram.max_batch(imgsz, total),
+        "max_batch": vram.max_batch(imgsz, total, model),
+        "model": stem,
+        "factor": factor,
+        # False 表示这个模型规模没有实测依据，上限是估的——界面要说明
+        "model_measured": measured,
         "reference": vram.REFERENCE_NOTE,
     }
 

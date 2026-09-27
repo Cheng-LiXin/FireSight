@@ -154,15 +154,16 @@ const overBudget = computed(() => {
   return form.value.batch > l.max_batch
 })
 
-// imgsz 与 device 各触发一次请求，返回顺序不保证。没有这个序号，
+// imgsz / device / model 各触发一次请求，返回顺序不保证。没有这个序号，
 // 慢的那次会覆盖快的结果——实测切到 CPU 后，提示仍显示 GPU 的上限，
 // 而 overBudget 会据此禁掉一个 CPU 下完全合法的配置。
 let limitsSeq = 0
+let limitsTimer: ReturnType<typeof setTimeout> | undefined
 
 async function loadLimits(): Promise<void> {
   const issued = ++limitsSeq
   try {
-    const next = await api.trainLimits(form.value.imgsz, form.value.device)
+    const next = await api.trainLimits(form.value.imgsz, form.value.device, form.value.model)
     if (issued !== limitsSeq) return
     limits.value = next
   } catch {
@@ -171,7 +172,14 @@ async function loadLimits(): Promise<void> {
   }
 }
 
-watch(() => [form.value.imgsz, form.value.device], loadLimits)
+// model 是自由文本输入，逐字符请求会打出一串请求；统一延后一拍。
+// 序号守卫仍然保留，处理「后发先至」。
+function scheduleLimits(): void {
+  if (limitsTimer) clearTimeout(limitsTimer)
+  limitsTimer = setTimeout(() => void loadLimits(), 300)
+}
+
+watch(() => [form.value.imgsz, form.value.device, form.value.model], scheduleLimits)
 
 /** 实时曲线的事件结构与历史曲线同构，图表配置因此可以整套复用。 */
 const liveLossPanels = computed(() =>
@@ -383,19 +391,25 @@ onBeforeUnmount(disconnect)
           v-if="limits?.checked && limits.max_batch != null"
           class="vram"
           :class="{ 'vram--over': overBudget }"
-          :title="`按 batch × imgsz² 的显存预算推算，标定自 ${limits.reference}`"
+          :title="`按 batch × imgsz² × 模型规模因子(${limits.factor}) 推算，标定自 ${limits.reference}`"
           role="status"
         >
           <template v-if="overBudget">
             本机 <span class="fs-num">{{ limits.total_mb }}</span> MB 显存，
-            imgsz=<span class="fs-num">{{ form.imgsz }}</span> 时批量最多
+            {{ limits.model }} 在 imgsz=<span class="fs-num">{{ form.imgsz }}</span> 时批量最多
             <span class="fs-num">{{ limits.max_batch }}</span>；当前
             <span class="fs-num">{{ form.batch }}</span> 会超预算，后端会拒绝。
           </template>
           <template v-else>
             本机 <span class="fs-num">{{ limits.total_mb }}</span> MB 显存，
-            imgsz=<span class="fs-num">{{ form.imgsz }}</span> 时批量上限
+            {{ limits.model }} 在 imgsz=<span class="fs-num">{{ form.imgsz }}</span> 时批量上限
             <span class="fs-num">{{ limits.max_batch }}</span>。
+          </template>
+          <!-- 估出来的上限要说出来，否则用户会以为它也实测过 -->
+          <template v-if="limits.model_measured === false">
+            <br /><span class="vram__caveat"
+              >该模型规模没有实测数据，上限按 yolo11m 估算——参数更多时请再留余量。</span
+            >
           </template>
         </p>
       </div>
@@ -608,6 +622,11 @@ onBeforeUnmount(disconnect)
 .vram--over {
   color: var(--accent);
   border-left-color: var(--accent);
+}
+
+/* 「这个上限是估的」——压低一档，不跟主句抢，但必须看得见 */
+.vram__caveat {
+  color: var(--dross);
 }
 
 .field__control.is-over {

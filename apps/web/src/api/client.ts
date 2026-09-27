@@ -148,9 +148,12 @@ export const api = {
     })
   },
 
-  /** 本机在给定 imgsz 下的 batch 上限。提前提示，用户不必提交一次才拿到 400。 */
-  trainLimits: (imgsz: number, device: string) =>
-    request<VramLimits>(`/train/limits?imgsz=${imgsz}&device=${encodeURIComponent(device)}`),
+  /** 本机在给定 imgsz 与模型下的 batch 上限。提前提示，用户不必提交一次才拿到 400。
+   *  必须带模型：不同规模的激活开销差到 7 倍，只按 imgsz 算会放行超预算的 batch。 */
+  trainLimits: (imgsz: number, device: string, model: string) =>
+    request<VramLimits>(
+      `/train/limits?imgsz=${imgsz}&device=${encodeURIComponent(device)}&model=${encodeURIComponent(model)}`,
+    ),
 
   trainJobs: () => request<TrainJob[]>('/train/jobs'),
 
@@ -186,4 +189,10 @@ export interface VramLimits {
   px_budget?: number
   max_batch?: number | null
   reference?: string
+  /** 参与预算的模型主名，如 yolo11n */
+  model?: string
+  /** 该模型规模相对 yolo11n 的显存开销倍数 */
+  factor?: number
+  /** false 表示这个模型规模没有实测依据，上限是按 yolo11m 估的 */
+  model_measured?: boolean
 }

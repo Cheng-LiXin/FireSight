@@ -7,8 +7,8 @@ import { expect, test } from '@playwright/test'
  * 没有序号守卫时，慢的那次会覆盖快的结果——实测把设备切成 CPU 后，提示仍然
  * 显示 GPU 的批量上限，而 `overBudget` 会据此禁掉一个 CPU 下完全合法的配置。
  *
- * 这条不需要跑训练，所以单独一个文件：`training.spec.ts` 的 beforeEach 会让
- * 整个文件在不设 FIRESIGHT_E2E_TRAIN 时跳过。
+ * 单独一个文件：它和训练生命周期无关，是「请求顺序」这个独立问题的回归，
+ * 分开便于定位，也不必背上真训练那条 5 分钟的超时。
  */
 
 test('切到 CPU 后显存提示消失', async ({ page }) => {
