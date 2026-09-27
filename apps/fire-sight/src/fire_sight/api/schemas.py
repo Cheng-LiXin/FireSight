@@ -135,10 +135,79 @@ class ModelInfo(BaseModel):
 
     run_id: str
     mAP50: Optional[float] = None
+    mAP50_95: Optional[float] = None
     precision: Optional[float] = None
     recall: Optional[float] = None
+    epochs: Optional[int] = None
+    size_mb: Optional[float] = None
+    dataset: Optional[str] = None
     created: Optional[str] = None
     is_active: bool = False
+
+
+class ActiveModel(BaseModel):
+    """当前权重的解析结果。
+
+    `source` 说明它怎么来的：`pinned`（用户指定的）/ `fallback-newest`（没指定过，
+    取最新）/ `fallback-missing`（指定的已失效，暂用最新）/ `none`（没有归档）。
+    """
+
+    run_id: Optional[str] = None
+    pinned: Optional[str] = None
+    source: str = "none"
+    note: str = ""
+
+
+class ActiveModelRequest(BaseModel):
+    run_id: str = Field(min_length=1)
+
+
+# --------------------------------------------------------------------------
+# 多权重对比评估
+# --------------------------------------------------------------------------
+
+
+class EvalModelResult(BaseModel):
+    """一个权重在对比里的评估结果。失败时 error 非空、指标为 None。"""
+
+    run_id: str
+    mAP50: Optional[float] = None
+    mAP50_95: Optional[float] = None
+    precision: Optional[float] = None
+    recall: Optional[float] = None
+    per_class: Dict[str, float] = Field(default_factory=dict)
+    speed_ms: Dict[str, float] = Field(default_factory=dict)
+    error: Optional[str] = None
+
+
+class EvalJobInfo(BaseModel):
+    """一次对比评估任务。同 SSE 一样，前端轮询它拿进度。
+
+    `done` / `total` 让界面能画「正在评估 2/3」——逐个模型出结果，
+    不必等到全部跑完才有反馈。
+    """
+
+    id: str
+    run_ids: List[str] = Field(default_factory=list)
+    dataset: Optional[str] = None
+    imgsz: int = 640
+    split: str = "val"
+    status: str = "running"
+    started_at: Optional[str] = None
+    finished_at: Optional[str] = None
+    done: int = 0
+    total: int = 0
+    results: List[EvalModelResult] = Field(default_factory=list)
+    error: Optional[str] = None
+
+
+class EvalRequest(BaseModel):
+    """发起一次对比。run_ids 至少两个——单个权重用不到「对比」。"""
+
+    run_ids: List[str] = Field(min_length=2, max_length=5)
+    imgsz: int = Field(640, ge=32, le=2048)
+    dataset: str = ""
+    device: str = "0"
 
 
 # --------------------------------------------------------------------------

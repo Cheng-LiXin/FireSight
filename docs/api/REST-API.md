@@ -591,6 +591,125 @@ OOM。**本次训练不会归档**，但现场记录留在 `runs/` 下，曲线�
 
 ---
 
+## 模型库
+
+归档权重在 `models/trained/<run_id>/`，每个含 `best.pt` / `metrics.txt` / `train_config.yaml`。
+`run_id` 是相对路径（早期布局带一层实验名，如 `20260926-190635-D-Fire/train-yolo11n`），
+**含斜杠，所以一律走查询参数或请求体，不走路径段**。
+
+### 当前权重
+
+「当前权重」是**用户显式指定**的归档，存在 `models/active.json`（gitignore）。
+
+> 它以前等于「最新归档」，于是一次实验跑完就会悄悄顶掉线上模型——2026-09-27 那次
+> 30 轮实验（mAP50 0.7432）就这样顶掉了 0.7675，页面上没有任何提示。
+> **只取最新是错的：它把「跑了一次实验」等同于「换掉生产模型」。**
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| `GET` | `/api/models/active` | 当前权重及其来由 |
+| `POST` | `/api/models/active` | body `{"run_id": "..."}`，设为当前 |
+| `DELETE` | `/api/models/active` | 清除指定，回到「取最新归档」 |
+
+```json
+{
+  "run_id": "20260927-17606-D-Fire-train-yolo11n",
+  "pinned": "20260927-112418-D-Fire-train-yolo11n",
+  "source": "pinned",
+  "note": ""
+}
+```
+
+`source` 取值：
+
+| 值 | 含义 |
+|---|---|
+| `pinned` | 用户指定，且该归档存在 |
+| `fallback-newest` | 从没指定过，按最新归档取 |
+| `fallback-missing` | 指定的归档已不存在（被删），暂用最新。**`note` 会说明** |
+| `none` | 一个归档都没有 |
+
+**错误**：404 `run_id` 不存在；422 `run_id` 缺失或为空。
+
+`POST` / `DELETE` 都返回更新后的同一个结构，前端不必再查一次。
+
+### GET `/api/models`
+
+归档列表，新→旧。指标来自 `metrics.txt`，`epochs` 来自 `train_config.yaml`，
+`size_mb` 取自 `best.pt` 的实际大小。缺失一律是 `null`，前端显示「—」而不是 0。
+
+```json
+[
+  {
+    "run_id": "20260927-112418-D-Fire-train-yolo11n",
+    "mAP50": 0.7674, "mAP50_95": 0.4436,
+    "precision": 0.7901, "recall": 0.6969,
+    "epochs": 50, "size_mb": 5.2,
+    "dataset": "D-Fire/train",
+    "created": "2026-09-27T12:46:03",
+    "is_active": false
+  }
+]
+```
+
+### GET `/api/models/download`
+
+参数 `run_id`（必填）。返回 `best.pt` 本体，带 `Content-Disposition: attachment`，
+文件名里的斜杠会被拍平成下划线。
+
+**错误**：404 归档不存在或缺少权重文件。
+
+### 多权重对比评估
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| `POST` | `/api/eval` | 发起对比，`201` 返回任务 |
+| `GET` | `/api/eval/jobs` | 本次服务进程的任务列表 |
+| `GET` | `/api/eval/jobs/{job_id}` | 轮询进度与结果 |
+
+请求：
+
+```json
+{ "run_ids": ["a", "b"], "imgsz": 640, "dataset": "", "device": "0" }
+```
+
+- `run_ids` **至少两个、最多五个**（单个权重用不到对比）
+- `dataset` 留空时取**第一个选中模型记录的数据集**——对比必须落在同一份 val 上
+- 评估固定跑 `val` split
+
+响应（任务）：
+
+```json
+{
+  "id": "c1f678a681b4", "status": "running",
+  "run_ids": ["a", "b"], "dataset": "D-Fire/train",
+  "imgsz": 640, "split": "val",
+  "started_at": "2026-09-27T19:21:40", "finished_at": null,
+  "done": 1, "total": 2,
+  "results": [
+    { "run_id": "a", "mAP50": 0.7385, "mAP50_95": 0.4097,
+      "precision": 0.7376, "recall": 0.6745,
+      "per_class": {"smoke": 0.459, "fire": 0.360},
+      "speed_ms": {"inference": 1.72}, "error": null }
+  ],
+  "error": null
+}
+```
+
+- **`done`/`total` 逐个模型推进**，不必等全部跑完才有反馈
+- **结果行的键集合固定**：成功与失败两种情况字段相同，失败时 `error` 非空、指标为 `null`。
+  形状随结果变化会让前端给每个字段写两套分支，而漏键的后果是渲染崩掉
+- 单个模型失败**不会**让整场对比作废：那一行记 `error`，其余照跑
+- 为什么不是同步接口：一次评估要跑完整 val split（1722 张），同步 POST 会先撞前端超时
+- 为什么用轮询不用 SSE：进度粒度是「逐个模型」，隔两秒问一次足够，也不必占长连接
+
+**错误**：404 任一 `run_id` 不存在；422 数量越界；409 GPU 被占用（训练中）
+
+> 起任务前先抢 `GPU_LOCK`，抢不到立刻 409 而不是起个任务再失败。
+> 任务结束后释放；服务重启任务表清空（与训练任务一致）。
+
+---
+
 ## 环境变量
 
 | 变量 | 默认 | 说明 |
@@ -602,9 +721,4 @@ OOM。**本次训练不会归档**，但现场记录留在 `runs/` 下，曲线�
 
 ## 待实现接口
 
-以下接口尚未实现，列出以便前端与后端对齐预期：
-
-| 方法 | 路径 | 用途 |
-|---|---|---|
-| `POST` | `/api/eval` | 多权重对比评估 |
-| `GET` | `/api/models/{run_id}/download` | 下载权重 |
+暂无。`docs/ROADMAP.md` 的 P1 模块至此全部完成。

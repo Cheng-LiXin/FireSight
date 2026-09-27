@@ -30,8 +30,8 @@ const router = createRouter({
     {
       path: '/models',
       name: 'models',
-      component: () => import('@/views/PendingView.vue'),
-      meta: { title: '模型库', plan: '归档权重列表与指标、设为当前、下载、多权重对比评估' },
+      component: () => import('@/views/ModelsView.vue'),
+      meta: { title: '模型库' },
     },
     { path: '/:pathMatch(.*)*', redirect: '/' },
   ],

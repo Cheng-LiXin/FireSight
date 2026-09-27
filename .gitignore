@@ -74,6 +74,10 @@ models/trained/*/
 !models/pretrained/README.md
 !models/trained/README.md
 
+# 当前权重的指针。它描述的是**本机哪一份本地归档**生效，而归档本身不入库
+# （5 MB 级权重），提交它只会在别的机器上指向不存在的文件。
+models/active.json
+
 runs/*
 !runs/README.md
 

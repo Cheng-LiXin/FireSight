@@ -1,9 +1,12 @@
 /** HTTP 客户端。开发时经 Vite 代理到 fs-serve，故一律用相对路径。 */
 
 import type {
+  ActiveModel,
   ArtifactInfo,
   BatchResult,
   CurvesResponse,
+  EvalJobInfo,
+  EvalRequest,
   EventPage,
   EventQuery,
   InferResult,
@@ -90,6 +93,27 @@ export const api = {
   systemStatus: () => request<SystemStatus>('/system/status'),
   overview: (days = 30) => request<Overview>(`/overview?days=${days}`),
   models: () => request<ModelInfo[]>('/models'),
+  activeModel: () => request<ActiveModel>('/models/active'),
+
+  /** 设为当前权重。run_id 含斜杠，走 body 而不是路径段。 */
+  setActiveModel: (runId: string) =>
+    request<ActiveModel>('/models/active', {
+      method: 'POST',
+      body: JSON.stringify({ run_id: runId }),
+    }),
+
+  /** 清除指定，回到「取最新归档」。 */
+  clearActiveModel: () => request<ActiveModel>('/models/active', { method: 'DELETE' }),
+
+  /** 权重下载交给浏览器原生下载（带 Content-Disposition）。 */
+  modelDownloadUrl: (runId: string) =>
+    `${BASE}/models/download?run_id=${encodeURIComponent(runId)}`,
+
+  startEval: (payload: EvalRequest) =>
+    request<EvalJobInfo>('/eval', { method: 'POST', body: JSON.stringify(payload) }),
+  evalJobs: () => request<EvalJobInfo[]>('/eval/jobs'),
+  evalJob: (id: string) => request<EvalJobInfo>(`/eval/jobs/${encodeURIComponent(id)}`),
+
   sources: () => request<SourceOption[]>('/infer/sources'),
 
   inferImage(file: File, params: InferParams): Promise<InferResult> {

@@ -92,10 +92,62 @@ export interface ModelInfo {
   run_id: string
   /** 指标缺失时为 null——「没测过」和「测得 0 分」不是一回事，不要显示 0 */
   mAP50: number | null
+  mAP50_95: number | null
   precision: number | null
   recall: number | null
+  /** 训练配置里的轮数；归档没记时为 null */
+  epochs: number | null
+  size_mb: number | null
+  dataset: string | null
   created: string | null
   is_active: boolean
+}
+
+/** 当前权重的解析结果。source 说明「为什么是它」，note 是给人看的一句解释。 */
+export interface ActiveModel {
+  run_id: string | null
+  pinned: string | null
+  source: 'pinned' | 'fallback-newest' | 'fallback-missing' | 'none'
+  note: string
+}
+
+// --------------------------------------------------------------------------
+// 多权重对比评估
+// --------------------------------------------------------------------------
+
+/** 一个权重在对比里的结果。键集合固定，失败时 error 非空、指标为 null。 */
+export interface EvalModelResult {
+  run_id: string
+  mAP50: number | null
+  mAP50_95: number | null
+  precision: number | null
+  recall: number | null
+  per_class: Record<string, number>
+  speed_ms: Record<string, number>
+  error: string | null
+}
+
+export interface EvalJobInfo {
+  id: string
+  run_ids: string[]
+  dataset: string | null
+  imgsz: number
+  split: string
+  status: 'running' | 'done' | 'failed'
+  started_at: string | null
+  finished_at: string | null
+  /** 已出结果的模型数 / 总数——界面据此画「正在评估 2/3」 */
+  done: number
+  total: number
+  results: EvalModelResult[]
+  error: string | null
+}
+
+export interface EvalRequest {
+  run_ids: string[]
+  imgsz?: number
+  dataset?: string
+  device?: string
 }
 
 // --------------------------------------------------------------------------

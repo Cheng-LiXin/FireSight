@@ -66,7 +66,19 @@ def test_list_models_shape(client):
     body = client.get("/api/models").json()
     assert isinstance(body, list)
     for m in body:
-        assert set(m) == {"run_id", "mAP50", "precision", "recall", "created", "is_active"}
+        # 精确集合而不是「包含」：字段被无意增删时这条要挂
+        assert set(m) == {
+            "run_id",
+            "mAP50",
+            "mAP50_95",
+            "precision",
+            "recall",
+            "epochs",
+            "size_mb",
+            "dataset",
+            "created",
+            "is_active",
+        }
         # 指标缺失必须是 null，不能是 0——「没测过」和「测得 0 分」不是一回事
         assert m["mAP50"] is None or isinstance(m["mAP50"], float)
 

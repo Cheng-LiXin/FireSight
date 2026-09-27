@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from fire_sight.services.model_service import ActiveModelStore, ActiveState
 from fire_sight_platform.common.paths import (
     DATA_DIR,
     MODELS_DIR,
@@ -25,6 +26,9 @@ from fire_sight_platform.common.paths import (
 EVENTS_DB: Path = Path(
     os.environ.get("FIRE_SIGHT_EVENTS_DB", str(DATA_DIR / "events" / "events.db"))
 )
+
+# 用户显式指定的「当前权重」。默认 models/active.json（gitignore，见 model_service）。
+ACTIVE_MODEL_STORE = ActiveModelStore(MODELS_DIR / "active.json")
 
 
 class GpuLock:
@@ -140,10 +144,31 @@ def archived_runs() -> List[ArchivedRun]:
     return sorted(runs.values(), key=lambda r: r.run_id, reverse=True)
 
 
+def active_model_state() -> ActiveState:
+    """当前权重的解析结果（含「为什么是它」）。
+
+    识别/推理路径用 `active_run()`，需要向用户解释的地方用这个。
+    """
+    return ACTIVE_MODEL_STORE.resolve([r.run_id for r in archived_runs()])
+
+
 def active_run() -> Optional[ArchivedRun]:
-    """当前权重：取最新一个归档。前端「设为当前」后续接入显式选择。"""
+    """当前权重对应的归档。
+
+    优先用户显式指定的（`models/active.json`），没有指定过或指定的已失效时才取最新。
+    只取最新会让每一次实验都悄悄顶上线上模型——2026-09-27 那次 30 轮实验
+    （mAP50 0.7432）就这样顶掉了 0.7675。
+    """
     runs = archived_runs()
-    return runs[0] if runs else None
+    state = ACTIVE_MODEL_STORE.resolve([r.run_id for r in runs])
+    if state.run_id is None:
+        return None
+    return next((r for r in runs if r.run_id == state.run_id), None)
+
+
+def find_archived_run(run_id: str) -> Optional[ArchivedRun]:
+    """按 run_id 精确取归档。找不到返回 None（由调用方转 404）。"""
+    return next((r for r in archived_runs() if r.run_id == run_id), None)
 
 
 def workspace_info() -> Dict[str, Any]:
