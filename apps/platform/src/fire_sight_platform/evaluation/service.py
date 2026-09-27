@@ -42,7 +42,18 @@ def _pick(d: dict, *keys: str) -> Optional[float]:
 
 def evaluate_weights(cfg: ValConfig) -> EvalResult:
     """对单个权重跑验证集评估。"""
+    from fire_sight_platform.common.paths import RUNTIME_EVAL_DIR
+    from fire_sight_platform.common.runtime_env import (
+        apply_runtime_env,
+        pin_ultralytics_paths,
+    )
+
+    # 同 training/service.py:必须在 import ultralytics 之前改道。
+    apply_runtime_env()
+
     from ultralytics import YOLO
+
+    pin_ultralytics_paths()
 
     yaml_path = _resolve_yaml(cfg.dataset)
     if not cfg.weights:
@@ -56,6 +67,12 @@ def evaluate_weights(cfg: ValConfig) -> EvalResult:
         iou=cfg.iou,
         device=cfg.device,
         verbose=True,
+        # 必须显式给 project/name:不给就落到 ultralytics 全局的 runs_dir 上,
+        # 本机那份配置指向 C 盘(实测写出过 runs/detect/val、val-2)。
+        # 评估图件是副产物、没有消费方,统一丢进运行时目录,别脏了 runs/。
+        project=str(RUNTIME_EVAL_DIR),
+        name=Path(cfg.weights).stem or "val",
+        exist_ok=True,
     )
 
     rd = {}

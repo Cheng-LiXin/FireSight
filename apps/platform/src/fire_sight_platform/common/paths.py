@@ -6,6 +6,7 @@
 - 引入 APP_DIR 概念,把【共享资产】和【端私有资产】分开
 """
 
+import os
 from pathlib import Path
 from typing import List, Tuple
 
@@ -82,6 +83,25 @@ PROCESSED_DATA_DIR: Path = DATA_DIR / "processed"
 
 
 # ============================================================
+# 【运行时目录】会外溢到用户目录/系统盘的缓存与临时文件都收敛到这里
+# ============================================================
+# 为什么需要它:ultralytics 把 runs_dir / weights_dir / datasets_dir 存在用户
+# 配置目录里(Windows 上是 %APPDATA%\Ultralytics\settings.json),而那份配置是
+# 机器级的、跟本仓库无关。任何没显式传 project 的调用——例如 fs-val 的
+# model.val()、AMP 自检下载的 yolo26n.pt——都会落到那份配置指向的路径上。
+# 把 YOLO_CONFIG_DIR 连同 TEMP / 各类缓存一起改道进工作区,整条链路就不再
+# 写系统盘。改道动作见 common/runtime_env.py。
+RUNTIME_DIR: Path = Path(
+    os.environ.get("FIRESIGHT_RUNTIME_DIR") or (ROOT_DIR / ".runtime")
+).expanduser()
+RUNTIME_TMP_DIR: Path = RUNTIME_DIR / "tmp"
+RUNTIME_CACHE_DIR: Path = RUNTIME_DIR / "cache"
+RUNTIME_ULTRALYTICS_DIR: Path = RUNTIME_DIR / "ultralytics"
+# 评估现场(混淆矩阵 / PR 曲线)是过程副产物,没人读它,不进 runs/
+RUNTIME_EVAL_DIR: Path = RUNTIME_DIR / "evaluation"
+
+
+# ============================================================
 # 【端私有资产】(在 APP_DIR 中,只属于 platform 这个端)
 # ============================================================
 CONFIGS_DIR: Path = APP_DIR / "configs"
@@ -103,6 +123,7 @@ def get_dirs_to_initialize() -> List[Path]:
         PRETRAINED_MODELS_DIR,
         TRAINED_MODELS_DIR,
         RUNS_DIR,
+        RUNTIME_DIR,
         CONFIGS_DIR,
         LOGGING_DIR,
         APP_DIR / "configs" / "datasets",

@@ -17,7 +17,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from fire_sight.api import deps
-from fire_sight.api.jobs import manager
+from fire_sight.api.jobs import TERMINAL_STATUSES, manager
 from fire_sight.api.schemas import ArtifactInfo, CurvesResponse, TrainRun
 from fire_sight_platform.common.paths import PROCESSED_DATA_DIR
 
@@ -181,16 +181,39 @@ def get_artifact(run_id: str = Query(...), name: str = Query(...)) -> FileRespon
 # --------------------------------------------------------------------------
 
 
+@router.get("/limits")
+def get_limits(
+    imgsz: int = Query(480, ge=32, le=2048),
+    device: str = Query("0"),
+) -> Dict[str, Any]:
+    """本机在给定 imgsz 下的 batch 上限。
+
+    前端据此提前提示，用户不必先提交一次、拿到 400 才知道超了。
+    `checked=false` 表示没做限制（CPU 或探测不到显卡）。
+    """
+    return deps.vram_limits(device, imgsz)
+
+
 @router.post("/jobs", status_code=201)
 def start_job(req: TrainJobRequest) -> Dict[str, Any]:
     """启动一次训练。GPU 被占用时返回 409 并说明占用者。"""
     from fire_sight_platform.training.service import _resolve_dataset_yaml
+    from fire_sight_platform.training.vram import check as check_vram
 
     # 先确认数据集找得到，别把进程起起来才发现——那样只会浪费一次模型加载
     try:
         _resolve_dataset_yaml(req.dataset)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    # 再挡显存。等 ultralytics 自己报 OOM，已经烧掉一次模型加载和几分钟了。
+    limits = deps.vram_limits(req.device, req.imgsz)
+    if limits["checked"]:
+        verdict = check_vram(
+            imgsz=req.imgsz, batch=req.batch, total_mb=limits["total_mb"]
+        )
+        if not verdict.ok:
+            raise HTTPException(status_code=400, detail=verdict.message)
 
     try:
         job = manager.start(req.model_dump())
@@ -258,10 +281,13 @@ async def stream_job(
                 kind = event.get("type", "message")
                 yield f"id: {last}\nevent: {kind}\ndata: {payload}\n\n"
 
-            if job.status != "running" and not job.events_since(last):
+            if job.status in TERMINAL_STATUSES and not job.events_since(last):
                 # 收尾：把最终状态作为一条事件送出，客户端据此收流。
                 # 必须带上 type——客户端按 type 分发，少了它这条会被静默丢弃，
                 # 状态条就永远停在「训练中」。
+                #
+                # 判据用 TERMINAL_STATUSES 而不是「状态 != running」：stopping
+                # 期间进程树还在收尾，提前收流会把界面显示成已经结束。
                 final = {"type": "close", **job.public()}
                 yield f"event: close\ndata: {json.dumps(final, ensure_ascii=False)}\n\n"
                 return

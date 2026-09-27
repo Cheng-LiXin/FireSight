@@ -54,8 +54,14 @@ def main(argv: List[str]) -> int:
         return 2
 
     try:
+        from fire_sight_platform.common.runtime_env import apply_runtime_env
         from fire_sight_platform.runtime_config.base import TrainConfig
         from fire_sight_platform.training.service import train_yolo
+
+        # 直接 `python -m fire_sight.train_worker` 起时也要改道;经 jobs.py 起的
+        # 那条路已经由父进程传了 env,这里是幂等的第二道保险。必须早于下面
+        # train_yolo 里的 `import ultralytics`。
+        apply_runtime_env()
 
         config = TrainConfig(**cfg)
         emit({"type": "start", "epochs": config.epochs, "dataset": config.dataset})

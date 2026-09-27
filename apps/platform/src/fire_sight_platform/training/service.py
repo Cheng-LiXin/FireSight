@@ -73,7 +73,18 @@ def train_yolo(
     on_epoch 每轮结束收到一次 {epoch, epochs, metrics, losses}。网页端据此推实时
     曲线；命令行不传即可，行为与从前一致。
     """
+    from fire_sight_platform.common.runtime_env import (
+        apply_runtime_env,
+        pin_ultralytics_paths,
+    )
+
+    # 改道必须在 import ultralytics 之前——它在 import 时就把 settings.json 的
+    # runs_dir / weights_dir / datasets_dir 读成模块常量了,晚一步就改不动。
+    apply_runtime_env()
+
     from ultralytics import YOLO
+
+    pin_ultralytics_paths()
 
     yaml_path = _resolve_dataset_yaml(cfg.dataset)
     log_device_info()

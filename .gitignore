@@ -85,6 +85,10 @@ tmp/
 temp/
 .firesight-meta/
 
+# 运行时目录：缓存、临时文件、ultralytics 配置、评估现场图件
+# 路径由 FIRESIGHT_RUNTIME_DIR 覆盖，默认在工作区内的 .runtime/
+.runtime/
+
 # ============================================================
 # 本地试跑日志与根目录预训练权重
 pre-result.txt

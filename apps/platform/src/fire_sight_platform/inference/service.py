@@ -50,14 +50,24 @@ def _xyxy_from_ultralytics(boxes) -> List[tuple]:
 def run_inference(cfg: InferConfig) -> InferStats:
     """执行一轮推理；模块间通过类型/回调协作，不互相 import 内部实现。"""
     import cv2
+    from frame_source import create_frame_source
+    from visualization import BeautifyVisualizer, Detection
 
     from fire_sight.alerting import EventStore, RingClipBuffer, TtsNotifier
     from fire_sight.alerting.clip_buffer import write_clip
     from fire_sight.scene import AlertPolicy, DetectionLite, FrameObservation, MultiFrameConfirm
-    from frame_source import create_frame_source
-    from visualization import BeautifyVisualizer, Detection
+    from fire_sight_platform.common.runtime_env import (
+        apply_runtime_env,
+        pin_ultralytics_paths,
+    )
+
+    # 推理本身不写 runs,但 YOLO(weights) 可能去下预训练权重——那会落到
+    # ultralytics 全局的 weights_dir。改道要在 import 之前做。
+    apply_runtime_env()
 
     from ultralytics import YOLO
+
+    pin_ultralytics_paths()
 
     model = YOLO(cfg.weights)
     from fire_sight.scene.class_map import display_name

@@ -21,6 +21,22 @@ FastAPI 服务，默认监听 `http://127.0.0.1:8000`。启动：`fs-serve`。
 | 错误格式 | `{"detail": "<可读的中文说明>"}` |
 | 鉴权 | 无。本服务面向单机本地运行，不要直接暴露到公网 |
 
+### 运行时目录
+
+所有缓存、临时文件与过程副产物都落在**运行时目录**（默认 `<工作区>/.runtime/`，
+`FIRESIGHT_RUNTIME_DIR` 可覆盖），不写系统盘：
+
+| 子目录 | 内容 |
+|---|---|
+| `tmp/` | 训练任务配置、子进程 `TEMP`/`TMP`、torch 编译缓存 |
+| `ultralytics/` | `YOLO_CONFIG_DIR`，内含钉定过的 `settings.json` 与 `runs_dir`/`weights_dir`/`datasets_dir` |
+| `cache/` | matplotlib 字体缓存、`TORCH_HOME`、`HF_HOME` |
+| `evaluation/` | `fs-val` / 多权重对比的评估图件（过程副产物，无消费方，故不进 `runs/`） |
+
+服务启动、训练子进程与两条推理路径都会先执行改道。**用户的全局配置
+（`%APPDATA%\Ultralytics\settings.json`）不会被项目改写**——若改道未生效，
+`pin_ultralytics_paths()` 会拒绝落盘并告警。
+
 ### 类别契约
 
 所有涉及类别的字段都遵循同一约定，**顺序即 `class_id`**：
@@ -380,6 +396,33 @@ score  = max(24 小时内最高置信度, volume)
 
 ---
 
+### GET `/api/train/limits?imgsz=...&device=...`
+
+本机在给定 `imgsz` 下允许的最大 `batch`。前端据此在表单上提前提示，用户不必先
+提交一次、拿到 400 才知道超了。
+
+| 参数 | 默认 | 说明 |
+|---|---|---|
+| `imgsz` | 480 | 32–2048 |
+| `device` | `0` | `0` 或 `cpu` |
+
+```json
+{
+  "checked": true,
+  "total_mb": 8188,
+  "px_budget": 16588800,
+  "max_batch": 40,
+  "reference": "batch=72 × imgsz=480(20260926-190635-D-Fire,mAP@50 0.745)"
+}
+```
+
+`checked=false` 表示**没做限制**（显式选了 CPU，或 `nvidia-smi` 探测不到显卡）,
+此时 `max_batch` 为 `null`。探测失败是环境问题，不该变成训练的拦路石。
+
+预算模型：峰值显存大致正比于 `batch × imgsz²`，比例常数标定自本机唯一跑完且
+指标可信的现场（`batch=72 × imgsz=480`、RTX 4060 Laptop 8 GB）。这是启发式而
+非精确测量，见 `fire_sight_platform/training/vram.py`。
+
 ### POST `/api/train/jobs`
 
 启动一次训练（**子进程**运行，训练崩溃不会带走 API）。
@@ -400,16 +443,39 @@ score  = max(24 小时内最高置信度, volume)
 ```json
 {
   "id": "c954c5781b9d", "dataset": "demo_fire", "epochs": 3, "status": "running",
-  "started_at": "2026-09-26T22:11:36", "finished_at": null,
+  "started_at": "2026-09-26T22:11:36", "finished_at": null, "stop_requested_at": null,
   "run_id": null, "error": null, "returncode": null, "event_count": 1,
   "config": { "…回显请求参数…" }
 }
 ```
 
-**错误**：404 数据集不存在；409 已有训练在跑（`detail` 里是占用者）。
+**错误**：404 数据集不存在；400 `batch × imgsz` 超出本机显存预算（`detail` 里给出
+上限与可照做的建议）；409 已有训练在跑（`detail` 里是占用者）。
 
+> 显存校验在起进程**之前**。等 ultralytics 自己报 CUDA OOM，模型已经加载、
+> 显存已经吃满、时间已经烧掉——2026-09-27 那次 `batch=48 × imgsz=640` 在 8 GB
+> 的 RTX 4060 Laptop 上就是这么废掉的，现已被这条守卫挡下。
+>
 > 训练全程持有 GPU 全局锁，结束时释放——**包括进程异常退出**。因此训练期间
 > 推理接口会返回 409，训练结束后自动恢复。
+
+#### 任务状态 `status`
+
+| 值 | 含义 | 是否占用 GPU |
+|---|---|---|
+| `running` | 进程在跑 | 是 |
+| `stopping` | 已收到停止请求，正在结束进程树 | **是** |
+| `done` | 正常结束并归档 | 否 |
+| `failed` | 异常结束（崩溃 / 退出码非零 / 协议报了 error） | 否 |
+| `stopped` | 用户主动停止，本次不归档 | 否 |
+
+`stopping` **仍占用 GPU**：进程树还没死、显存还没还回来，此时放行新训练就是等着
+OOM。因此停止后立刻再启动会得到 409，但 `detail` 会说明是「正在停止，几秒内释放」
+而不是含糊的占用提示。实测整个窗口约 0.6 秒。
+
+`stop_requested_at` 非 null 表示这次训练是被主动停止的。被停止的任务**不计为
+`failed`**——Windows 上强杀返回退出码 1，若按「退出码非零」判定，界面会显示
+「失败 · 退出码 1」，把一次正常停止报成故障。
 
 ### GET `/api/train/jobs`
 
@@ -440,8 +506,15 @@ data: {"type":"epoch","epoch":1,"epochs":3,
 
 ### POST `/api/train/jobs/{id}/stop`
 
-停止训练。**进程被强制结束，本次训练不会归档**，但现场记录留在 `runs/` 下，
-曲线仍可在训练记录里查看。返回 `{"stopped": true|false}`。
+停止训练。返回 `{"stopped": true|false}`（false 表示任务不在 `running` 状态，
+例如已经停过了）。
+
+**结束的是整棵进程树**（Windows 走 `taskkill /F /T`）：只终止直接子进程会留下
+DataLoader 的 `workers` 个子进程，它们变成孤儿继续占着显存，下一次训练可能因此
+OOM。**本次训练不会归档**，但现场记录留在 `runs/` 下，曲线仍可在训练记录里查看。
+
+该请求**同步**把状态置为 `stopping` 并立刻返回，进程的实际退出由后台完成；
+客户端应据 `status` 判断何时可以重新开始训练，而不是假定 stop 返回即已释放。
 
 ---
 
@@ -450,6 +523,7 @@ data: {"type":"epoch","epoch":1,"epochs":3,
 | 变量 | 默认 | 说明 |
 |---|---|---|
 | `FIRE_SIGHT_EVENTS_DB` | `<工作区>/data/events/events.db` | 事件库路径，便于测试或多实例 |
+| `FIRESIGHT_RUNTIME_DIR` | `<工作区>/.runtime` | 运行时目录（缓存 / 临时文件 / ultralytics 配置 / 评估现场）。改道必须早于 `import ultralytics` |
 
 ---
 

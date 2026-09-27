@@ -13,10 +13,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from fire_sight_platform.common.paths import ROOT_DIR
-
 from fire_sight._version import __version__ as fire_sight_version
 from fire_sight.api.routers import infer, models, overview, system, train
+from fire_sight_platform.common.paths import ROOT_DIR
+from fire_sight_platform.common.runtime_env import apply_runtime_env
 
 WEB_DIST: Path = ROOT_DIR / "apps" / "web" / "dist"
 
@@ -28,6 +28,10 @@ DEV_ORIGINS = [
 
 
 def create_app() -> FastAPI:
+    # 先把缓存/临时目录改道进工作区 .runtime/,再让任何东西去 import
+    # ultralytics。这里只设环境变量、不 import torch,启动开销可忽略。
+    apply_runtime_env()
+
     app = FastAPI(
         title="FireSight API",
         description="火灾烟雾智能预警系统 —— 推理、训练、事件与模型接口",

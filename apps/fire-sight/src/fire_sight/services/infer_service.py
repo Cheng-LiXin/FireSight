@@ -34,7 +34,17 @@ class InferService:
 
     def _load(self):
         if self._model is None:
+            from fire_sight_platform.common.runtime_env import (
+                apply_runtime_env,
+                pin_ultralytics_paths,
+            )
+
+            # 同 platform 侧:改道要抢在 import ultralytics 之前。
+            apply_runtime_env()
+
             from ultralytics import YOLO
+
+            pin_ultralytics_paths()
 
             self._model = YOLO(self.weights)
         return self._model
