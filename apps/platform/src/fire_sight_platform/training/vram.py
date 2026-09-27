@@ -77,6 +77,9 @@ MODEL_MEASUREMENTS: Dict[str, Dict[int, float]] = {
 MEASURED_AT_IMGSZ = 480
 MEASURED_ON = "RTX 4060 Laptop 8 GB (8188 MiB), 2026-09-27"
 
+# 重测/扩展因子用 scripts/probe_vram_models.py,它按本文档的方法量出新数并提示怎么填;
+# tests/test_19_vram_guard.py 会从 MODEL_MEASUREMENTS 重算因子来校验两者一致。
+
 
 def model_stem(model: str) -> str:
     """从权重名或路径取主名:`yolo11s.pt` / `a/b/yolo11s.pt` -> `yolo11s`。"""
