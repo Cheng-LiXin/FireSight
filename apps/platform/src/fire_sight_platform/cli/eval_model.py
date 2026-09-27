@@ -20,8 +20,9 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--weights", nargs="+", required=True, help="一个或多个权重路径")
     p.add_argument("--imgsz", type=int, default=640)
     p.add_argument("--batch", type=int, default=8)
-    p.add_argument("--conf", type=float, default=0.25)
-    p.add_argument("--iou", type=float, default=0.6)
+    # 默认与 ultralytics 算 mAP 的口径一致，否则报出的数字与归档 metrics.txt 不可比
+    p.add_argument("--conf", type=float, default=0.001, help="mAP 口径，默认 0.001")
+    p.add_argument("--iou", type=float, default=0.7, help="NMS 口径，默认 0.7")
     p.add_argument("--device", default="0")
     return p
 
