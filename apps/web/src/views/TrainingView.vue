@@ -5,7 +5,7 @@
  */
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
-import { api, ApiError, type TrainJobRequest } from '@/api/client'
+import { api, ApiError, type TrainJobRequest, type VramLimits } from '@/api/client'
 import { trainingLossPanels, trainingMetricOption } from '@/charts/options'
 import EChart from '@/components/EChart.vue'
 import type {
@@ -142,6 +142,36 @@ const form = ref<TrainJobRequest>({
 })
 
 const running = computed(() => job.value?.status === 'running')
+const stopping = computed(() => job.value?.status === 'stopping')
+/** 占着 GPU 的所有状态。stopping 时进程树还在收尾，同样不能再起新训练。 */
+const active = computed(() => running.value || stopping.value)
+
+/** 显存预算：超上限的组合提交必被后端拒，不如在表单上先说清楚。 */
+const limits = ref<VramLimits | null>(null)
+const overBudget = computed(() => {
+  const l = limits.value
+  if (!l?.checked || l.max_batch == null) return false
+  return form.value.batch > l.max_batch
+})
+
+// imgsz 与 device 各触发一次请求，返回顺序不保证。没有这个序号，
+// 慢的那次会覆盖快的结果——实测切到 CPU 后，提示仍显示 GPU 的上限，
+// 而 overBudget 会据此禁掉一个 CPU 下完全合法的配置。
+let limitsSeq = 0
+
+async function loadLimits(): Promise<void> {
+  const issued = ++limitsSeq
+  try {
+    const next = await api.trainLimits(form.value.imgsz, form.value.device)
+    if (issued !== limitsSeq) return
+    limits.value = next
+  } catch {
+    // 拿不到上限不该挡住训练，后端仍会兜底校验
+    if (issued === limitsSeq) limits.value = null
+  }
+}
+
+watch(() => [form.value.imgsz, form.value.device], loadLimits)
 
 /** 实时曲线的事件结构与历史曲线同构，图表配置因此可以整套复用。 */
 const liveLossPanels = computed(() =>
@@ -242,12 +272,16 @@ async function stopTraining(): Promise<void> {
   if (!job.value) return
   try {
     await api.stopTrainJob(job.value.id)
+    // 立刻反映停止意图，不等 SSE 回包：后端会先把状态挪到 stopping，
+    // 界面若还显示「训练中」，用户会以为停止没生效而反复点击。
+    job.value = { ...job.value, status: 'stopping' }
   } catch (e) {
     error.value = describe(e)
   }
 }
 
 onMounted(async () => {
+  void loadLimits()
   try {
     sources.value = await api.sources()
     if (!form.value.dataset && sources.value.length) {
@@ -292,7 +326,14 @@ onBeforeUnmount(disconnect)
         </label>
         <label class="field field--narrow">
           <span class="field__label">批量</span>
-          <input v-model.number="form.batch" class="field__control" type="number" min="1" />
+          <input
+            v-model.number="form.batch"
+            class="field__control"
+            :class="{ 'is-over': overBudget }"
+            type="number"
+            min="1"
+            :aria-invalid="overBudget"
+          />
         </label>
         <label class="field field--narrow">
           <span class="field__label">imgsz</span>
@@ -321,13 +362,42 @@ onBeforeUnmount(disconnect)
           <button
             type="button"
             class="fs-btn-primary"
-            :disabled="running || !form.dataset"
+            :disabled="active || !form.dataset || overBudget"
             @click="startTraining"
           >
-            {{ running ? '训练进行中…' : '开始训练' }}
+            {{ stopping ? '正在停止…' : running ? '训练进行中…' : '开始训练' }}
           </button>
-          <button v-if="running" type="button" class="fs-btn-ghost" @click="stopTraining">停止</button>
+          <button
+            v-if="active"
+            type="button"
+            class="fs-btn-ghost"
+            :disabled="stopping"
+            @click="stopTraining"
+          >
+            {{ stopping ? '停止中…' : '停止' }}
+          </button>
         </div>
+
+        <!-- 显存上限。等 ultralytics 自己报 CUDA OOM，模型已经加载、时间已经烧掉 -->
+        <p
+          v-if="limits?.checked && limits.max_batch != null"
+          class="vram"
+          :class="{ 'vram--over': overBudget }"
+          :title="`按 batch × imgsz² 的显存预算推算，标定自 ${limits.reference}`"
+          role="status"
+        >
+          <template v-if="overBudget">
+            本机 <span class="fs-num">{{ limits.total_mb }}</span> MB 显存，
+            imgsz=<span class="fs-num">{{ form.imgsz }}</span> 时批量最多
+            <span class="fs-num">{{ limits.max_batch }}</span>；当前
+            <span class="fs-num">{{ form.batch }}</span> 会超预算，后端会拒绝。
+          </template>
+          <template v-else>
+            本机 <span class="fs-num">{{ limits.total_mb }}</span> MB 显存，
+            imgsz=<span class="fs-num">{{ form.imgsz }}</span> 时批量上限
+            <span class="fs-num">{{ limits.max_batch }}</span>。
+          </template>
+        </p>
       </div>
 
       <p v-if="job" class="status" :class="`status--${job.status}`">
@@ -338,6 +408,9 @@ onBeforeUnmount(disconnect)
           >
             · 最新 mAP@50 <span class="fs-num">{{ lastEpoch.toFixed(3) }}</span></template
           >
+        </template>
+        <template v-else-if="stopping">
+          正在停止…（结束训练进程树，几秒内释放 GPU）
         </template>
         <template v-else-if="job.status === 'done'">
           已完成 · 归档为 <span class="mono">{{ job.run_id }}</span>
@@ -498,7 +571,7 @@ onBeforeUnmount(disconnect)
 }
 
 .pick:hover {
-  color: var(--fire-3);
+  color: var(--accent);
 }
 
 /* --- 启动表单 --------------------------------------------------------- */
@@ -520,6 +593,27 @@ onBeforeUnmount(disconnect)
   margin-left: auto;
 }
 
+/* 显存提示：常态安静，超预算才转明火色——那时它需要人改一个数字。
+   flex-basis:100% 让它独占一行，不挤在输入框之间。 */
+.vram {
+  flex-basis: 100%;
+  margin: 0;
+  padding-left: var(--sp-3);
+  font-size: var(--fs-xs);
+  line-height: 1.6;
+  color: var(--dross);
+  border-left: 2px solid var(--cinder);
+}
+
+.vram--over {
+  color: var(--accent);
+  border-left-color: var(--accent);
+}
+
+.field__control.is-over {
+  border-color: var(--accent);
+}
+
 /* 状态条：左侧一道色条表示状态。failed 用明火色——它确实需要人去看一眼；
    done 用冷色（完成、无需动作）；stopped 压暗。 */
 .status {
@@ -532,7 +626,7 @@ onBeforeUnmount(disconnect)
 
 .status--running {
   color: var(--bone);
-  border-left-color: var(--fire-2);
+  border-left-color: var(--accent);
 }
 
 .status--done {
@@ -542,7 +636,13 @@ onBeforeUnmount(disconnect)
 
 .status--failed {
   color: var(--bone);
-  border-left-color: var(--fire-3);
+  border-left-color: var(--accent);
+}
+
+/* 停止中：不是失败也不是完成，压成中性色，别让人以为出错了 */
+.status--stopping {
+  color: var(--dross);
+  border-left-color: var(--dross);
 }
 
 .logs {
@@ -568,11 +668,11 @@ onBeforeUnmount(disconnect)
 
 /* 选中行：左侧一道明火色，比整行高亮更安静 */
 .fs-ledger tbody tr.is-selected td {
-  background: rgb(51 42 32 / 45%);
+  background: var(--highlight);
 }
 
 .fs-ledger tbody tr.is-selected td:first-child {
-  box-shadow: inset 2px 0 0 var(--fire-2);
+  box-shadow: inset 2px 0 0 var(--accent);
 }
 
 .tag {

@@ -488,13 +488,13 @@ function fix(v: number | null | undefined, digits = 3): string {
 /* 取景窗自带四角框标，拖放区若再描一圈亮边就有两套边框语言了。
    静止时安静，只在悬停/拖入时响应。 */
 .dropzone {
-  border: 1px dashed rgb(140 129 114 / 35%);
+  border: 1px dashed var(--ink-4);
   transition: border-color 150ms ease, background-color 150ms ease;
 }
 
 .dropzone.is-over {
-  border-color: var(--fire-3);
-  background: rgb(255 154 60 / 6%);
+  border-color: var(--accent);
+  background: var(--soot);
 }
 
 /* 权重列表没就绪或压根没有模型时，明确压暗并说明原因——
@@ -524,7 +524,7 @@ function fix(v: number | null | undefined, digits = 3): string {
 }
 
 .dropzone__inner:hover .dropzone__hint {
-  color: var(--fire-3);
+  color: var(--accent);
 }
 
 .dropzone__hint {
@@ -649,7 +649,7 @@ function fix(v: number | null | undefined, digits = 3): string {
 }
 
 .tile__value--fire {
-  color: var(--fire-3);
+  color: var(--accent);
 }
 
 /* --- 杂项 ------------------------------------------------------------- */

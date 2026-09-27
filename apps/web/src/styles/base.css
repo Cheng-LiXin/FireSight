@@ -43,7 +43,7 @@ kbd {
 
 /* --- 可见键盘焦点：不靠 box-shadow 光晕，用实线表示 ------------------- */
 :focus-visible {
-  outline: 2px solid var(--fire-3);
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 
@@ -149,12 +149,12 @@ kbd {
 
 .fs-ledger td {
   padding: var(--sp-3);
-  border-bottom: 1px solid rgb(51 42 32 / 55%);
+  border-bottom: var(--hairline);
   color: var(--bone);
 }
 
 .fs-ledger tbody tr:hover td {
-  background: rgb(51 42 32 / 35%);
+  background: var(--soot);
 }
 
 .fs-ledger td.is-num {
@@ -182,7 +182,7 @@ kbd {
 .fs-empty__action {
   display: block;
   margin-top: var(--sp-3);
-  color: var(--fire-3);
+  color: var(--accent);
 }
 
 /* ==========================================================================
@@ -228,8 +228,9 @@ kbd {
   border-radius: var(--radius);
 }
 
-/* 默认滑块是浅色轨道，在这套暖褐底上过于抢眼。轨道分两段着色，
-   已选区间用明火色——滑块停在哪儿一眼可见，不必去读旁边的数字。 */
+/* 滑块：轨道分两段着色，已选区间用强调色——滑块停在哪儿一眼可见，
+   不必去读旁边的数字。深色主题里这条注释说的是「浅色轨道在暖褐底上过亮」，
+   浅色主题下情况相反，但两段着色的必要性不变。 */
 input[type='range'] {
   height: 32px;
   padding: 0;
@@ -245,7 +246,7 @@ input[type='range']::-webkit-slider-runnable-track {
   border-radius: 2px;
   background: linear-gradient(
     to right,
-    var(--fire-2) var(--fill, 0%),
+    var(--accent) var(--fill, 0%),
     var(--cinder) var(--fill, 0%)
   );
 }
@@ -256,7 +257,7 @@ input[type='range']::-webkit-slider-thumb {
   height: 12px;
   margin-top: -4px;
   border-radius: 50%;
-  background: var(--fire-3);
+  background: var(--accent);
 }
 
 .fs-btn-primary {
@@ -266,7 +267,7 @@ input[type='range']::-webkit-slider-thumb {
   font-size: var(--fs-sm);
   font-weight: 500;
   color: #fff;
-  background: var(--fire-2);
+  background: var(--accent);
   border: 0;
   border-radius: var(--radius);
   cursor: pointer;
@@ -324,6 +325,7 @@ input[type='range']::-webkit-slider-thumb {
   gap: var(--sp-4);
 }
 
+/* 错误提示是 --alarm 的合法用武之地之一：它确实需要人去看一眼 */
 .fs-note-error {
   margin: 0;
   padding: var(--sp-3) var(--sp-4);
@@ -331,7 +333,7 @@ input[type='range']::-webkit-slider-thumb {
   color: var(--bone);
   background: var(--ash);
   border: var(--hairline);
-  border-left: 3px solid var(--fire-2);
+  border-left: 3px solid var(--alarm);
 }
 
 /* 动效：尊重系统偏好，全局一刀切 */

@@ -332,10 +332,26 @@ pip install torch torchvision --index-url https://download.pytorch.org/whl/cu126
 ```
 
 **显存不足（8GB 显卡）**
-训练与推理不可同时进行，控制台内置了全局互斥锁。显存不够时优先降 `imgsz` 或 `batch`。
+训练与推理不可同时进行，控制台内置了全局互斥锁。除此之外，**提交训练时会按
+显卡总显存校验 `batch × imgsz`**，超预算直接返回 400 并给出上限——不必等
+ultralytics 报 CUDA OOM。启动面板里也会显示当前 `imgsz` 下的批量上限。
+
+**磁盘占用：训练会不会写满系统盘**
+不会。所有缓存、临时文件与过程副产物都收敛在工作区内的运行时目录
+（默认 `.runtime/`，可用 `FIRESIGHT_RUNTIME_DIR` 覆盖），包括训练任务配置、
+子进程 `TEMP`、matplotlib 字体缓存、ultralytics 的三处全局目录与评估图件。
+`.runtime/` 已在 `.gitignore` 中，随手可删。
 
 **改了前端代码但页面没变**
 生产模式读的是 `apps/web/dist/`，需重新 `npm run build`；或改用 `npm run dev` 开发模式。
+
+**`fs-serve` 提示「不是内部或外部命令」**
+venv 是在这条入口加进 `pyproject.toml` 之前装的（`.venv\Scripts\` 里可能还留着
+改名前的 `fs-web.exe`）。重新生成入口即可，源码是 editable 安装、不必重装包：
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -e ".\apps\fire-sight[web]"
+```
 
 ---
 
@@ -344,7 +360,7 @@ pip install torch torchvision --index-url https://download.pytorch.org/whl/cu126
 欢迎提 Issue 与 PR。提交前请确保：
 
 ```bash
-pytest tests apps/platform/tests -q      # 后端，预期 88 passed
+pytest tests apps/platform/tests -q      # 后端，预期 116 passed
 cd apps/web && npm run typecheck         # 前端类型检查通过
 npm run test:e2e                         # 前端端到端（需先起 fs-serve）
 ```

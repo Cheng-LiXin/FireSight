@@ -222,11 +222,14 @@ export function trainingMetricOption(
   epochs: number[],
   metrics: Record<string, Series>,
 ): EChartsOption {
+  // 四条各占一个色槽（白底重调后的 4 色板，相邻最差 deutan ΔE 21.8）。
+  // 曾试过「两级灰 × 实线/虚线」的纯灰阶方案：灰阶在 #FFFFFF 上够 3:1 的只有 5 档、
+  // 相邻 ΔE 掉到 6.8，四条线挤在一起读不出来，故改回彩色。
   const specs: [string, string, string][] = [
-    ['mAP@50', 'mAP50', TRAIN_PALETTE[3]],
-    ['mAP@50-95', 'mAP50_95', TRAIN_PALETTE[0]],
-    ['精确率 P', 'precision', TRAIN_PALETTE[1]],
-    ['召回率 R', 'recall', TRAIN_PALETTE[2]],
+    ['mAP@50', 'mAP50', TRAIN_PALETTE[0]],
+    ['mAP@50-95', 'mAP50_95', TRAIN_PALETTE[1]],
+    ['精确率 P', 'precision', TRAIN_PALETTE[2]],
+    ['召回率 R', 'recall', TRAIN_PALETTE[3]],
   ]
   const series = specs
     .filter(([, key]) => key in metrics)

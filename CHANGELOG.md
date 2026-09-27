@@ -9,6 +9,188 @@
 
 ---
 
+## [v1.4.0] — 2026-09-27
+
+把整套视觉方向从「热成像取景」换成「现代简约 · 灰白黑」，并重建了已经丢失的配色校验器。
+
+这是界面层自 S5 开工以来最彻底的一次改动：**换的是明度关系与色彩政策，不是信息架构**——
+三种容器、取景窗四角框标、等宽数字、风险尺全部保留。
+
+### 变更
+
+**色彩政策：界面无彩，彩色额度只留一个给告警**
+- 基底 `#17130E/#221C15` 暖褐 → `#F7F8FA/#FFFFFF`；边框 `#332A20` → `#E5E7EB`
+- 文字暖白 `#E9E1D4` → 近黑 `#111827`（16.69:1）；次要 `#8C8172` → `#4B5563`（7.11:1）
+- `--fire-1/2/3` 重命名为 `--accent` / `--accent-hover` / `--accent-soft`
+  —— 单色主题里继续叫 fire 就是撒谎。`--smoke-1..4` 与 `--fire-4` 一个引用点都没有，删除
+- 新增 `--alarm: #D14A17`，**全界面唯一允许出现的彩色**，只表示「有火 / 有告警 / 出错」
+- 风险尺从「冷→暖色相阶梯」改为「单色递深三档 + 最高档转告警红」
+- 圆角 3px → 6px
+
+**只做浅色**
+- `index.html` 去掉 `class="dark"`，`color-scheme` 改 light
+- 不再引入 `element-plus/theme-chalk/dark/css-vars.css`
+- 令牌覆盖从 `html.dark` 移到 `:root`
+
+**类别色：烟 = 深石板灰，火 = 那唯一的告警红**
+- `#00A3C4/#D14A17` → `#1F2937/#D14A17`
+- 白底实测：常视觉 ΔE 37.2 · deutan 36.3 · **protan 25.1** · 对比度 14.68 / 4.47
+  —— 三条通道全部优于原来在暗底上验证过的基线（30.8 / 21.1）
+
+**训练曲线 4 色：保留原色相，为白底重调**
+- `#4C8FE0 #BE8219 #B85FA8 #4FA050` → `#236EC2 #B07B23 #941C84 #0B9D22`
+- 对比度从 3.24–4.01 提到 3.58–7.61；相邻最差 deutan ΔE 从 13.0 提到 21.8
+
+### 新增
+
+**配色校验器重建**
+- 原 `validate_palette.js` 已从开发机**完全丢失**（`.dsh`/`.claude`/`.codex`/`D:\Program`/`references`
+  全域搜索无果），而文档一直写着「改色必须重跑校验器」——这条纪律实际上已经无法执行
+- 按其记录的两组已知值反推出度量：**`ΔE = 100 × ‖OKLab(a) − OKLab(b)‖`，CVD 用 Machado 2009 severity 1.0**
+- 自检精确复现：类别色 常视觉 30.8 / deutan 21.1（差 0.1）；训练板 相邻 13.0 / 21.6
+- 顺带验证了注释里那句警告：把绿与琥珀排到相邻，deutan ΔE 确实掉到 5.9
+
+### 修复
+
+- **训练记录选中行在浅色下变成一条重灰带**：`TrainingView.vue` 里硬编码的
+  `rgb(51 42 32 / 45%)`，改为 `--highlight` 令牌
+- **识别页拖放区虚线边框**同样是硬编码的旧暖灰 `rgb(140 129 114 / 35%)`，改为 `--ink-4`
+- **`fs-val` 的评估口径与归档 `metrics.txt` 不可比**（顺带发现）：
+
+  | 路径 | conf | iou |
+  |---|---|---|
+  | 训练期验证（写进 `metrics.txt`） | `null` → ultralytics 兜底 **0.001** | **0.7** |
+  | `fs-val` / `evaluate_weights` | `ValConfig` 默认 **0.25** | **0.6** |
+
+  后果是**同一个权重给出两个 mAP**：归档记 0.7052，`fs-val` 只报 0.5831，差 0.12 全部
+  来自阈值。ROADMAP 里计划的「模型库 · 多权重对比评估」正是调 `evaluate_weights`，
+  上线后会直接暴露成「归档说 0.767，对比工具说 0.58」。
+
+  已把 `ValConfig` 的 `conf`/`iou` 默认改为 **0.001 / 0.7**（mAP 计算口径），部署阈值
+  仍归 `InferConfig`（0.25 / 0.6），两侧不再混用；`fs-val` CLI 默认同步；
+  补了回归断言锁住这两个默认值。
+
+  修复后实测：640 组模型在同一权重上读出 **0.7034**，与归档 **0.7052** 只差 0.0018
+  （残差来自 batch 8 vs 40），差异从 0.122 收敛到 0.002。
+
+### 过程中被数据推翻的两个判断
+
+1. **「烟=浅灰 + 火=红」不成立**。`#6B7280` 与 `#D14A17` 明度几乎相同（0.551 vs 0.589），
+   而灰与红在红绿色盲下主要靠**明度**分离，protan ΔE 因此只有 13.4——比原基线 21.1 还差。
+   压到 `#1F2937` 后三条通道全部优于基线。这条已写进 `tokens.css` 注释防止后人改回去。
+2. **灰阶撑不起 4 条曲线**。实测 `#FFFFFF` 上对比度 ≥3:1 的灰只有 5 档、相邻 ΔE 掉到 6.8
+   （要 ≥13 才算可区分）。所以训练曲线保留彩色——但沿用原色相重调，分离度反而提高。
+
+### 回归测试
+
+- 前端 E2E 新增 `apps/web/e2e/vram-hint.spec.ts`（显存提示跟随设备切换）
+- 后端新增评估口径回归断言；**117 passed**；`npm run build`（含 `vue-tsc`）通过
+
+### 未做
+
+- **完整 E2E 未在本轮跑**：`detect.spec.ts` 要跑 GPU 推理，与本轮同时进行的 P0-1 探针
+  争显存，留到探针结束后补跑
+- **暗色模式整块删除**，没有保留可切换项。如需恢复，`tokens.css` 的 `html.dark`
+  段与 `palette.ts` 的暗底数值需要一并重建并重新校验
+
+---
+
+## [v1.3.2] — 2026-09-27
+
+把会外溢到系统盘的缓存与临时文件全部收敛进工作区，并给训练加上显存预算守卫。
+
+起因：点「开始训练」后 C 盘告急。查证结果是**训练本身没写 C 盘**（那次只往
+`runs/training/` 写了 41 MB），C 盘一直是红的（可用 9.6%，低于资源管理器的
+10% 阈值），真正吃盘的是 Docker Desktop 约 20 GB 与 `hiberfil.sys` 12.7 GB。
+但顺着查下去，发现项目**确实**有几处往 C 盘漏，只是量小：
+
+- `fs-val` 的 `model.val()` 没传 `project`，落到 ultralytics 全局 `runs_dir`
+  ——本机那份 `%APPDATA%\Ultralytics\settings.json` 指向 C 盘，实测在那里
+  留下了 `runs/detect/val` 与 `val-2` 共 24 个文件
+- AMP 自检把 `yolo26n.pt` 下到 `C:\Users\<u>\weights`
+- 训练任务配置走 `tempfile.gettempdir()`，落在 C 盘 Temp
+- matplotlib 字体缓存、Arial.ttf 也都在用户目录
+
+### 新增
+
+**运行时目录 `RUNTIME_DIR`**（默认 `<工作区>/.runtime/`，`FIRESIGHT_RUNTIME_DIR` 可覆盖）
+- `runtime_env.apply_runtime_env()`：在 **import ultralytics 之前**把
+  `YOLO_CONFIG_DIR`、`TEMP`/`TMP`/`TMPDIR`、`MPLCONFIGDIR`、`TORCH_HOME`、
+  `HF_HOME`、`XDG_CACHE_HOME` 全部改道进工作区
+- `runtime_env.pin_ultralytics_paths()`：把 ultralytics 的 `datasets_dir` /
+  `weights_dir` / `runs_dir` 钉进运行时目录下的那份 `settings.json`。
+  **若当前生效的仍是用户的全局配置（`%APPDATA%`），拒绝写入并告警**——
+  那是机器级设置，项目不该偷改
+- 接入点：API 启动、训练子进程（含 `Popen(env=…)` 注入）、`train_yolo` /
+  `evaluate_weights` / 两条推理路径
+
+**显存预算守卫**（`fire_sight_platform/training/vram.py`）
+- 峰值显存正比于 `batch × imgsz²`，用「像素单位」比较不同组合的开销
+- 常数标定自本机唯一跑完且指标可信的现场：`batch=72 × imgsz=480`、
+  RTX 4060 Laptop 8 GB、mAP@50 0.745
+- `POST /api/train/jobs` 超预算返回 **400** 并给出上限与可照做的建议
+  （`batch=48 × imgsz=640` → 「imgsz=640 时 batch 最多 40」），
+  而不是把进程起起来等 CUDA OOM；CPU 或探测不到显卡时不拦
+- 新增 `GET /api/train/limits?imgsz=&device=`，前端据此在表单上提前提示上限
+
+### 修复
+
+- **`fs-val` 的评估图件不再落到系统盘**：`model.val()` 补上
+  `project=<运行时>/evaluation`、`name=<权重名>`、`exist_ok=True`。
+  评估图件是过程副产物、没有消费方，因此不进 `runs/`
+- **训练任务配置**从 `tempfile.gettempdir()`（Windows 上是 C 盘）改为
+  `.runtime/tmp/`，并把改道后的环境变量显式注入训练子进程
+- **总览页的推理路径**同样接入改道：`YOLO(weights)` 可能去下预训练权重，
+  那会落到全局 `weights_dir`
+- **停止训练后立刻再开始，会被判成「GPU 正被 train 占用」**（用户报告）。
+  根因：`stop()` 只调了 `terminate()`，任务状态留给后台 `_reap` 去改，于是从点击
+  停止到进程真正退出这段时间里 `running()` 仍认定任务在跑。改为**同步**把状态置为
+  `stopping`，并新增 `stopped` 终态；停止期间再启动仍返回 409，但 `detail` 说明是
+  「正在停止，几秒内释放」而不是含糊的占用提示。实测整个窗口约 **0.6 秒**
+- **被主动停止的训练被记成「失败 · 退出码 1」**：Windows 上强杀返回退出码 1，
+  旧代码按「退出码非零」判定为 `failed`。改为按停止意图判定为 `stopped`，
+  不再留下 `error`
+- **停止只杀直接子进程，DataLoader 的 workers 会变成孤儿继续占显存**。改为结束
+  **整棵进程树**（Windows 走 `taskkill /F /T`），避免下一次训练因此 OOM
+- **「停止中」的提示会跟着上一次查询的结果走**：`imgsz` 与 `device` 各自触发一次
+  `/api/train/limits`，返回顺序不保证，慢的那次会覆盖快的结果——实测把设备切成
+  CPU 后提示仍显示 GPU 的上限，`overBudget` 还会据此禁掉一个 CPU 下完全合法的
+  配置。加请求序号守卫，只采纳最后一次发出的请求
+
+### 回归测试
+
+- `tests/test_18_runtime_paths.py`（6 条）：所有改道目标都在 `RUNTIME_DIR` 下；
+  `apply_runtime_env` 既建目录又写 `os.environ`；**配置目录不在运行时目录下时
+  拒绝改写全局配置**；任务配置确实落在 `.runtime/tmp/` 且子进程拿到新 `TEMP`
+- `tests/test_19_vram_guard.py`（11 条）：标定点不会被自己的守卫拒掉
+  （否则守卫比它要保护的东西还严格）；`batch=48 × imgsz=640` 被拒；
+  广告出去的上限是**紧的**（多加 1 就超）；接口 400 与 `/limits` 行为
+- `tests/test_20_job_stop.py`（11 条）：停止**同步**挪走状态；停止期间再启动给出
+  可照做的 409；停止记成 `stopped` 而非 `failed`；真崩溃仍记 `failed`；锁确实
+  归还；`stopping` 期间 SSE 不收流；Windows 走 `taskkill /T` 且有回退
+- `apps/web/e2e/vram-hint.spec.ts`：切到 CPU 后显存提示收起、切回 GPU 恢复。
+  单独一个文件，因为 `training.spec.ts` 的 `beforeEach` 会让整份文件被跳过
+
+后端 88 → **116 passed**；前端 E2E 5 → **6 passed**（另有 2 条按设计跳过）。
+
+### 变更
+
+- `JobStatus` 新增 `stopping`；任务快照新增 `stop_requested_at`。
+  接口契约同步更新到 `docs/api/REST-API.md` 与 `apps/web/src/api/types.ts`
+- SSE 的收流判据从「状态 != running」改为「状态 ∈ 终态集合」，否则 `stopping`
+  期间会提前收流，界面在进程树还没死的时候就显示「已停止」
+- `.gitignore` 增加 `.runtime/`
+- 版本号 v1.3.1 → **v1.3.2**（5 处：4 个 `_version.py` + `apps/web/package.json`）
+
+### 未做
+
+- **没有动 `C:\Users\<u>\runs` 与 `weights\yolo26n.pt` 这两处历史遗留**。
+  它们在工作区之外，是否清理交给用户决定；改道之后新产物不会再进去
+- **没有改 Windows 页面文件的位置**。实测页面文件峰值占用仅 0.61 GB
+  （物理内存 31.7 GB），它跟这次磁盘压力无关，动它需要管理员权限加重启
+
+---
+
 ## [v1.3.1] — 2026-09-26
 
 引入前端端到端测试，并修掉它第一次跑就抓到的两个界面缺陷。

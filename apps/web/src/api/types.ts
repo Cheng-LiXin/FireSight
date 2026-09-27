@@ -186,7 +186,7 @@ export interface ArtifactInfo {
   size: number
 }
 
-export type JobStatus = 'running' | 'done' | 'failed' | 'stopped'
+export type JobStatus = 'running' | 'stopping' | 'done' | 'failed' | 'stopped'
 
 export interface TrainJob {
   id: string
@@ -195,6 +195,8 @@ export interface TrainJob {
   status: JobStatus
   started_at: string
   finished_at: string | null
+  /** 收到停止请求的时刻。非 null 表示这次训练是被主动停止的。 */
+  stop_requested_at: string | null
   run_id: string | null
   error: string | null
   returncode: number | null

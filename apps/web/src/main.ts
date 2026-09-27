@@ -2,9 +2,9 @@ import '@fontsource/ibm-plex-mono/400.css'
 import '@fontsource/ibm-plex-mono/500.css'
 
 // 顺序要紧：Element Plus 的样式先落地，我们的令牌后覆盖，
-// 否则组件库默认的蓝色主色会漏进这套暖褐色系。
+// 否则组件库默认的蓝色主色会漏进这套灰白色系。
+// 不再引入 theme-chalk/dark/css-vars.css：本主题只做浅色。
 import 'element-plus/dist/index.css'
-import 'element-plus/theme-chalk/dark/css-vars.css'
 import '@/styles/tokens.css'
 import '@/styles/base.css'
 

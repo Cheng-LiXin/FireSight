@@ -118,6 +118,10 @@ export const api = {
     })
   },
 
+  /** 本机在给定 imgsz 下的 batch 上限。提前提示，用户不必提交一次才拿到 400。 */
+  trainLimits: (imgsz: number, device: string) =>
+    request<VramLimits>(`/train/limits?imgsz=${imgsz}&device=${encodeURIComponent(device)}`),
+
   trainJobs: () => request<TrainJob[]>('/train/jobs'),
 
   stopTrainJob: (id: string) =>
@@ -142,4 +146,14 @@ export interface TrainJobRequest {
   workers: number
   cache: boolean
   seed: number
+}
+
+/** 显存预算。checked=false 表示没做限制（CPU 或探测不到显卡）。 */
+export interface VramLimits {
+  checked: boolean
+  reason?: string
+  total_mb?: number
+  px_budget?: number
+  max_batch?: number | null
+  reference?: string
 }

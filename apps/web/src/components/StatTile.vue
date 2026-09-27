@@ -48,8 +48,9 @@ withDefaults(
   color: var(--dross);
 }
 
+/* 「这个读数表示有火/有告警」——正是 --alarm 的合法用途 */
 .tile--fire .tile__value {
-  color: var(--fire-3);
+  color: var(--alarm);
 }
 
 .tile--muted .tile__value {

@@ -111,9 +111,9 @@ const jobText = computed(() => {
   white-space: nowrap;
 }
 
-/* 品牌唯一的色点：品牌的 "Fire" 用明火家族中段色 */
+/* 品牌色点：单色主题下用近黑，与正文同族、只靠粗细区分 */
 .brand__mark {
-  color: var(--fire-2);
+  color: var(--accent);
 }
 
 .nav {
@@ -136,7 +136,7 @@ const jobText = computed(() => {
 
 .nav__link.router-link-exact-active {
   color: var(--bone);
-  border-bottom-color: var(--fire-2);
+  border-bottom-color: var(--accent);
 }
 
 .env {
@@ -149,7 +149,7 @@ const jobText = computed(() => {
 }
 
 .env__job {
-  color: var(--fire-3);
+  color: var(--accent);
 }
 
 .env__clock {
@@ -174,7 +174,7 @@ const jobText = computed(() => {
   color: var(--bone);
   background: var(--ash);
   border: var(--hairline);
-  border-left: 3px solid var(--fire-2);
+  border-left: 3px solid var(--accent);
 }
 
 .alert__retry {

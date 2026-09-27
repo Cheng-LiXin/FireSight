@@ -1,53 +1,75 @@
 /* ==========================================================================
-   FireSight 设计令牌 —— 热成像取景
+   FireSight 设计令牌 —— 现代简约 · 灰白黑
    --------------------------------------------------------------------------
-   规则一：数据色遵循热成像的冷端/热端，界面 chrome 保持低饱和暖灰。
-           冷端本就该是饱和的青蓝（真实热像仪里冷物体就是饱和蓝），
-           把它做成灰的等于让数据色退化成 chrome。橙与青都出现在数据位。
-   规则二：类别决定色相家族（烟→冷 / 火→热），置信度决定家族内明度。
-           任取一个色值都能唯一反推出「类别 + 置信度」。
-   规则三：数值字形分两种——需要纵向对齐的（读数条/表格/坐标轴）用等宽；
+   规则一：界面本身**无彩**。所有 chrome（底、面、线、字、按钮、焦点）只用灰阶。
+   规则二：彩色额度只留一个——`--alarm`。它只表示「确实有火 / 有告警 / 出错」，
+           不承担任何装饰或交互角色。彩色越稀缺，出现时越被看见。
+   规则三：数据里烟用深石板灰、火用告警红，于是「唯一一个彩色」就是明火本身。
+           灰与红在色觉缺陷下主要靠**明度**分离，因此烟必须比火暗得多——
+           这条有实测依据，见 --cat-smoke 处注释，不要凭观感改浅。
+   规则四：数值字形分两种——需要纵向对齐的（读数条/表格/坐标轴）用等宽；
            大号独立 hero 数字用比例字形，等宽会让它在大字号下显得松散。
+
+   对比度（阈值：正文 >=4.5:1，图形/大字号 >=3:1）
+     #111827 on #F7F8FA  16.69:1    主文字
+     #4B5563 on #F7F8FA   7.11:1    次要文字
+     #1F2937 on #FFFFFF  14.68:1    烟（类别）
+     #D14A17 on #FFFFFF   4.47:1    火 / 告警
+     #6B7280 on #F7F8FA   4.55:1    风险尺 normal
+     #9CA3AF on #F7F8FA   2.39:1    仅可用于填充，不可用于细线或文字
    ========================================================================== */
 
 :root {
-  /* --- 基底：暖调炭褐，非中性近黑 ------------------------------------- */
-  --soot: #17130e;   /* 页面底 */
-  --ash: #221c15;    /* 面板 / 表头（也是图表校验用的 surface） */
-  --cinder: #332a20; /* 边框 / 分隔线 */
+  /* --- 基底：中性灰白，无彩 ------------------------------------------- */
+  --soot: #f7f8fa;   /* 页面底 */
+  --ash: #ffffff;    /* 面板 / 表头（也是图表校验用的 surface） */
+  --cinder: #e5e7eb; /* 边框 / 分隔线 */
 
   /* --- 文字 ----------------------------------------------------------- */
-  --bone: #e9e1d4;   /* 主文字，暖白 */
-  --dross: #8c8172;  /* 次要文字 / 标签 */
+  --bone: #111827;   /* 主文字，近黑 */
+  --dross: #4b5563;  /* 次要文字 / 标签 */
+
+  /* --- 灰阶阶梯：越靠后越深，用于「严重程度」而非「类别」 ------------- */
+  --ink-4: #d1d5db;
+  --ink-3: #9ca3af;
+  --ink-2: #6b7280;
+  --ink-1: #374151;
+  --ink-0: #111827;
+
+  /* 选中行底色。比 --soot 略深，与 hover 态拉开一档，
+     原先这里是硬编码的暗褐半透明，浅色下会变成一条重灰带。 */
+  --highlight: #eef1f4;
+
+  /* --- 交互强调色：中性近黑 ------------------------------------------- */
+  /* 原名 --fire-2 / --fire-3。单色主题下继续叫 fire 就是撒谎，故按角色重命名。 */
+  --accent: #111827;        /* 主按钮、焦点框、滑块、激活态 */
+  --accent-hover: #374151;  /* 悬停 / 次级强调 */
+  --accent-soft: #9ca3af;   /* 弱化强调、禁用态 */
+
+  /* --- 告警色：整个界面唯一允许出现的彩色 ----------------------------- */
+  /* 只用于「确实有火 / 有告警 / 出错」这一种语义。这是刻意的额度限制：
+     彩色越稀缺，出现时越被看见。 */
+  --alarm: #d14a17;
 
   /* --- 对照锚点：无目标、正常态 -------------------------------------- */
-  --cool: #5b7c8d;
-
-  /* --- 烟雾家族（冷端）：置信度 低 → 高 ------------------------------- */
-  --smoke-1: #0a3e4e;
-  --smoke-2: #007e9c;
-  --smoke-3: #00a3c4;
-  --smoke-4: #86dcee;
-
-  /* --- 明火家族（热端）：置信度 低 → 高 ------------------------------- */
-  --fire-1: #7a1f1f;
-  --fire-2: #d14a17;
-  --fire-3: #ff9a3c;
-  --fire-4: #ffe9a8;
+  --cool: var(--ink-2);
 
   /* --- 图表类别槽位 -------------------------------------------------- */
-  /* 经 dataviz 校验器在 surface #221C15 下六项全过：
-     L 均落在 0.48–0.67；C >= 0.10；CVD 分离 deutan ΔE 21.1；
-     常视觉 ΔE 30.8；对比度均 >= 3:1。
-     改动这两个值必须重跑校验，不要凭眼睛调。 */
-  --cat-smoke: #00a3c4;
-  --cat-fire: #d14a17;
+  /* 烟=深石板灰 / 火=告警红。这样「唯一一个彩色」就是明火本身。
+     实测（白底 #FFFFFF，度量 OKLab ΔE×100 + Machado 二色觉矩阵）：
+       常视觉 ΔE 37.2 · deutan 36.3 · protan 25.1
+       对比度 14.68 / 4.47（均 >= 3:1）
+     注意别把烟改浅：改成 #6B7280 时三者同为 L≈0.55，protan 掉到 13.4，
+     比项目原来的验证基线 21.1 还差——灰与红在红绿色盲下主要靠明度分。 */
+  --cat-smoke: #1f2937;
+  --cat-fire: var(--alarm);
 
-  /* --- 风险尺刻度：由明火家族派生，档位越高越亮越热 ------------------ */
-  --risk-normal: var(--cool);
-  --risk-watch: var(--fire-1);
-  --risk-warn: var(--fire-2);
-  --risk-alert: var(--fire-3);
+  /* --- 风险尺刻度：前三档单色递深，最高档才用告警红 ------------------ */
+  /* 四级均 >=3:1，可同时用于色块与细线。normal 不用 --ink-3（只有 2.39:1）。 */
+  --risk-normal: var(--ink-2);
+  --risk-watch: var(--ink-1);
+  --risk-warn: #1f2937;
+  --risk-alert: var(--alarm);
 
   /* --- 字体 ----------------------------------------------------------- */
   /* 中文交给系统 CJK（Windows: 微软雅黑 / macOS: 苹方），不下载多 MB 字库。 */
@@ -74,34 +96,35 @@
   --sp-7: 48px;
 
   /* --- 结构 ----------------------------------------------------------- */
-  --radius: 3px;
+  /* 3px 是仪表式的紧致；浅色简约方向用 6px 更贴合现代后台的观感。 */
+  --radius: 6px;
   --hairline: 1px solid var(--cinder);
   --shell-h: 52px;
 }
 
-/* Element Plus 暗色适配：把它的语义色接到我们的令牌上，
-   避免组件库默认蓝 #409eff 漏进这套暖褐色系。 */
-html.dark {
+/* Element Plus 主题适配：接到中性令牌上，避免组件库默认蓝 #409eff 漏进灰白色系。
+   注意挂在 :root，不是 html.dark——保留 Dark 版的选择器会把暗色语义一起带进来。 */
+:root {
   --el-bg-color: var(--ash);
   --el-bg-color-page: var(--soot);
   --el-bg-color-overlay: var(--ash);
   --el-text-color-primary: var(--bone);
   --el-text-color-regular: var(--bone);
   --el-text-color-secondary: var(--dross);
-  --el-text-color-placeholder: var(--dross);
+  --el-text-color-placeholder: var(--ink-3);
   --el-border-color: var(--cinder);
   --el-border-color-light: var(--cinder);
   --el-border-color-lighter: var(--cinder);
-  --el-fill-color: var(--ash);
-  --el-fill-color-light: var(--ash);
+  --el-fill-color: var(--soot);
+  --el-fill-color-light: var(--soot);
   --el-fill-color-blank: var(--ash);
-  --el-color-primary: var(--fire-2);
-  --el-color-primary-light-3: var(--fire-3);
-  --el-color-primary-light-5: var(--fire-3);
-  --el-color-primary-light-7: var(--fire-1);
-  --el-color-primary-light-8: var(--fire-1);
-  --el-color-primary-light-9: var(--fire-1);
-  --el-color-primary-dark-2: var(--fire-1);
+  --el-color-primary: var(--accent);
+  --el-color-primary-light-3: var(--ink-1);
+  --el-color-primary-light-5: var(--ink-2);
+  --el-color-primary-light-7: var(--ink-3);
+  --el-color-primary-light-8: var(--ink-4);
+  --el-color-primary-light-9: #f3f4f6;
+  --el-color-primary-dark-2: #000000;
   --el-border-radius-base: var(--radius);
   --el-font-family: var(--font-sans);
 }
