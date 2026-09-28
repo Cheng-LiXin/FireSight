@@ -42,6 +42,9 @@ class TrainJobRequest(BaseModel):
     cache: bool = False
     seed: int = 42
     experiment: str = ""
+    #: 非空时改为从该训练现场断点续训。除 device 外，请求里其余字段基本不生效——
+    #: ultralytics 以检查点里的 train_args 为准（几何、epochs、lr 全取它）。
+    resume_run_id: str = ""
 
 
 def _read_args(run_root: Path) -> Dict[str, Any]:
@@ -68,6 +71,65 @@ def _dataset_label(data_path: Any) -> Optional[str]:
         return rel.as_posix()
     except (ValueError, OSError):
         return Path(str(data_path)).parent.name or None
+
+
+# 能否续训要读 last.pt（torch.load 一次约 100ms，完整态 54MB）。按 (mtime, size)
+# 记住结果，列表接口就不会每次重读。
+_resume_cache: Dict[str, Any] = {}
+
+
+def _resume_info(run_root: Path) -> Optional[Dict[str, Any]]:
+    """读现场的 last.pt。没有或读不出来返回 None。"""
+    last = run_root / "weights" / "last.pt"
+    try:
+        st = last.stat()
+    except OSError:
+        return None
+
+    key = str(last)
+    hit = _resume_cache.get(key)
+    if hit is not None and hit[0] == st.st_mtime and hit[1] == st.st_size:
+        return hit[2]
+
+    from fire_sight_platform.training.service import read_checkpoint
+
+    try:
+        info: Optional[Dict[str, Any]] = read_checkpoint(last)
+    except Exception:  # noqa: BLE001 - 检查点坏了就当不能续，不该让列表挂掉
+        info = None
+    _resume_cache[key] = (st.st_mtime, st.st_size, info)
+    return info
+
+
+def _resume_state(run_root: Path) -> Dict[str, Any]:
+    """能不能续训、为什么不能、从第几轮接上。
+
+    「训练已结束」与「还能续」必须分开：`Trainer.final_eval()` 会调
+    `strip_optimizer(last)`，跑完的现场只剩权重——从它接着练会重置优化器与 EMA，
+    学习率轨迹接不上，那不是续训而是换个权重微调。
+    """
+    info = _resume_info(run_root)
+    if info is None:
+        return {
+            "resumable": False,
+            "resume_note": "现场没有 last.pt，无法续训",
+            "resume_done": None,
+            "resume_total": None,
+        }
+
+    done = info["done_epochs"]
+    total = info["total_epochs"]
+    base = {"resume_done": done, "resume_total": total}
+
+    if not info["has_optimizer"]:
+        return {
+            **base,
+            "resumable": False,
+            "resume_note": "训练已结束，检查点里的优化器状态已被剥离——只能拿该轮权重微调",
+        }
+    if total and done >= total:
+        return {**base, "resumable": False, "resume_note": f"已跑满 {total} 轮"}
+    return {**base, "resumable": True, "resume_note": ""}
 
 
 def _num(metrics: Dict[str, Any], key: str) -> Optional[float]:
@@ -119,6 +181,7 @@ def list_runs() -> List[TrainRun]:
                 recall=_num(metrics, "recall"),
                 artifact_count=len(deps.run_artifacts(run.root)),
                 created=created,
+                **_resume_state(run.root),
             )
         )
     return out
@@ -198,7 +261,20 @@ def get_limits(
 
 @router.post("/jobs", status_code=201)
 def start_job(req: TrainJobRequest) -> Dict[str, Any]:
-    """启动一次训练。GPU 被占用时返回 409 并说明占用者。"""
+    """启动一次训练；带 `resume_run_id` 时改为从该现场断点续训。
+
+    GPU 被占用时返回 409 并说明占用者。
+    """
+    config = _resume_config(req) if req.resume_run_id else _fresh_config(req)
+    try:
+        job = manager.start(config)
+    except deps.GpuBusy as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return job.public()
+
+
+def _fresh_config(req: TrainJobRequest) -> Dict[str, Any]:
+    """常规训练：数据集 → 显存 → 放行。"""
     from fire_sight_platform.training.service import _resolve_dataset_yaml
     from fire_sight_platform.training.vram import check as check_vram
 
@@ -222,11 +298,97 @@ def start_job(req: TrainJobRequest) -> Dict[str, Any]:
         if not verdict.ok:
             raise HTTPException(status_code=400, detail=verdict.message)
 
+    return req.model_dump()
+
+
+def _checkpoint_model(info: Dict[str, Any], run_id: str) -> str:
+    """判断续训该按哪个模型规模算显存。
+
+    **不能只看检查点的 `train_args.model`**：续训一次之后，ultralytics 会把它改写成
+    `.../weights/last.pt`（`check_resume` 里 `self.args.model = self.args.resume = str(last)`）。
+    于是第二次续训会把模型认成 `last` → 守卫按未知模型（yolo11m 的 3.83 倍）估 →
+    一个本来合法的 batch 被拒。实测踩到：
+    「batch=16 × imgsz=640 在 last 上……超过预算……imgsz=640 时 batch 最多 10」。
+
+    `run_id` 的最后一段是模型主名（`make_run_id(dataset, model)` 拼出来的），
+    它不随检查点被改写，所以优先用它。
+
+    > 「看起来能用、第二次才坏」的典型：第一次续训正常（检查点里还是 `yolo11s.pt`），
+    > 那次完成时被改写，第二次就成了未知模型。
+    """
+    from fire_sight_platform.training import vram
+
+    candidate = run_id.rsplit("-", 1)[-1]
+    if candidate in vram.MODEL_FACTORS:
+        return f"{candidate}.pt"
+
+    raw = Path(str(info.get("model") or "")).name
+    if raw and raw not in {"last.pt", "best.pt"}:
+        return raw
+    return raw
+
+
+def _resume_config(req: TrainJobRequest) -> Dict[str, Any]:
+    """断点续训：校验检查点 → 显存（按检查点的几何）→ 放行。
+
+    与常规训练的两处关键差别：
+
+    - **几何与总轮数以检查点为准**，不是请求里的。ultralytics 会从
+      `train_args` 重建配置，请求里那些值基本不生效（见 `_train_from_checkpoint`）。
+    - **显存守卫按检查点的 imgsz/batch/model 判**。用请求里的默认值会拿 yolo11n
+      的额度去放行一个 yolo11s 的续训，实测差 1.82 倍。
+    """
+    from fire_sight_platform.training.service import read_checkpoint
+    from fire_sight_platform.training.vram import check as check_vram
+
     try:
-        job = manager.start(req.model_dump())
-    except deps.GpuBusy as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
-    return job.public()
+        run = deps.find_training_run(req.resume_run_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    last_pt = run.root / "weights" / "last.pt"
+    if not last_pt.is_file():
+        raise HTTPException(
+            status_code=404, detail=f"该现场没有 last.pt，无法续训: {run.run_id}"
+        )
+
+    state = _resume_state(run.root)
+    if not state["resumable"]:
+        raise HTTPException(
+            status_code=400,
+            detail=f"无法从这个现场续训：{state['resume_note']}",
+        )
+
+    info = _resume_info(run.root) or {}
+    imgsz = int(info.get("imgsz") or req.imgsz)
+    batch = int(info.get("batch") or req.batch)
+    # 模型名要能扛住「检查点被上一次续训改写」，见 _checkpoint_model
+    model = _checkpoint_model(info, run.run_id)
+
+    limits = deps.vram_limits(req.device, imgsz, model)
+    if limits["checked"]:
+        verdict = check_vram(
+            imgsz=imgsz, batch=batch, total_mb=limits["total_mb"], model=model
+        )
+        if not verdict.ok:
+            raise HTTPException(status_code=400, detail=verdict.message)
+
+    config = req.model_dump()
+    config.update(
+        {
+            # 交给子进程的是配置里的 resume，不是 resume_run_id（后者只是路由参数）
+            "resume": str(last_pt),
+            "imgsz": imgsz,
+            "batch": batch,
+            "model": model,
+            # epochs 只是给界面显示总轮数用的——续训改不了它，ultralytics 取检查点里的
+            "epochs": int(info.get("total_epochs") or req.epochs),
+            "dataset": _dataset_label(info.get("data")) or req.dataset,
+            "project_name": "fire-sight",
+            "experiment": "",
+        }
+    )
+    return config
 
 
 @router.get("/jobs")

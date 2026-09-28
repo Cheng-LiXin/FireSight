@@ -24,6 +24,8 @@ const curves = ref<CurvesResponse | null>(null)
 const artifacts = ref<ArtifactInfo[]>([])
 const busy = ref(false)
 const error = ref<string | null>(null)
+/** 正在发起续训的那个 run_id（空串表示没有）。防连点，也用来禁用按钮。 */
+const resuming = ref('')
 
 /** 图件按用途分组，平铺一堆文件名读不出重点。 */
 const ARTIFACT_GROUP: Record<string, string> = {
@@ -259,20 +261,57 @@ function connect(id: string): void {
   // 连接异常时浏览器会自动带 Last-Event-ID 重连，服务端据此续传，不必在这里处理
 }
 
-async function startTraining(): Promise<void> {
-  error.value = null
+/** 起任务之后的共用接线：记下 job 并接上 SSE。 */
+function beginJob(started: TrainJob): void {
+  job.value = started
+  connect(started.id)
+}
+
+function resetLive(): void {
   job.value = null
   liveEpochs.value = []
   liveLosses.value = {}
   liveMetrics.value = {}
   logs.value = []
   logsOpen.value = true
+}
+
+async function startTraining(): Promise<void> {
+  error.value = null
+  resetLive()
   try {
-    const started = await api.startTrainJob(form.value)
-    job.value = started
-    connect(started.id)
+    beginJob(await api.startTrainJob(form.value))
   } catch (e) {
     error.value = describe(e)
+  }
+}
+
+/** 从某个现场断点续训。
+ *
+ * 只给 run_id：几何、总轮数、学习率轨迹都由后端从检查点里取。这是 ultralytics 的
+ * 语义——它用 checkpoint 的 train_args 重建配置，界面上那些字段本来就不生效，
+ * 所以这里不假装能改它们。
+ */
+async function resumeRun(run: TrainRun): Promise<void> {
+  const done = run.resume_done ?? 0
+  const total = run.resume_total ?? 0
+  if (!window.confirm(`从第 ${done + 1} 轮继续（共 ${total} 轮）？\n几何与总轮数取自检查点，不能在这里改。`)) {
+    return
+  }
+  error.value = null
+  resetLive()
+  resuming.value = run.run_id
+  try {
+    beginJob(
+      await api.startTrainJob({
+        dataset: run.dataset ?? '',
+        resume_run_id: run.run_id,
+      }),
+    )
+  } catch (e) {
+    error.value = describe(e)
+  } finally {
+    resuming.value = ''
   }
 }
 
@@ -471,12 +510,14 @@ onBeforeUnmount(disconnect)
             <th class="is-num">轮数</th>
             <th class="is-num">mAP@50</th>
             <th>归档</th>
+            <th>操作</th>
           </tr>
         </thead>
         <tbody>
           <tr
             v-for="r in runs"
             :key="r.run_id"
+            :data-run-id="r.run_id"
             :class="{ 'is-selected': r.run_id === selectedId }"
           >
             <td>
@@ -491,6 +532,20 @@ onBeforeUnmount(disconnect)
             <td>
               <span v-if="r.archived" class="tag tag--ok">已归档</span>
               <span v-else class="tag">现场</span>
+            </td>
+            <td>
+              <button
+                v-if="r.resumable"
+                type="button"
+                class="fs-btn-ghost fs-btn-ghost--tiny"
+                :disabled="active || resuming === r.run_id"
+                :title="`已完成 ${r.resume_done}/${r.resume_total} 轮，从第 ${(r.resume_done ?? 0) + 1} 轮继续`"
+                @click="resumeRun(r)"
+              >
+                {{ resuming === r.run_id ? '发起中…' : '继续训练' }}
+              </button>
+              <!-- 说不清为什么不能续，用户就会以为是按钮坏了 -->
+              <span v-else class="why" :title="r.resume_note">不可续训</span>
             </td>
           </tr>
         </tbody>
@@ -586,6 +641,14 @@ onBeforeUnmount(disconnect)
 
 .pick:hover {
   color: var(--accent);
+}
+
+/* 「不可续训」：把鼠标放上去能看到原因（例如优化器状态已被剥离）。
+   不给它按钮样式——它不是操作，是一句说明。 */
+.why {
+  font-size: var(--fs-xs);
+  color: var(--dross);
+  cursor: help;
 }
 
 /* --- 启动表单 --------------------------------------------------------- */

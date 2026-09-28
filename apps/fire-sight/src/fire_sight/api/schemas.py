@@ -277,6 +277,14 @@ class TrainRun(BaseModel):
     recall: Optional[float] = None
     artifact_count: int = 0
     created: Optional[str] = None
+    #: 能否从这个现场断点续训。判据是 last.pt 里还有没有优化器状态——
+    #: 跑完的训练会被 strip_optimizer 剥掉，从它「续」等于换个权重微调。
+    resumable: bool = False
+    #: 不能续训的原因（可续时为空串）。界面直接显示，不猜。
+    resume_note: str = ""
+    #: 检查点里记录的已完成 / 总轮数，供界面说明「从第 41 轮继续」
+    resume_done: Optional[int] = None
+    resume_total: Optional[int] = None
 
 
 class CurvesResponse(BaseModel):

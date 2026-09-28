@@ -41,6 +41,14 @@ class TrainConfig(BaseConfig):
     cache: bool = Field(default=False, description="图像缓存进内存加速后续 epoch")
     project_name: str = Field(default="fire-sight", description="runs 子目录名")
     experiment: Optional[str] = Field(default=None, description="实验名,缺省自动生成")
+    resume: str = Field(
+        default="",
+        description=(
+            "断点续训：指向现场目录的 weights/last.pt。非空时本配置里除 device 外"
+            "绝大多数字段都不生效——ultralytics 以 checkpoint 里的 train_args 为准"
+            "（见 training/service.py 的 _train_from_checkpoint）"
+        ),
+    )
 
 
 class ValConfig(BaseConfig):

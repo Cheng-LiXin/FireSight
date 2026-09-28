@@ -64,6 +64,97 @@ def _epoch_callback(emit: Callable[[Dict[str, Any]], None]):
     return handler
 
 
+def read_checkpoint(path: Path | str) -> Dict[str, Any]:
+    """读训练检查点的元信息，用于判断能不能断点续训。
+
+    抽成公开函数是因为**路由也要用**：它要据此决定放行还是给出可读的拒绝理由，
+    而真正加载模型是在训练子进程里做的事。
+
+    判据是 `optimizer` 在不在——`Trainer.final_eval()` 会调 `strip_optimizer(last)`，
+    所以**跑完的现场，last.pt 只剩权重**，从它「续训」等于从那一轮的权重微调，
+    学习率轨迹接不上。这个区别必须让调用方看得见。
+    """
+    import torch
+
+    ckpt = torch.load(str(path), map_location="cpu", weights_only=False)
+    args = ckpt.get("train_args") or {}
+    # epoch 是 0-based：epoch=39 表示已完成 40 轮
+    done = int(ckpt.get("epoch") or 0) + 1
+    return {
+        "done_epochs": done,
+        "total_epochs": int(args.get("epochs") or 0),
+        "imgsz": int(args.get("imgsz") or 0),
+        "batch": int(args.get("batch") or 0),
+        "device": str(args.get("device") or ""),
+        # 守卫要按**检查点的模型**算规模因子；用请求里的默认值会拿 yolo11n 的额度
+        # 放行 yolo11s（实测差 1.82 倍）
+        "model": str(args.get("model") or ""),
+        "data": str(args.get("data") or ""),
+        "project": str(args.get("project") or ""),
+        "name": str(args.get("name") or ""),
+        "has_optimizer": ckpt.get("optimizer") is not None,
+        "has_ema": ckpt.get("ema") is not None,
+        "updates": int(ckpt.get("updates") or 0),
+    }
+
+
+def _train_from_checkpoint(
+    cfg: TrainConfig,
+    on_epoch: Optional[Callable[[Dict[str, Any]], None]],
+):
+    """从 `cfg.resume`（现场目录的 last.pt）续训，返回 (results, run_id, data_yaml)。
+
+    四条 ultralytics 的**实际语义**，读 `Trainer.check_resume` 得来，别照直觉改：
+
+    1. 参数以 **checkpoint 里的 `train_args`** 为准；cfg 里那些基本不生效。
+       只有白名单里的键（`imgsz/batch/device/workers/cache/patience/val/plots/
+       save_dir/…`）**且显式传入**时才会覆盖 checkpoint 的值。
+    2. `imgsz` **必须显式传**。加载权重时 `self.overrides` 里带着该权重的 imgsz
+       （`_reset_ckpt_args` 的 include 集合含 `imgsz`），而它在白名单里——
+       不传就会被加载权重的值盖掉 checkpoint 的值。
+    3. 现场目录取 checkpoint 的 `project/name`，**不另造**。这里不传 project/name：
+       它们不在白名单里，传了也会被丢弃，`save_dir` 仍来自 checkpoint。
+    4. `epochs` 不在白名单里，取 checkpoint 的值——**续训改不了总轮数**。
+    """
+    info = read_checkpoint(cfg.resume)
+    if not info["has_optimizer"]:
+        raise ValueError(
+            f"该现场的训练已经结束（停在第 {info['done_epochs']} 轮），"
+            "检查点里的优化器状态已被 strip_optimizer 剥离，无法断点续训。"
+            "要接着练，请用常规训练从对应的 best.pt 微调。"
+        )
+    if info["total_epochs"] and info["done_epochs"] >= info["total_epochs"]:
+        raise ValueError(
+            f"该现场已跑满 {info['total_epochs']} 轮，没有可续的轮次。"
+        )
+
+    run_id = info["name"] or Path(cfg.resume).parent.parent.name
+    imgsz = info["imgsz"] or cfg.imgsz
+
+    logger.info("断点续训".center(60, "="))
+    logger.info(f"  检查点  : {cfg.resume}")
+    logger.info(f"  已完成  : {info['done_epochs']}/{info['total_epochs']} 轮")
+    logger.info(f"  现场    : {run_id}")
+    logger.info(
+        f"  imgsz={imgsz} batch={info['batch']} device={cfg.device}"
+        f"（imgsz/batch/epochs 以检查点为准，device 允许改）"
+    )
+
+    from ultralytics import YOLO
+
+    model = YOLO(cfg.resume)
+    if on_epoch is not None:
+        model.add_callback("on_fit_epoch_end", _epoch_callback(on_epoch))
+
+    results = model.train(
+        resume=str(cfg.resume),
+        imgsz=imgsz,  # 见文档第 2 条：不显式传就会用加载权重的 imgsz
+        device=cfg.device,  # 白名单项，允许换设备（例如改成 cpu）
+        verbose=True,
+    )
+    return results, run_id, Path(info["data"]) if info["data"] else None
+
+
 def train_yolo(
     cfg: TrainConfig,
     on_epoch: Optional[Callable[[Dict[str, Any]], None]] = None,
@@ -72,6 +163,8 @@ def train_yolo(
 
     on_epoch 每轮结束收到一次 {epoch, epochs, metrics, losses}。网页端据此推实时
     曲线；命令行不传即可，行为与从前一致。
+
+    `cfg.resume` 非空时走断点续训：见 `_train_from_checkpoint`。
     """
     from fire_sight_platform.common.runtime_env import (
         apply_runtime_env,
@@ -86,9 +179,24 @@ def train_yolo(
 
     pin_ultralytics_paths()
 
-    yaml_path = _resolve_dataset_yaml(cfg.dataset)
     log_device_info()
-    logger.info(f"数据集: {yaml_path}")
+
+    if cfg.resume:
+        results, run_id, yaml_path = _train_from_checkpoint(cfg, on_epoch)
+    else:
+        results, run_id, yaml_path = _train_fresh(cfg, on_epoch, YOLO)
+        logger.info(f"数据集: {yaml_path}")
+
+    return _finish(results, cfg, run_id, yaml_path)
+
+
+def _train_fresh(
+    cfg: TrainConfig,
+    on_epoch: Optional[Callable[[Dict[str, Any]], None]],
+    YOLO,
+):
+    """常规训练：从预训练权重起一次新的现场。"""
+    yaml_path = _resolve_dataset_yaml(cfg.dataset)
     logger.info(
         f"模型={cfg.model} epochs={cfg.epochs} imgsz={cfg.imgsz} "
         f"batch={cfg.batch} lr0={cfg.lr0} device={cfg.device} "
@@ -124,8 +232,13 @@ def train_yolo(
         exist_ok=True,
         verbose=True,
     )
+    return results, run_id, yaml_path
 
-    save_dir = Path(getattr(results, "save_dir", project / exp))
+
+def _finish(results, cfg: TrainConfig, run_id: str, yaml_path) -> TrainResult:
+    """两种训练路径共用的收尾：找权重、抽指标、归档。"""
+    project = RUNS_DIR / "training"
+    save_dir = Path(getattr(results, "save_dir", project / run_id))
     best_pt = save_dir / "weights" / "best.pt"
     if not best_pt.exists():
         last_pt = save_dir / "weights" / "last.pt"

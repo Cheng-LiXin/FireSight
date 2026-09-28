@@ -165,7 +165,7 @@ export const api = {
   trainArtifactUrl: (runId: string, name: string) =>
     `${BASE}/train/artifact?run_id=${encodeURIComponent(runId)}&name=${encodeURIComponent(name)}`,
 
-  startTrainJob(payload: TrainJobRequest): Promise<TrainJob> {
+  startTrainJob(payload: TrainJobRequest | TrainResumeRequest): Promise<TrainJob> {
     return request<TrainJob>('/train/jobs', {
       method: 'POST',
       body: JSON.stringify(payload),
@@ -203,6 +203,21 @@ export interface TrainJobRequest {
   workers: number
   cache: boolean
   seed: number
+  /** 非空时从该现场断点续训。其余字段基本不生效——后端取检查点里的几何与 epochs。 */
+  resume_run_id?: string
+}
+
+/**
+ * 断点续训的请求体：**只需要现场与（可选）设备**。
+ *
+ * 单独一个类型而不是把 TrainJobRequest 的字段都标成可选：续训时几何、总轮数、
+ * 学习率轨迹都取自检查点，界面上的那些输入本来就不生效。留成必填会让人以为
+ * 「填了就能改」，标成可选又会削弱正常训练那条路径的类型约束。
+ */
+export interface TrainResumeRequest {
+  dataset: string
+  resume_run_id: string
+  device?: string
 }
 
 /** 显存预算。checked=false 表示没做限制（CPU 或探测不到显卡）。 */

@@ -218,6 +218,13 @@ export interface TrainRun {
   recall: number | null
   artifact_count: number
   created: string | null
+  /** 能否从这个现场断点续训。跑完的训练会被 strip_optimizer 剥掉优化器状态。 */
+  resumable: boolean
+  /** 不能续训的原因（可续时为空串）。直接显示，不猜。 */
+  resume_note: string
+  /** 检查点里记录的已完成 / 总轮数，用于说明「从第 N+1 轮继续」 */
+  resume_done: number | null
+  resume_total: number | null
 }
 
 /** 曲线序列可含 null：那一轮该列缺失，前端应断开折线而非画到 0。 */
