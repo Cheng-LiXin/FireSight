@@ -5,12 +5,14 @@ import type {
   ArtifactInfo,
   BatchResult,
   CurvesResponse,
+  DeleteResult,
   EvalJobInfo,
   EvalRequest,
   EventPage,
   EventQuery,
   InferResult,
   ModelInfo,
+  ModelOption,
   Overview,
   SourceOption,
   SystemStatus,
@@ -109,6 +111,20 @@ export const api = {
   modelDownloadUrl: (runId: string) =>
     `${BASE}/models/download?run_id=${encodeURIComponent(runId)}`,
 
+  /** 删除归档（移进回收目录，可恢复）。
+   *
+   * DELETE 带 body：run_id 里含斜杠、走路径会被路由切碎，而 with_run 这种
+   * 结构化意图查询参数又表达不清。后端与浏览器都支持，就这么发。
+   *
+   * with_run 决定是否连同训练现场（曲线、图件、检查点）一起搬走——归档与现场
+   * 是两份数据，由用户逐次勾选，不替他绑死。
+   */
+  deleteModel: (runId: string, withRun = false) =>
+    request<DeleteResult>('/models', {
+      method: 'DELETE',
+      body: JSON.stringify({ run_id: runId, with_run: withRun }),
+    }),
+
   startEval: (payload: EvalRequest) =>
     request<EvalJobInfo>('/eval', { method: 'POST', body: JSON.stringify(payload) }),
   evalJobs: () => request<EvalJobInfo[]>('/eval/jobs'),
@@ -189,6 +205,13 @@ export const api = {
   /** SSE 地址。since 用于断线续传，带上已收到的最后一个 seq。 */
   trainJobStreamUrl: (id: string, since = 0) =>
     `${BASE}/train/jobs/${encodeURIComponent(id)}/stream?since=${since}`,
+
+  /** 可选的预训练模型，附本机是否已有权重。
+   *
+   * 之前「模型」是自由文本输入框，用户得自己记得 `yolo11s.pt` 的拼写，写错了
+   * 要等训练起起来才报「找不到权重」。这里把清单一次给全。
+   */
+  trainModels: () => request<ModelOption[]>('/train/models'),
 }
 
 export interface TrainJobRequest {

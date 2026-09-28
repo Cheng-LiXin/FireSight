@@ -19,7 +19,14 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import FileResponse
 
 from fire_sight.api import deps
-from fire_sight.api.schemas import ActiveModel, ActiveModelRequest, ModelInfo
+from fire_sight.api.schemas import (
+    ActiveModel,
+    ActiveModelRequest,
+    DeleteRequest,
+    DeleteResult,
+    ModelInfo,
+)
+from fire_sight.services import recycle
 
 router = APIRouter(prefix="/api/models", tags=["models"])
 
@@ -170,4 +177,72 @@ def download(run_id: str = Query(..., description="归档 run_id（含斜杠，�
         run.best_pt,
         media_type="application/octet-stream",
         filename=filename,
+    )
+
+
+@router.delete("", response_model=DeleteResult)
+def delete_model(req: DeleteRequest) -> DeleteResult:
+    """删除一个归档（移进回收目录，可恢复）。
+
+    DELETE 带 body 不常见，但 run_id 里含斜杠、走路径会被路由切碎，而查询参数
+    又放不下 `with_run` 这种结构化意图。FastAPI 支持带 body 的 DELETE，前端
+    fetch 也发得出去，就用了——比把 run_id 编码进路径再解码回来说得清楚。
+
+    删的恰好是**当前权重**时，`active` 会把回落结果一并返回：界面必须显示
+    「当前权重已变为 X」，而不是让用户下次打开识别页才发现模型换了。
+    """
+    run = deps.find_archived_run(req.run_id)
+    # 训练现场可能单独存在（被强行停止、还没归档的训练），所以两个目标分别查
+    run_site = next(
+        (r for r in deps.training_runs() if r.run_id == req.run_id), None
+    )
+
+    if run is None and run_site is None:
+        raise HTTPException(status_code=404, detail=f"未找到归档: {req.run_id}")
+
+    if run is None and not req.with_run:
+        # 只有现场、没有归档。此时「只删归档」等于什么都没删，如实拒绝，
+        # 而不是返回一个 removed_* 全 False 的成功结果让人以为删掉了。
+        raise HTTPException(
+            status_code=400,
+            detail=f"{req.run_id} 只有训练现场、没有归档权重；如需删除请勾选「同时删除训练现场」",
+        )
+
+    removed = recycle(
+        run_id=req.run_id,
+        archive_root=run.root if run is not None else None,
+        run_root=run_site.root if (req.with_run and run_site is not None) else None,
+        # 归档根由这里给出（本模块的 deps 侧最清楚它指向哪）；清空壳时不许越过它
+        archive_base=deps.TRAINED_MODELS_DIR,
+    )
+
+    # 权重被搬走之后，内存里那份缓存必须扔掉：否则识别页还拿着已经不在磁盘上的
+    # 模型继续推理，直到服务重启。删的就是当前权重时尤其明显。
+    deps.clear_infer_cache()
+
+    state = deps.active_model_state()
+    active = ActiveModel(
+        run_id=state.run_id, pinned=state.pinned, source=state.source, note=state.note
+    )
+
+    parts = []
+    if run is not None:
+        parts.append("归档权重")
+    if req.with_run and run_site is not None:
+        parts.append("训练现场")
+    # 归档在、现场不在：早期手工归档或现场已被清过。不算错误，但要说清，
+    # 免得用户以为漏删了。
+    if req.with_run and run_site is None and run is not None:
+        parts.append("训练现场（本来就不存在）")
+    note = "已移入回收目录：" + "、".join(parts) if parts else "没有可删除的内容"
+    if run is not None and state.source == "fallback-missing":
+        note += f"；当前权重已回落到 {state.run_id}"
+
+    return DeleteResult(
+        run_id=req.run_id,
+        removed_archive=run is not None,
+        removed_run=bool(req.with_run and run_site is not None),
+        trash_dir=str(removed.trash_dir) if removed.items else None,
+        active=active,
+        note=note,
     )

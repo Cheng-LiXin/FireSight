@@ -217,15 +217,29 @@ kbd {
   font-weight: 500;
 }
 
+/* 下拉与输入框都得钉死高度。只给 input 定高是不够的：<select> 的高度由
+   UA 按内容行高 + 内边距自己算，Windows 上比 input 高出几像素。同一行里
+   混着两种控件时（训练表单就是这样）底边会错开，看起来像没对齐。
+   全局已有 box-sizing: border-box，这里不必重复。 */
 .field__control {
   height: 32px;
   padding: 0 var(--sp-2);
   font-family: var(--font-sans);
   font-size: var(--fs-sm);
+  line-height: normal;
   color: var(--bone);
   background: var(--soot);
   border: 1px solid var(--cinder);
   border-radius: var(--radius);
+}
+
+/* 字段下方的补充说明。比 label 再弱一档，且允许折行——像「本机已有，18.4 MB」
+   这类信息不该把控件撑宽，也不该和值本身抢注意力。 */
+.field__hint {
+  margin-top: 2px;
+  font-size: var(--fs-xs);
+  line-height: 1.5;
+  color: var(--dross);
 }
 
 /* 滑块：轨道分两段着色，已选区间用强调色——滑块停在哪儿一眼可见，

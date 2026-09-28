@@ -272,6 +272,48 @@ test('对比评估：进度按模型推进，结果标出最佳值', async ({ pa
   await expect(resultRows.first().locator('.note-cell')).toHaveCount(1)
 })
 
+test('删除入口：默认只删归档，勾选才连现场一起', async ({ page }) => {
+  const count = await archivedCount(page)
+  test.skip(count === 0, '没有归档，跳过')
+  await openModels(page)
+
+  // 绝不点「确认删除」：这一步会真的动磁盘。只测弹窗与开关的行为，
+  // 真正的删除语义由后端测试覆盖（含回收目录、缓存失效、当前权重回落）。
+  const row = archiveRows(page).first()
+  await row.getByRole('button', { name: '删除' }).click()
+
+  const dialog = page.getByRole('dialog', { name: '确认删除' })
+  await expect(dialog).toBeVisible()
+  await expect(dialog).toContainText('回收目录')
+
+  // 默认不勾「连同训练现场」：两份数据不该被绑死
+  const box = dialog.locator('input[type="checkbox"]')
+  await expect(box).not.toBeChecked()
+  await box.check()
+  await expect(box).toBeChecked()
+
+  // 取消之后不应留下任何痕迹
+  await dialog.getByRole('button', { name: '取消' }).click()
+  await expect(dialog).toHaveCount(0)
+})
+
+test('删除时把「当前权重」这件事说出来', async ({ page }) => {
+  const count = await archivedCount(page)
+  test.skip(count === 0, '没有归档，跳过')
+  await openModels(page)
+
+  // 找到当前权重那一行点删除，弹窗必须提醒会回落——否则用户删完才发现
+  // 识别页换了模型
+  const activeRow = page.locator(`${ARCHIVES} tbody tr.is-active`).first()
+  await activeRow.getByRole('button', { name: '删除' }).click()
+
+  const dialog = page.getByRole('dialog', { name: '确认删除' })
+  await expect(dialog).toBeVisible()
+  await expect(dialog).toContainText('当前权重')
+  await expect(dialog.locator('.confirm__warn')).toBeVisible()
+  await dialog.getByRole('button', { name: '取消' }).click()
+})
+
 test('对比失败时把后端的说明显示出来', async ({ page }) => {
   const count = await archivedCount(page)
   test.skip(count < 2, '至少需要两份归档，跳过')

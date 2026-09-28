@@ -162,6 +162,46 @@ class ActiveModelRequest(BaseModel):
     run_id: str = Field(min_length=1)
 
 
+class DeleteRequest(BaseModel):
+    """删除一个归档。两个开关分别对应两份**不同**的数据。
+
+    默认只删归档权重；`with_run` 才连带删训练现场（曲线、图件、检查点）。
+    绑死成「一起删」会让人为了清理权重而丢掉现场，反之亦然。
+    """
+
+    run_id: str = Field(min_length=1)
+    #: 是否连同训练现场（runs/training 下的曲线与图件）一起移进回收目录
+    with_run: bool = False
+
+
+class DeleteResult(BaseModel):
+    """删除结果。删除是**移到回收目录**，所以要把去处如实告诉用户。"""
+
+    run_id: str
+    removed_archive: bool = False
+    removed_run: bool = False
+    #: 回收目录（模型库里不再显示，但还在磁盘上）
+    trash_dir: Optional[str] = None
+    #: 删除后当前权重变成了什么——删掉的恰好是当前权重时必须说明
+    active: Optional["ActiveModel"] = None
+    #: 一句给人看的结果说明
+    note: str = ""
+
+
+class ModelOption(BaseModel):
+    """一个可选的预训练模型（训练界面的「模型」下拉）。"""
+
+    stem: str
+    name: str
+    #: 权重是否已在本机。False 时 ultralytics 会尝试联网下载，离线就会失败。
+    present: bool
+    size_mb: Optional[float] = None
+    #: 显存规模因子是否有实测依据；False 表示按未知模型保守估
+    measured: bool = False
+    factor: float = 1.0
+    note: str = ""
+
+
 # --------------------------------------------------------------------------
 # 多权重对比评估
 # --------------------------------------------------------------------------

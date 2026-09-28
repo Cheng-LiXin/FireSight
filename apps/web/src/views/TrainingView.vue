@@ -12,6 +12,7 @@ import type {
   ArtifactInfo,
   CurveSeries,
   CurvesResponse,
+  ModelOption,
   SourceOption,
   TrainJob,
   TrainRun,
@@ -128,6 +129,13 @@ let source: EventSource | null = null
 
 /** 数据集名去重——同一个数据集有 train/val/test 三个来源，训练只关心数据集本身。 */
 const datasets = computed(() => [...new Set(sources.value.map((s) => s.dataset))])
+
+/** 可选的预训练模型。本机没权重的那几个也列出来，标「需下载」——
+ *  藏起来用户会以为是系统缺陷，列出来至少能自己判断要不要联网抓一个。 */
+const modelOptions = ref<ModelOption[]>([])
+const chosenModel = computed(
+  () => modelOptions.value.find((m) => m.name === form.value.model) ?? null,
+)
 
 const form = ref<TrainJobRequest>({
   dataset: '',
@@ -327,7 +335,22 @@ async function stopTraining(): Promise<void> {
   }
 }
 
+async function loadModels(): Promise<void> {
+  try {
+    modelOptions.value = await api.trainModels()
+    // 默认值改成**本机已有的第一个**，而不是写死 yolo11n：标尺模型在本机没有
+    // 权重文件，写死它会让第一次训练先卡在下载上。
+    if (!modelOptions.value.some((m) => m.name === form.value.model)) {
+      const first = modelOptions.value.find((m) => m.present)
+      if (first) form.value.model = first.name
+    }
+  } catch {
+    /* 清单拿不到不影响看历史；模型字段退回自由文本的旧行为 */
+  }
+}
+
 onMounted(async () => {
+  void loadModels()
   void loadLimits()
   try {
     sources.value = await api.sources()
@@ -365,7 +388,13 @@ onBeforeUnmount(disconnect)
         </label>
         <label class="field">
           <span class="field__label">模型</span>
-          <input v-model="form.model" class="field__control" />
+          <select v-model="form.model" class="field__control">
+            <option v-for="m in modelOptions" :key="m.stem" :value="m.name">
+              {{ m.name }}{{ m.present ? '' : '（需下载）' }}
+            </option>
+            <!-- 清单拿不到时保留当前值，不让表单变成空下拉 -->
+            <option v-if="!modelOptions.length" :value="form.model">{{ form.model }}</option>
+          </select>
         </label>
         <label class="field field--narrow">
           <span class="field__label">轮数</span>
@@ -424,6 +453,24 @@ onBeforeUnmount(disconnect)
             {{ stopping ? '停止中…' : '停止' }}
           </button>
         </div>
+
+        <!-- 模型说明放在整行下方单独一条，不塞进「模型」格子里。
+             它在这个宽度下要折三行（规模特点 + 本机有无 + 估算依据），塞进格子会
+             把那一项顶得比同排高一截，顶边底边怎么调都齐不了。挪出来之后每个
+             控件都是「一行 label + 一个 32px 控件」，一行天然对齐。
+             这是量出来的结论，不是估的：视口 1244px 时该段文字高 72px。 -->
+        <p v-if="chosenModel" class="model-note">
+          {{ chosenModel.note }}
+          <template v-if="!chosenModel.present">
+            本机没有这个权重，选中后第一次训练会联网下载。
+          </template>
+          <template v-else-if="chosenModel.size_mb != null">
+            本机已有，{{ chosenModel.size_mb.toFixed(1) }} MB。
+          </template>
+          <template v-if="!chosenModel.measured">
+            显存开销无实测数据，按 yolo11m 估算，见下方上限提示。
+          </template>
+        </p>
 
         <!-- 显存上限。等 ultralytics 自己报 CUDA OOM，模型已经加载、时间已经烧掉 -->
         <p
@@ -656,6 +703,10 @@ onBeforeUnmount(disconnect)
 .launcher {
   display: flex;
   flex-wrap: wrap;
+  /* 一行里的控件底边必须齐平。默认的 stretch 会把每个 .field 拉成整行那么高，
+     控件就落在各自 label 的顶端；而模型那一项的 hint 会折成三行，其他项只有
+     一行 label——于是每个 label 的高度都不一样，底边自然对不齐。钉死在
+     flex-end，控件就以自身高度贴底，跟 label 有几行无关。 */
   align-items: flex-end;
   gap: var(--sp-4);
   padding: var(--sp-3) var(--sp-4);
@@ -694,6 +745,16 @@ onBeforeUnmount(disconnect)
 
 .field__control.is-over {
   border-color: var(--accent);
+}
+
+/* 模型说明条：整行下方单独一条，宽度按整行算，所以三行文字在这里只占两行左右，
+   不再把某个格子顶高。左对齐到表单的左内边距，与控件左边缘拉齐。 */
+.model-note {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: var(--fs-xs);
+  line-height: 1.5;
+  color: var(--dross);
 }
 
 /* 状态条：左侧一道色条表示状态。failed 用明火色——它确实需要人去看一眼；

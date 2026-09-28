@@ -18,7 +18,7 @@ from pydantic import BaseModel, Field
 
 from fire_sight.api import deps
 from fire_sight.api.jobs import TERMINAL_STATUSES, manager
-from fire_sight.api.schemas import ArtifactInfo, CurvesResponse, TrainRun
+from fire_sight.api.schemas import ArtifactInfo, CurvesResponse, ModelOption, TrainRun
 from fire_sight_platform.common.paths import PROCESSED_DATA_DIR
 
 router = APIRouter(prefix="/api/train", tags=["train"])
@@ -257,6 +257,20 @@ def get_limits(
     `model_measured=false` 表示该模型规模没有实测数据，上限是估的。
     """
     return deps.vram_limits(device, imgsz, model)
+
+
+@router.get("/models", response_model=List[ModelOption])
+def list_model_options() -> List[ModelOption]:
+    """可选的预训练模型，附本机是否已有权重。
+
+    之前界面里「模型」是一个自由文本输入框，用户得自己记得 `yolo11s.pt` 这个
+    拼写；写错了要等训练起起来才报「找不到权重」。这里把可选清单一次给全，
+    并如实标出 `present`——本机只有 n/s/m 三个权重，l/x 要联网下载，
+    离线时选了就是一次明确的失败，不如提前说。
+    """
+    from fire_sight_platform.training.catalog import list_options
+
+    return [ModelOption(**vars(o)) for o in list_options()]
 
 
 @router.post("/jobs", status_code=201)

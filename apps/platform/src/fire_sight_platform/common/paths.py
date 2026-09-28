@@ -77,6 +77,12 @@ PRETRAINED_MODELS_DIR: Path = MODELS_DIR / "pretrained"
 TRAINED_MODELS_DIR: Path = MODELS_DIR / "trained"
 CHECKPOINTS_DIR: Path = TRAINED_MODELS_DIR
 
+# 「删除」归档与训练现场时的落脚点：**移进来，不是抹掉**。
+# 权重是几十分钟到两小时的产物，误点一下就永久消失的代价太大。移进这里之后
+# 页面上不再出现、磁盘不立即释放，代价换来的是「删错了能捞回来」。
+# 想真正释放空间，由用户手工清空这个目录——这个决定故意不自动化。
+TRASH_DIR: Path = MODELS_DIR / ".trash"
+
 # 设计依据见 D0 决定 5:原始(只读)与派生(可再生)分家。
 RAW_DATA_DIR: Path = DATA_DIR / "raw"
 PROCESSED_DATA_DIR: Path = DATA_DIR / "processed"
@@ -122,6 +128,7 @@ def get_dirs_to_initialize() -> List[Path]:
         PROCESSED_DATA_DIR,
         PRETRAINED_MODELS_DIR,
         TRAINED_MODELS_DIR,
+        TRASH_DIR,
         RUNS_DIR,
         RUNTIME_DIR,
         CONFIGS_DIR,

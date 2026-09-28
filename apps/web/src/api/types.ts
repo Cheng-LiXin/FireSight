@@ -111,6 +111,35 @@ export interface ActiveModel {
   note: string
 }
 
+/** 删除归档的结果。
+ *
+ * `removed_archive` / `removed_run` 分别如实回报两类数据有没有真的被搬走；
+ * `note` 是给人看的一句话（搬了什么、当前权重是否跟着换了）。
+ */
+export interface DeleteResult {
+  run_id: string
+  removed_archive: boolean
+  removed_run: boolean
+  trash_dir: string | null
+  /** 删除之后的当前权重。删掉的恰好是它时，这里就是回落结果 */
+  active: ActiveModel | null
+  note: string
+}
+
+/** 可选的预训练模型。present=false 表示本机没有权重，选了会联网下载。 */
+export interface ModelOption {
+  stem: string
+  /** 传给后端的值，如 yolo11s.pt */
+  name: string
+  present: boolean
+  size_mb: number | null
+  /** false 表示这个规模没有实测显存数据，上限是按 yolo11m 估的 */
+  measured: boolean
+  /** 相对 yolo11n 的显存开销倍数 */
+  factor: number
+  note: string
+}
+
 // --------------------------------------------------------------------------
 // 多权重对比评估
 // --------------------------------------------------------------------------

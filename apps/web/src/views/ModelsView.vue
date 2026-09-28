@@ -139,6 +139,53 @@ async function startCompare(): Promise<void> {
   }
 }
 
+// --------------------------------------------------------------------------
+// 删除（移进回收目录）
+// --------------------------------------------------------------------------
+
+/** 待确认删除的归档；null 表示没有弹窗。 */
+const pending = ref<ModelInfo | null>(null)
+/** 是否连同训练现场一起删。归档与现场是两份数据，默认只动归档。 */
+const withRun = ref(false)
+const removing = ref(false)
+/** 上一次删除的回执。删完必须说清「搬走了什么、当前权重变成了谁」。 */
+const receipt = ref<string | null>(null)
+
+function askDelete(run: ModelInfo): void {
+  pending.value = run
+  withRun.value = false
+  receipt.value = null
+  error.value = null
+}
+
+function cancelDelete(): void {
+  pending.value = null
+  withRun.value = false
+}
+
+async function confirmDelete(): Promise<void> {
+  const target = pending.value
+  if (!target) return
+  removing.value = true
+  error.value = null
+  try {
+    const res = await api.deleteModel(target.run_id, withRun.value)
+    receipt.value = res.note || '已移入回收目录'
+    pending.value = null
+    withRun.value = false
+    await load()
+    // 删掉的可能正是正在看的那一次对比的参评权重，结果表留着会指向不存在的模型
+    if (job.value && (job.value.run_ids ?? []).includes(target.run_id)) {
+      job.value = null
+      stopPolling()
+    }
+  } catch (e) {
+    error.value = describe(e)
+  } finally {
+    removing.value = false
+  }
+}
+
 /** 某一列的最佳值。忽略失败行与缺失值——「没测出来」不参与评比。 */
 function bestOf(key: 'mAP50' | 'mAP50_95' | 'precision' | 'recall'): number | null {
   const values = (job.value?.results ?? [])
@@ -271,10 +318,56 @@ onBeforeUnmount(stopPolling)
               <a class="fs-btn-ghost fs-btn-ghost--tiny" :href="api.modelDownloadUrl(r.run_id)">
                 下载
               </a>
+              <button
+                type="button"
+                class="fs-btn-ghost fs-btn-ghost--tiny is-danger"
+                @click="askDelete(r)"
+              >
+                删除
+              </button>
             </td>
           </tr>
         </tbody>
       </table>
+
+      <!-- 删除确认：必须说清「删的是什么、还剩什么、能不能捞回来」。
+           权重是几十分钟到两小时的产物，误点一次的代价太大。 -->
+      <div v-if="pending" class="confirm" role="dialog" aria-label="确认删除">
+        <p class="confirm__title">
+          删除归档 <span class="mono">{{ shortName(pending.run_id) }}</span>？
+        </p>
+        <p class="confirm__body">
+          归档权重与训练现场是两份数据，可以分开处置。
+          <strong>归档</strong>是能部署的 <span class="mono">best.pt</span>，
+          <strong>训练现场</strong>是曲线、图件与检查点。
+        </p>
+        <label class="confirm__pick">
+          <input v-model="withRun" type="checkbox" />
+          连同训练现场一起删除（含曲线与检查点，删了就再也续不了训）
+        </label>
+        <p class="confirm__body">
+          两者都会<strong>移进回收目录</strong>（<span class="mono">models/.trash</span>），
+          页面上不再出现、磁盘也不会立即释放，删错了可以手工捞回来。
+        </p>
+        <p v-if="pending.is_active" class="confirm__warn">
+          这是当前权重，删除后会自动回落到最新的归档。
+        </p>
+        <div class="confirm__acts">
+          <button type="button" class="fs-btn-ghost" :disabled="removing" @click="cancelDelete">
+            取消
+          </button>
+          <button
+            type="button"
+            class="fs-btn-primary is-danger"
+            :disabled="removing"
+            @click="confirmDelete"
+          >
+            {{ removing ? '正在删除…' : '确认删除' }}
+          </button>
+        </div>
+      </div>
+
+      <p v-if="receipt" class="receipt" role="status">{{ receipt }}</p>
     </section>
 
     <!-- 对比评估 -->
@@ -457,6 +550,74 @@ onBeforeUnmount(stopPolling)
   display: inline-flex;
   align-items: center;
   text-decoration: none;
+}
+
+/* 删除是破坏性操作，但它是可恢复的（移进回收目录、不是抹掉），所以只把文字
+   染成告警色、不填成实心红按钮——实心红会让它比「设为当前」更抢眼，而后者
+   才是这个页面最常做的事。 */
+.is-danger {
+  color: var(--alarm);
+}
+
+.fs-btn-primary.is-danger {
+  color: var(--soot);
+  background: var(--alarm);
+  border-color: var(--alarm);
+}
+
+/* --- 删除确认 --------------------------------------------------------- */
+
+.confirm {
+  margin-top: var(--sp-3);
+  padding: var(--sp-3);
+  background: var(--highlight);
+  border: 1px solid var(--alarm);
+  border-radius: var(--radius);
+}
+
+.confirm__title {
+  margin: 0 0 var(--sp-2);
+  font-weight: 600;
+  color: var(--bone);
+}
+
+.confirm__body {
+  margin: 0 0 var(--sp-2);
+  font-size: var(--fs-xs);
+  line-height: 1.6;
+  color: var(--dross);
+}
+
+.confirm__pick {
+  display: flex;
+  gap: var(--sp-2);
+  align-items: flex-start;
+  margin: 0 0 var(--sp-2);
+  font-size: var(--fs-xs);
+  line-height: 1.6;
+  color: var(--bone);
+  cursor: pointer;
+}
+
+.confirm__warn {
+  margin: 0 0 var(--sp-2);
+  font-size: var(--fs-xs);
+  color: var(--alarm);
+}
+
+.confirm__acts {
+  display: flex;
+  gap: var(--sp-2);
+  margin-top: var(--sp-3);
+}
+
+.receipt {
+  margin: var(--sp-3) 0 0;
+  font-size: var(--fs-xs);
+  line-height: 1.6;
+  color: var(--bone);
+  border-left: 2px solid var(--cinder);
+  padding-left: var(--sp-3);
 }
 
 .tag {

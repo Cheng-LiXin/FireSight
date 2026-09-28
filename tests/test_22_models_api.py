@@ -468,3 +468,203 @@ def test_second_eval_is_rejected_while_the_first_runs(client, models_env, monkey
 
     gate.set()
     wait_done(first["id"])
+
+
+# --------------------------------------------------------------------------
+# 删除（移入回收目录）
+# --------------------------------------------------------------------------
+
+
+def _write_run_site(root: Path, epochs: int = 5) -> None:
+    """造一个训练现场：判据是 results.csv 存在（与 deps.training_runs 一致）。"""
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "results.csv").write_text(
+        "epoch,metrics/mAP50\n" + "".join(f"{i},{0.1 * i}\n" for i in range(1, epochs + 1)),
+        encoding="utf-8",
+    )
+    (root / "weights").mkdir(exist_ok=True)
+    (root / "weights" / "last.pt").write_bytes(b"\x00" * 1024)
+
+
+@pytest.fixture()
+def trash_env(tmp_path, models_env, monkeypatch):
+    """把训练现场目录与回收目录都指到 tmp_path，避免真往工作区里写。
+
+    `TRASH_DIR` 只 patch `recycle_service`：它是这个常量唯一的消费方，
+    `deps` 从来没导入过它（早先这里多 patch 了一处，直接 AttributeError）。
+    """
+    from fire_sight.api import deps
+
+    runs = tmp_path / "training"
+    monkeypatch.setattr(deps, "RUNS_DIR", tmp_path)
+    # recycle_service 在导入时就绑定了 TRASH_DIR，所以要打在它自己的命名空间上
+    import fire_sight.services.recycle_service as rs
+
+    monkeypatch.setattr(rs, "TRASH_DIR", tmp_path / "trash")
+    return runs
+
+
+def test_delete_archive_only_moves_it_to_trash(client, trash_env, monkeypatch):
+    """默认只删归档权重，训练现场原样不动——两份数据不该被绑死。"""
+    from fire_sight.api import deps
+    import fire_sight.services.recycle_service as rs
+
+    site = trash_env / NEWER
+    _write_run_site(site)
+
+    r = client.request("DELETE", "/api/models", json={"run_id": NEWER})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["removed_archive"] is True
+    assert body["removed_run"] is False
+    assert body["trash_dir"]
+
+    # 归档没了
+    assert deps.find_archived_run(NEWER) is None
+    assert [m["run_id"] for m in client.get("/api/models").json()] == [OLDER]
+    # 现场还在
+    assert (site / "results.csv").exists()
+    # 真的在回收目录里，而不是被抹掉
+    trash = Path(body["trash_dir"])
+    assert (trash / "archive" / "best.pt").exists()
+
+
+def test_delete_with_run_moves_both(client, trash_env):
+    from fire_sight.api import deps
+
+    site = trash_env / NEWER
+    _write_run_site(site)
+
+    body = client.request(
+        "DELETE", "/api/models", json={"run_id": NEWER, "with_run": True}
+    ).json()
+    assert body["removed_archive"] is True
+    assert body["removed_run"] is True
+
+    assert deps.find_archived_run(NEWER) is None
+    assert all(r.run_id != NEWER for r in deps.training_runs())
+    trash = Path(body["trash_dir"])
+    assert (trash / "run" / "results.csv").exists()
+
+
+def test_delete_run_site_only_needs_the_checkbox(client, trash_env):
+    """只有现场、没有归档时，不勾 with_run 应当明确拒绝，而不是返回「成功但什么都没删」。"""
+    site = trash_env / "只有现场"
+    _write_run_site(site)
+
+    r = client.request("DELETE", "/api/models", json={"run_id": "只有现场"})
+    assert r.status_code == 400
+    assert "训练现场" in r.json()["detail"]
+    # 拒绝之后现场必须原封不动
+    assert (site / "results.csv").exists()
+
+    ok = client.request(
+        "DELETE", "/api/models", json={"run_id": "只有现场", "with_run": True}
+    ).json()
+    assert ok["removed_archive"] is False
+    assert ok["removed_run"] is True
+    assert not site.exists()
+
+
+def test_delete_reports_the_fallback_when_the_active_one_is_removed(client, trash_env):
+    """删掉当前权重：界面必须知道现在轮到谁，而不是下次打开识别页才发现换了模型。"""
+    from fire_sight.api import deps
+
+    assert deps.active_model_state().run_id == NEWER  # 没指定过 → 取最新
+    body = client.request("DELETE", "/api/models", json={"run_id": NEWER}).json()
+
+    assert body["active"]["run_id"] == OLDER
+    assert body["active"]["source"] == "fallback-newest"
+    # 删的恰好是当前权重这件事要出现在给用户看的那句话里
+    assert "已移入回收目录" in body["note"]
+
+
+def test_delete_a_pinned_active_archive_reports_dangling_pin(client, trash_env):
+    """指定过的归档被删：回落必须说明「指定的已不在」，静默换模型最容易让人以为设置丢了。"""
+    from fire_sight.api import deps
+
+    deps.ACTIVE_MODEL_STORE.write(NEWER)
+    body = client.request("DELETE", "/api/models", json={"run_id": NEWER}).json()
+
+    assert body["active"]["source"] == "fallback-missing"
+    assert body["active"]["pinned"] == NEWER
+    assert NEWER in body["active"]["note"]
+    # 句尾还要再说一次当前权重落到哪了
+    assert OLDER in body["note"]
+
+
+def test_delete_unknown_run_is_404(client, trash_env):
+    r = client.request("DELETE", "/api/models", json={"run_id": "从来没有过"})
+    assert r.status_code == 404
+    assert "从来没有过" in r.json()["detail"]
+
+
+def test_delete_requires_a_run_id(client, trash_env):
+    assert client.request("DELETE", "/api/models", json={}).status_code == 422
+    assert client.request("DELETE", "/api/models", json={"run_id": ""}).status_code == 422
+
+
+def test_delete_drops_the_inference_cache(client, trash_env, monkeypatch):
+    """权重被搬走之后，内存里那份必须扔掉。
+
+    否则识别页还拿着一个磁盘上已经不存在的模型继续推理，直到服务重启——
+    「看起来正常但结果不对」的那一类。
+    """
+    from fire_sight.api import deps
+
+    calls = {"n": 0}
+    real = deps.clear_infer_cache
+
+    def spy():
+        calls["n"] += 1
+        real()
+
+    monkeypatch.setattr(deps, "clear_infer_cache", spy)
+
+    client.request("DELETE", "/api/models", json={"run_id": NEWER})
+    assert calls["n"] == 1
+
+
+def test_delete_nested_archive_cleans_the_empty_shell(client, models_env, trash_env):
+    """嵌套布局 `trained/<run_id>/<exp>/best.pt` 搬走后，外层空壳要一并清掉。
+
+    留着它会让列表多扫一层，文件管理器里也留个空文件夹。
+    """
+    from fire_sight.api import deps
+
+    outer = deps.TRAINED_MODELS_DIR / "20260103-c"
+    _write_archive(outer / "exp", mAP50=0.6, epochs=5)
+    assert deps.find_archived_run("20260103-c/exp") is not None
+
+    body = client.request("DELETE", "/api/models", json={"run_id": "20260103-c/exp"}).json()
+    assert body["removed_archive"] is True
+    assert not outer.exists()
+    # 兄弟归档不能被误伤
+    assert deps.find_archived_run(NEWER) is not None
+
+
+def test_delete_twice_in_the_same_second_does_not_collide(client, models_env, trash_env):
+    """同一秒删两次要落在不同目录，否则第二次会覆盖第一次（回收目录就没意义了）。"""
+    from fire_sight.services.recycle_service import recycle
+
+    a = models_env / NEWER
+    b = models_env / OLDER
+    when = __import__("datetime").datetime(2026, 1, 1, 0, 0, 0)
+
+    first = recycle(NEWER, archive_root=a, when=when)
+    second = recycle(OLDER, archive_root=b, when=when)
+
+    assert first.trash_dir != second.trash_dir
+    assert first.count == 1 and second.count == 1
+
+
+def test_recycle_with_nothing_to_move_leaves_no_empty_dir(tmp_path, monkeypatch):
+    """一件都没搬走就不该留下空目录，否则回收站会堆一串空壳，看不出删过什么。"""
+    import fire_sight.services.recycle_service as rs
+
+    trash = tmp_path / "trash"
+    monkeypatch.setattr(rs, "TRASH_DIR", trash)
+
+    removed = rs.recycle("不存在的", archive_root=tmp_path / "nope")
+    assert removed.items == []
+    assert not removed.trash_dir.exists()
