@@ -70,9 +70,16 @@ test('页面结构：当前权重、归档表、对比区', async ({ page }) => 
     expect(headers, `缺少列 ${h}`).toContain(h)
   }
 
-  // 当前权重那句「为什么是它」必须显示出来
-  await expect(page.locator('.now__note')).not.toBeEmpty()
+  // 「为什么是它」：pinned 时无需解释（就是用户自己选的），其余情况必须有说明，
+  // 否则「没指定过」与「指定的被删了」在界面上分不出来。这条断言依赖状态——
+  // 之前一直是「没指定过」，所以没暴露。
   await expect(page.locator('.now__id')).not.toBeEmpty()
+  const state = await (await page.request.get('/api/models/active')).json()
+  if (state.source === 'pinned') {
+    await expect(page.locator('.now')).toContainText('已指定')
+  } else {
+    await expect(page.locator('.now__note')).not.toBeEmpty()
+  }
 
   // 恰好一行被标为当前
   await expect(page.locator(`${ARCHIVES} tbody tr.is-active`)).toHaveCount(1)
@@ -98,6 +105,12 @@ test('指标缺失显示「—」而不是 0', async ({ page }) => {
 test('设为当前：改的是真正生效的那份，且能清除', async ({ page }) => {
   const count = await archivedCount(page)
   test.skip(count < 2, '至少需要两份归档，跳过')
+
+  // 先记下进入用例前的状态，收尾要**还原**它，而不是一律清空——
+  // 「不留残渣」不等于「清空」：用户本来可能就有指定，清掉等于改了别人的设置。
+  // 真发生过：一次全量 E2E 把用户指定的「当前权重」清成了「取最新」。
+  const before = await (await page.request.get('/api/models/active')).json()
+
   await openModels(page)
 
   // 当前行的「设为当前」必须是禁用的——已经是当前了
@@ -122,11 +135,17 @@ test('设为当前：改的是真正生效的那份，且能清除', async ({ pa
   const active = await (await page.request.get('/api/models/active')).json()
   expect(active.run_id).toBe(runId)
 
-  // 收尾：清掉指定，回到「取最新」——测试不该留下状态
+  // 清除指定要能回到「取最新」
   await page.getByRole('button', { name: '清除指定' }).click()
   await expect(page.locator('.now')).toContainText('取最新')
-  const cleared = await (await page.request.get('/api/models/active')).json()
-  expect(cleared.pinned).toBeNull()
+  expect((await (await page.request.get('/api/models/active')).json()).pinned).toBeNull()
+
+  // 收尾：还原进入前的指定
+  if (before.pinned) {
+    await page.request.post('/api/models/active', { data: { run_id: before.pinned } })
+  }
+  const restored = await (await page.request.get('/api/models/active')).json()
+  expect(restored.pinned, '收尾没有还原进入前的状态').toBe(before.pinned)
 })
 
 test('下载链接指向 download 接口且带 run_id', async ({ page }) => {
