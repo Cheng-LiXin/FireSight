@@ -88,17 +88,41 @@ fs-init                 # 初始化工作目录
 
 ### 启动控制台
 
+**最省事：双击根目录的 `启动.cmd` / `关闭.cmd`。** 也可以在终端里：
+
+```powershell
+pwsh -File scripts\firesight.ps1 start      # 起服务并等它就绪，报 URL 与版本
+pwsh -File scripts\firesight.ps1 stop       # 停服务（含整棵进程树，复查端口已释放）
+pwsh -File scripts\firesight.ps1 restart    # 重启
+pwsh -File scripts\firesight.ps1 status     # 服务 / 当前权重 / 训练 / GPU / 产物新旧
+```
+
+`start` 的常用开关：`-Dev`（同时起前端 dev server 5173，热更新）、`-Build`（先重建前端）、
+`-Foreground`（前台运行，Ctrl+C 停）。前端产物缺失时会自动构建；源码比 `dist` 新会提醒。
+
+日志写在 `.runtime/logs/serve-<时间戳>.err.log`（uvicorn 的日志走 stderr）。
+
+> **为什么关闭要「杀整棵树」**：`.venv\Scripts\python.exe` 是个**转发器**，真正在监听的
+> 是它的子进程。只杀外壳会留下一个占着 8000 端口、却「看起来已经关了」的孤儿——这个
+> 项目踩过两次。`stop` 会沿 python 链找到最顶层再 `taskkill /F /T`。
+>
+> **为什么不直接用 `fs-serve`**：venv 可能是在这个入口加进 `pyproject.toml` 之前装的
+> （那种情况下 `.venv\Scripts` 里只有改名前的 `fs-web.exe`，见下方排错一节），所以脚本
+> 走等价的 `python -m fire_sight.cli`，不依赖 console script 的名字。
+
+手动等价命令（脚本出问题时的退路）：
+
 ```bash
 # 1. 构建前端（首次或前端有改动时执行）
 cd apps/web && npm install && npm run build && cd ../..
 
 # 2. 启动服务
-fs-serve                # 默认 http://127.0.0.1:8000
+.\.venv\Scripts\python.exe -m fire_sight.cli --host 127.0.0.1 --port 8000
 ```
 
 浏览器打开 <http://127.0.0.1:8000> 即可。
 
-前端开发模式（热更新，需另开一个终端跑 `fs-serve`）：
+前端开发模式（热更新，需另开一个终端跑服务）：
 
 ```bash
 cd apps/web && npm run dev     # http://localhost:5173，自动代理 /api 到 8000
