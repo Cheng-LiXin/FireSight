@@ -247,6 +247,9 @@ export interface TrainRun {
   run_id: string
   dataset: string | null
   model: string | null
+  /** 训练几何，取自现场 args.yaml。不同 batch / imgsz 的结果不可直接比。 */
+  batch: number | null
+  imgsz: number | null
   epochs_done: number
   archived: boolean
   mAP50: number | null

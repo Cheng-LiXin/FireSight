@@ -59,7 +59,8 @@ def fake_run(tmp_path, monkeypatch):
     )
     (run_root / "confusion_matrix.png").write_bytes(b"\x89PNG\r\n\x1a\n")
     (run_root / "args.yaml").write_text(
-        "model: yolo11n.pt\nepochs: 2\ndata: /x/processed/Demo/data.yaml\n",
+        "model: yolo11n.pt\nepochs: 2\nbatch: 16\nimgsz: 640\n"
+        "data: /x/processed/Demo/data.yaml\n",
         encoding="utf-8",
     )
     monkeypatch.setattr(deps, "RUNS_DIR", tmp_path / "runs")
@@ -216,6 +217,38 @@ def test_list_runs(client, fake_run):
     assert run["archived"] is False
     assert run["mAP50"] is None  # 未归档，没有指标
     assert run["artifact_count"] == 1
+
+
+def test_list_runs_carries_train_geometry(client, fake_run):
+    """batch / imgsz 要出现在列表里：同一个数据集在不同几何下训出来的结果不可直接比。"""
+    run = client.get("/api/train/runs").json()[0]
+    assert run["batch"] == 16
+    assert run["imgsz"] == 640
+
+
+def test_geometry_is_none_when_args_yaml_is_missing(client, fake_run, tmp_path):
+    """老现场可能没有 args.yaml。缺它不能让整个列表接口挂掉，几何给 null。"""
+    from fire_sight.api import deps
+
+    (deps.RUNS_DIR / "training" / fake_run / "args.yaml").unlink()
+    run = client.get("/api/train/runs").json()[0]
+    assert run["batch"] is None
+    assert run["imgsz"] is None
+    assert run["dataset"] is None
+    assert run["epochs_done"] == 2  # 其余字段照旧可用
+
+
+def test_geometry_survives_junk_values(client, fake_run):
+    """args.yaml 是外部文件，值可能是字符串甚至写坏了。显示成 null，不是 500。"""
+    from fire_sight.api import deps
+
+    (deps.RUNS_DIR / "training" / fake_run / "args.yaml").write_text(
+        "model: yolo11s.pt\nbatch: '16'\nimgsz: 不是数字\ndata: /x/processed/Demo/data.yaml\n",
+        encoding="utf-8",
+    )
+    run = client.get("/api/train/runs").json()[0]
+    assert run["batch"] == 16  # 能转成 int 的字符串照收
+    assert run["imgsz"] is None
 
 
 def test_curves_endpoint(client, fake_run):

@@ -61,6 +61,7 @@ def test_event_service_list_filter_export(seeded_db, tmp_path):
 
 
 def test_stats_service_aggregations(seeded_db):
+    from fire_sight.alerting import EventStore
     from fire_sight.services import StatsService
 
     stats = StatsService(seeded_db)
@@ -70,8 +71,8 @@ def test_stats_service_aggregations(seeded_db):
     assert 0 < fp <= 1
     daily = stats.daily_alerts(days=1)
     assert isinstance(daily, list)
-    ov = stats.overview()
-    assert ov["total_alerts"] == 2
+    with EventStore(seeded_db) as store:
+        assert store.count() == 2
 
 
 def test_infer_service_batch(tmp_path):

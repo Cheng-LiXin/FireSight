@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-import json
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from fire_sight.alerting import EventStore
-from fire_sight_platform.common.paths import DATA_DIR, MODELS_DIR, PROCESSED_DATA_DIR
+from fire_sight_platform.common.paths import MODELS_DIR
 
 
 class StatsService:
@@ -60,20 +59,6 @@ class StatsService:
         fp = sum(1 for r in rows if int(r.get("is_false_positive") or 0) == 1)
         return round(fp / len(rows), 4)
 
-    def dataset_summary(self) -> Dict[str, Any]:
-        base = PROCESSED_DATA_DIR / "D-Fire_train"
-        summary: Dict[str, Any] = {"name": "D-Fire_train", "splits": {}}
-        for split in ("train", "val", "test"):
-            d = base / "images" / split
-            summary["splits"][split] = len(list(d.glob("*"))) if d.exists() else 0
-        stats = base / "transform_stats.json"
-        if stats.exists():
-            try:
-                summary["transform"] = json.loads(stats.read_text(encoding="utf-8"))
-            except Exception:
-                pass
-        return summary
-
     def model_metrics(self) -> Dict[str, Any]:
         trained = MODELS_DIR / "trained"
         if not trained.exists():
@@ -91,14 +76,3 @@ class StatsService:
                     metrics[k.strip()] = v.strip()
         metrics["run_id"] = run.name
         return metrics
-
-    def overview(self) -> Dict[str, Any]:
-        with EventStore(self.db_path) as store:
-            total = store.count()
-        return {
-            "total_alerts": total,
-            "false_positive_rate": self.false_positive_rate(),
-            "class_ratio": self.class_ratio(),
-            "dataset": self.dataset_summary(),
-            "model": self.model_metrics(),
-        }

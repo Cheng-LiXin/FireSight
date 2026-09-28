@@ -105,6 +105,7 @@ Monorepo 布局、`.firesight-workspace` 工作区标记、双端可安装包
 | 删除归档/现场 | 移进 `models/.trash/` 而非抹掉；可勾选是否连同训练现场一起删 |
 | 数据集换代 | 训练统一使用提供方给出的 `data/raw/D-Fire`（就地训练，不建 processed 副本）；旧数据训的归档标「旧数据不可比」 |
 | 评估划分 | 对比评估可选 `val`（选模型）或 `test`（最终汇报），默认 val；`train` 不在列表里 |
+| 训练几何入列表 | 训练记录显示 `batch` / `imgsz`（取自现场 `args.yaml`），不同几何的结果不可直接比 |
 
 ### 待办
 
@@ -149,6 +150,7 @@ FastAPI + Uvicorn + Pydantic（后端）· Vue 3 + TypeScript + Vite + Element P
 | v1.6.0 | 模型库模块（设为当前 / 下载权重 / 多权重对比评估）；当前权重改为用户指定 |
 | v1.7.0 | 断点续训：从任意训练现场继续；跑完的现场不可续（优化器已被剥离） |
 | v1.8.0 | 数据集换代（统一用 `data/raw/D-Fire`，旧归档标不可比）；训练表单模型下拉；删除归档/训练现场；评估可选 val/test |
+| v1.8.1 | 训练记录显示 batch / imgsz；删除读已消失目录且无人调用的 `StatsService` 死代码 |
 
 ---
 

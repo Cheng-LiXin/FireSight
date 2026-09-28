@@ -555,6 +555,8 @@ onBeforeUnmount(disconnect)
             <th>运行</th>
             <th>数据集</th>
             <th class="is-num">轮数</th>
+            <th class="is-num">batch</th>
+            <th class="is-num">imgsz</th>
             <th class="is-num">mAP@50</th>
             <th>归档</th>
             <th>操作</th>
@@ -575,6 +577,8 @@ onBeforeUnmount(disconnect)
             </td>
             <td>{{ r.dataset ?? '—' }}</td>
             <td class="is-num">{{ r.epochs_done }}</td>
+            <td class="is-num">{{ r.batch ?? '—' }}</td>
+            <td class="is-num">{{ r.imgsz ?? '—' }}</td>
             <td class="is-num">{{ fix(r.mAP50) }}</td>
             <td>
               <span v-if="r.archived" class="tag tag--ok">已归档</span>

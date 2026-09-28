@@ -161,6 +161,21 @@ def _archived_metrics(run_id: str) -> Dict[str, Any]:
     return {}
 
 
+def _int(args: Dict[str, Any], key: str) -> Optional[int]:
+    """从 args.yaml 取一个整数。缺失或不是数字时返回 None。
+
+    args.yaml 里的值理论上是 int，但它是外部文件——早先版本、手工改过的现场都
+    可能有字符串。显示成 None（界面给「—」）比让整个列表接口 500 好。
+    """
+    raw = args.get(key)
+    if raw in (None, ""):
+        return None
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return None
+
+
 @router.get("/runs", response_model=List[TrainRun])
 def list_runs() -> List[TrainRun]:
     """全部训练记录，新→旧。无记录时返回空数组。"""
@@ -183,6 +198,8 @@ def list_runs() -> List[TrainRun]:
                 run_id=run.run_id,
                 dataset=_dataset_label(args.get("data")),
                 model=Path(str(args.get("model"))).name if args.get("model") else None,
+                batch=_int(args, "batch"),
+                imgsz=_int(args, "imgsz"),
                 epochs_done=curves.total_epochs,
                 archived=bool(metrics),
                 mAP50=_num(metrics, "mAP50"),

@@ -318,6 +318,11 @@ class TrainRun(BaseModel):
     run_id: str
     dataset: Optional[str] = None
     model: Optional[str] = None
+    #: 训练几何，取自现场 args.yaml。同一个数据集在不同 batch / imgsz 下训出来的
+    #: 结果不可直接比——列表里看得见才不用去翻 args.yaml。
+    #: 早期现场可能没有 args.yaml（或其中缺这两个键），所以是 Optional。
+    batch: Optional[int] = None
+    imgsz: Optional[int] = None
     epochs_done: int = 0
     archived: bool = False
     mAP50: Optional[float] = None

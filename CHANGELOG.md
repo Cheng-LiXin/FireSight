@@ -9,6 +9,40 @@
 
 ---
 
+## [v1.8.1] — 2026-09-28
+
+### 新增
+
+- **训练记录列表显示 `batch` 与 `imgsz`**。同一个数据集在不同几何下训出来的
+  结果不可直接比——之前这两项只写在现场的 `args.yaml` 里，要比较两份训练得先去
+  翻文件。现在 `GET /api/train/runs` 直接给出，表格里也有独立两列。
+  值取自 `args.yaml`；**读不到就是 `null`（界面显示「—」），不是 0**，
+  老现场缺这个文件时列表接口照旧可用。
+
+### 修复
+
+- **删除 `StatsService.dataset_summary()` 与 `StatsService.overview()`**。
+  前者读的是 `PROCESSED_DATA_DIR / "D-Fire_train"`——一个**早已不存在的目录**，
+  所以它的三个 split 计数**恒为 0**。查下来它比记录的更糟：这两个方法
+  **没有任何调用方**（`/api/overview` 只用了 `daily_alerts` / `class_ratio` /
+  `false_positive_rate`，`overview()` 也接不到任何路由上），是一段死代码。
+  留着只会继续误导后来人，因此直接删除；将来真要做数据集构成统计，
+  按当时的接口重写。`tests/test_11_web_services.py` 里唯一调它的断言改为
+  直接查 `EventStore.count()`。
+
+### 回归测试
+
+- `tests/test_17_train_api.py` 补三条：几何出现在列表里、`args.yaml` 缺失时给
+  `null` 且其余字段照旧、`args.yaml` 里是字符串或写坏时**不 500**
+  （能转成 int 的字符串照收，其余给 `null`）。
+- `apps/web/e2e/resume.spec.ts` 补一条：两列表头存在，且**按表头定位列**核对
+  单元格显示的就是后端的值（不按下标写死，以后加列不会变成假失败）。
+
+后端 219 → **222 passed**；前端 E2E 30 → **31 passed / 2 skipped**。
+版本 1.8.0 → 1.8.1。
+
+---
+
 ## [v1.8.0] — 2026-09-28
 
 **数据集换代**。从这一版起，训练统一使用提供方给出的 `data/raw/D-Fire`

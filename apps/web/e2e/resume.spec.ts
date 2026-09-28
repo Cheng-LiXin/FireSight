@@ -18,6 +18,8 @@ async function runs(page: import('@playwright/test').Page) {
   expect(res.ok(), `/api/train/runs 不可用（${res.status()}）`).toBe(true)
   return (await res.json()) as Array<{
     run_id: string
+    batch: number | null
+    imgsz: number | null
     resumable: boolean
     resume_note: string
     resume_done: number | null
@@ -127,4 +129,33 @@ test('续训被后端拒时，把理由显示出来', async ({ page }) => {
   const err = page.locator('.fs-note-error')
   await expect(err).toBeVisible()
   await expect(err).toContainText('优化器')
+})
+
+test('训练记录里 batch / imgsz 两列显示的是后端的值', async ({ page }) => {
+  // 后端读不到 args.yaml 的现场，这两格是「—」。所以挑一条**取得到几何**的来对，
+  // 不能随便取第一行——老现场缺 args.yaml 时断言会假失败。
+  const list = await runs(page)
+  const target = list.find((r) => r.batch !== null || r.imgsz !== null)
+  test.skip(!target, '所有现场都没有 args.yaml，量不到几何')
+
+  await page.goto('/training')
+  const ledger = page.locator('table.fs-ledger').first()
+  await expect(ledger).toBeVisible()
+
+  const headers = await ledger.locator('thead th').allInnerTexts()
+  expect(headers).toContain('batch')
+  expect(headers).toContain('imgsz')
+
+  // 按表头定位列，别按下标写死——以后加列不会把这条测试变成假失败
+  const batchCol = headers.indexOf('batch')
+  const imgszCol = headers.indexOf('imgsz')
+
+  const cell = async (col: number) =>
+    (await ledger
+      .locator(`tbody tr[data-run-id="${target!.run_id}"] td`)
+      .nth(col)
+      .innerText()).trim()
+
+  expect(await cell(batchCol)).toBe(target!.batch === null ? '—' : String(target!.batch))
+  expect(await cell(imgszCol)).toBe(target!.imgsz === null ? '—' : String(target!.imgsz))
 })
