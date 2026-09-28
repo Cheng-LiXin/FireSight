@@ -68,6 +68,19 @@ def read_train_config(run_root: Path) -> Dict[str, Any]:
         return {}
 
 
+def _is_legacy(dataset: Any) -> bool:
+    """这个归档是不是用旧数据（processed 的随机划分）训的。
+
+    判据是数据集标签，不是时间：`D-Fire/train`（processed，8:1:1 随机划分）算旧，
+    `D-Fire/raw`（提供方切好的）算新。用时间判断会在「回滚到旧数据重训」时标错。
+
+    标签缺失时按旧处理——目前只有旧归档可能缺标签（新数据的标签由
+    `_dataset_label` 从路径反算，一定拿得到）；宁可多标一个，也不要漏标一个
+    让用户拿虚高的数去比。
+    """
+    return str(dataset or "") != "D-Fire/raw"
+
+
 def _num(metrics: Dict[str, Any], key: str) -> Optional[float]:
     """指标缺省或不可解析时返回 None——前端显示「—」，而不是显示 0。"""
     raw = metrics.get(key)
@@ -118,6 +131,7 @@ def list_models() -> List[ModelInfo]:
                 dataset=metrics.get("dataset") or config.get("dataset") or None,
                 created=_created(run.root),
                 is_active=run.run_id == state.run_id,
+                legacy=_is_legacy(metrics.get("dataset") or config.get("dataset")),
             )
         )
     return out

@@ -19,7 +19,7 @@ from pydantic import BaseModel, Field
 from fire_sight.api import deps
 from fire_sight.api.jobs import TERMINAL_STATUSES, manager
 from fire_sight.api.schemas import ArtifactInfo, CurvesResponse, ModelOption, TrainRun
-from fire_sight_platform.common.paths import PROCESSED_DATA_DIR
+from fire_sight_platform.common.paths import PROCESSED_DATA_DIR, RAW_DATA_DIR
 
 router = APIRouter(prefix="/api/train", tags=["train"])
 
@@ -62,15 +62,25 @@ def _read_args(run_root: Path) -> Dict[str, Any]:
 
 
 def _dataset_label(data_path: Any) -> Optional[str]:
-    """把 data.yaml 的绝对路径收成 `D-Fire/train` 这样的可读标签。"""
+    """把 data.yaml 的绝对路径收成 `D-Fire/train` 这样的可读标签。
+
+    先按 processed 反算（pipeline 产物），再试 raw——`D-Fire/raw` 那份不在
+    processed 下，只按 processed 算会退化成目录名 `D-Fire`，训练记录里就看不出
+    它是哪一份了。两处都不匹配才退回目录名。
+    """
     if not data_path:
         return None
-    try:
-        p = Path(str(data_path))
-        rel = p.parent.relative_to(PROCESSED_DATA_DIR)
+    p = Path(str(data_path))
+    for base, label in ((PROCESSED_DATA_DIR, None), (RAW_DATA_DIR, "D-Fire/raw")):
+        try:
+            rel = p.parent.relative_to(base)
+        except (ValueError, OSError):
+            continue
+        if label is not None:
+            # raw 下目前只有 D-Fire 一份；换名字要同步这里与 _resolve_dataset_yaml
+            return label if rel.as_posix() == "D-Fire" else rel.as_posix()
         return rel.as_posix()
-    except (ValueError, OSError):
-        return Path(str(data_path)).parent.name or None
+    return p.parent.name or None
 
 
 # 能否续训要读 last.pt（torch.load 一次约 100ms，完整态 54MB）。按 (mtime, size)

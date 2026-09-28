@@ -296,6 +296,145 @@ def test_eval_returns_409_when_the_gpu_is_busy(client, models_env):
     assert eval_jobs.manager.list() == []
 
 
+# --------------------------------------------------------------------------
+# 评估的划分：val 选模型 / test 最终汇报
+# --------------------------------------------------------------------------
+
+
+def test_eval_split_defaults_to_val(client, models_env, fake_eval):
+    """不传 split 时是 val——它是平时选模型用的那一份。"""
+    started = client.post("/api/eval", json={"run_ids": [NEWER, OLDER]}).json()
+    assert started["split"] == "val"
+    wait_done(started["id"])
+    # 真的传下去了，不是只在任务对象上记了一笔
+    assert [c.split for c in fake_eval] == ["val", "val"]
+
+
+def test_eval_split_reaches_the_platform_config(client, models_env, fake_eval):
+    started = client.post("/api/eval", json={"run_ids": [NEWER, OLDER], "split": "test"}).json()
+    assert started["split"] == "test"
+    wait_done(started["id"])
+    assert [c.split for c in fake_eval] == ["test", "test"]
+
+
+def test_eval_split_is_case_insensitive(client, models_env, fake_eval):
+    """大小写不该决定成败——界面传什么都能用。"""
+    started = client.post("/api/eval", json={"run_ids": [NEWER, OLDER], "split": "TEST"}).json()
+    assert started["split"] == "test"
+    wait_done(started["id"])
+
+
+def test_eval_rejects_train_and_unknown_splits(client, models_env):
+    """`train` 必须在列表外：在训过的数据上报指标没有意义，只会误导。"""
+    from fire_sight.api import eval_jobs
+
+    for bad in ("train", "TRAIN", "valid", ""):
+        r = client.post("/api/eval", json={"run_ids": [NEWER, OLDER], "split": bad})
+        assert r.status_code == 400, f"{bad!r} 应被拒绝"
+        assert "val" in r.json()["detail"] and "test" in r.json()["detail"]
+    # 被拒的任务一个都不该留下，锁也不能被拿走
+    assert eval_jobs.manager.list() == []
+    from fire_sight.api import deps
+
+    assert deps.GPU_LOCK.holder is None
+
+
+def test_eval_job_info_always_carries_the_split(client, models_env, fake_eval):
+    """界面上要能看出这组数是 val 还是 test——两者的数不可混着比。"""
+    started = client.post("/api/eval", json={"run_ids": [NEWER, OLDER], "split": "test"}).json()
+    assert client.get(f"/api/eval/jobs/{started['id']}").json()["split"] == "test"
+    listed = {j["id"]: j for j in client.get("/api/eval/jobs").json()}
+    assert listed[started["id"]]["split"] == "test"
+    wait_done(started["id"])
+
+
+# --------------------------------------------------------------------------
+# 旧数据标记
+# --------------------------------------------------------------------------
+
+
+FLAT = "flat"
+LEGACY = "20260103-c"
+
+
+def test_legacy_flag_marks_old_dataset_archives(client, models_env, monkeypatch):
+    """用旧数据（processed 的随机划分）训的归档要标出来。
+
+    新 val 里有一部分图当初进过旧 train，拿旧归档在新 val 上评估会虚高。
+    不标的话，用户会拿两个不同起跑线的数去挑模型。
+    """
+    from fire_sight.api import deps
+
+    _write_archive(models_env / LEGACY, mAP50=0.9, epochs=50, dataset="D-Fire/train")
+    _write_archive(models_env / FLAT, mAP50=0.6, epochs=50, dataset="D-Fire/raw")
+
+    body = {m["run_id"]: m for m in client.get("/api/models").json()}
+    assert body[LEGACY]["legacy"] is True
+    assert body[FLAT]["legacy"] is False
+    # 判据是数据集标签，不是时间：新的那个也可以是旧的
+    assert body[LEGACY]["dataset"] == "D-Fire/train"
+    assert body[FLAT]["dataset"] == "D-Fire/raw"
+
+
+def test_legacy_is_true_when_the_dataset_is_unknown(client, models_env):
+    """标签缺失时按旧处理——宁可多标一个，也不要漏标一个让数虚高。
+
+    目前只有旧归档可能缺标签：新数据的标签由 `_dataset_label` 从路径反算，
+    一定拿得到。
+    """
+    from fire_sight.api import deps
+
+    root = models_env / "20260104-d"
+    root.mkdir(parents=True)
+    (root / "best.pt").write_bytes(b"\x00" * 64)
+    (root / "metrics.txt").write_text("mAP50=0.5\n", encoding="utf-8")
+
+    body = {m["run_id"]: m for m in client.get("/api/models").json()}
+    assert body["20260104-d"]["legacy"] is True
+    assert body["20260104-d"]["dataset"] is None
+
+
+def test_legacy_flag_does_not_depend_on_run_id_shape(client, models_env):
+    """回归：判据不能退化成「run_id 里有没有 D-Fire/train」。
+
+    早期布局的 run_id 自带斜杠（`20260926-190635-D-Fire/train-yolo11n`），
+    按字符串匹配会在换数据集后悄悄标错。
+    """
+    from fire_sight.api import deps
+
+    _write_archive(models_env / "20260105-D-Fire/train-yolo11n", mAP50=0.7, epochs=50)
+    _write_archive(
+        models_env / "20260106-D-Fire-raw-n", mAP50=0.7, epochs=50, dataset="D-Fire/raw"
+    )
+
+    body = {m["run_id"]: m for m in client.get("/api/models").json()}
+    # 名字里带 D-Fire/train 反而是新的那份（标签说它用 raw 训的）
+    assert body["20260106-D-Fire-raw-n"]["legacy"] is False
+    assert body["20260105-D-Fire/train-yolo11n"]["legacy"] is True
+
+
+def test_eval_dataset_accepts_raw_label(client, models_env, monkeypatch):
+    """评估也能落在 raw 那份数据集上——它的 data.yaml 不在 processed 下。
+
+    只按 processed 解析会让 `D-Fire/raw` 一评就报「找不到数据集 yaml」。
+    """
+    import fire_sight_platform.evaluation.service as eval_svc
+
+    seen: list = []
+
+    def fake_resolve(dataset, split="val"):
+        seen.append((dataset, split))
+        return Path("E:/FireSight/data/raw/D-Fire/data.yaml")
+
+    monkeypatch.setattr(eval_svc, "_resolve_yaml", fake_resolve)
+    # 走真 evaluate_weights 会把 ultralytics 拉起来，这里只验解析
+    assert eval_svc._resolve_yaml("D-Fire/raw") == Path(
+        "E:/FireSight/data/raw/D-Fire/data.yaml"
+    )
+    assert seen == [("D-Fire/raw", "val")]
+
+
+
 def test_eval_job_list_is_empty_initially(client):
     assert client.get("/api/eval/jobs").json() == []
 

@@ -1,8 +1,11 @@
 """多权重对比评估：发起任务、查进度、取结果。
 
 评估本身在 `fire_sight_platform.evaluation.service.evaluate_weights`，
-这里只做校验、排期（GPU 锁）与进度查询。同一份 val split 上逐个跑，
+这里只做校验、排期（GPU 锁）与进度查询。同一次对比里所有模型跑**同一个划分**，
 所以模型之间可比；绝对数值请对照归档的 metrics.txt（同一口径，见 ValConfig）。
+
+划分默认 `val`；`test` 留给最终汇报。**两者的数不能混着比**——val 是新 val，
+里面有一部分图当初进过旧 train，在旧归档上会虚高（见 models.py 的 legacy 标记）。
 """
 
 from __future__ import annotations
@@ -19,6 +22,11 @@ router = APIRouter(prefix="/api/eval", tags=["eval"])
 
 # 归档里没记数据集时的兜底：本仓库的默认数据集
 _FALLBACK_DATASET = "D-Fire/train"
+
+#: 允许评估的划分。`val` 用来选模型；`test` 只留给最终汇报——它从未参与过任何
+#: 决策（选模型、调参、比对照），所以在这一份上出的数才算「没被挑过的」。
+#: train 故意不在列表里：在训过的数据上报指标没有意义，只会误导。
+SPLITS: tuple[str, ...] = ("val", "test")
 
 
 def _dataset_of(run_id: str) -> Optional[str]:
@@ -54,6 +62,14 @@ def start_eval(req: EvalRequest) -> Dict[str, Any]:
     if missing:
         raise HTTPException(status_code=404, detail=f"未找到归档: {', '.join(missing)}")
 
+    # 空串**不**兜成默认值：不传字段（Pydantic 给 "val"）和显式传了空串
+    # 是两件事，后者说明调用方算错了划分名。悄悄兜底会让这类错永远看不见。
+    split = req.split.strip().lower()
+    if split not in SPLITS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"不支持的划分: {req.split}；可选 {' / '.join(SPLITS)}",
+        )
     dataset = _resolve_dataset(req.run_ids, req.dataset)
     try:
         job = eval_jobs.manager.start(
@@ -61,6 +77,7 @@ def start_eval(req: EvalRequest) -> Dict[str, Any]:
             dataset=dataset,
             imgsz=req.imgsz,
             device=req.device,
+            split=split,
         )
     except deps.GpuBusy as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc

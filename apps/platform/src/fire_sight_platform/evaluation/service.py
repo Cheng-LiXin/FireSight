@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from fire_sight_platform.common.paths import PROCESSED_DATA_DIR
+from fire_sight_platform.common.paths import PROCESSED_DATA_DIR, RAW_DATA_DIR
 from fire_sight_platform.runtime_config.base import ValConfig
 
 logger = logging.getLogger(__name__)
@@ -22,10 +22,25 @@ class EvalResult:
     speed_ms: Dict[str, float] = field(default_factory=dict)
 
 
-def _resolve_yaml(dataset: str) -> Path:
+def _resolve_yaml(dataset: str, split: str = "val") -> Path:
+    """把数据集标签解析成 data.yaml 的路径。
+
+    两个来源，与 `training.service._resolve_dataset_yaml` 的口径一致：
+    processed 下的产物，以及 raw 下提供方切好的那一份。
+
+    `split` 只在 raw 那份上有用武之地——processed 的 data.yaml 里 train/val/test
+    是同级键，ultralytics 的 `split=` 参数能直接选；raw 那份同理（三个键都在顶层）。
+    这里返回的是同一份 yaml，选哪个划分交给 `model.val(split=...)`。
+    """
+    del split  # 仅供调用方记录用；选择划分在 model.val(split=) 上
     p = Path(dataset)
     if p.suffix.lower() in {".yaml", ".yml"} and p.exists():
         return p
+    if dataset == "D-Fire/raw":
+        raw_yaml = RAW_DATA_DIR / "D-Fire" / "data.yaml"
+        if raw_yaml.exists():
+            return raw_yaml
+        raise FileNotFoundError(f"找不到数据集 yaml: {raw_yaml}")
     yaml_path = PROCESSED_DATA_DIR / dataset / "data.yaml"
     if not yaml_path.exists():
         raise FileNotFoundError(f"找不到数据集 yaml: {yaml_path}")
@@ -41,7 +56,12 @@ def _pick(d: dict, *keys: str) -> Optional[float]:
 
 
 def evaluate_weights(cfg: ValConfig) -> EvalResult:
-    """对单个权重跑验证集评估。"""
+    """对单个权重跑指定划分的评估。
+
+    默认 `val`；`test` 只在最终汇报时用。两者都是同一份 data.yaml 里的键，
+    由 `split=` 选择——不要另建一份只指向 test 的 yaml，那会让「哪个划分」
+    这件事有两个真相（yaml 一个、请求参数一个），迟早对不上。
+    """
     from fire_sight_platform.common.paths import RUNTIME_EVAL_DIR
     from fire_sight_platform.common.runtime_env import (
         apply_runtime_env,
@@ -55,12 +75,14 @@ def evaluate_weights(cfg: ValConfig) -> EvalResult:
 
     pin_ultralytics_paths()
 
-    yaml_path = _resolve_yaml(cfg.dataset)
+    split = (cfg.split or "val").lower()
+    yaml_path = _resolve_yaml(cfg.dataset, split)
     if not cfg.weights:
         raise ValueError("缺少 --weights")
     model = YOLO(cfg.weights)
     results = model.val(
         data=str(yaml_path),
+        split=split,
         imgsz=cfg.imgsz,
         batch=cfg.batch,
         conf=cfg.conf,
@@ -70,8 +92,10 @@ def evaluate_weights(cfg: ValConfig) -> EvalResult:
         # 必须显式给 project/name:不给就落到 ultralytics 全局的 runs_dir 上,
         # 本机那份配置指向 C 盘(实测写出过 runs/detect/val、val-2)。
         # 评估图件是副产物、没有消费方,统一丢进运行时目录,别脏了 runs/。
+        # name 带上 split:同一个模型先测 val 再测 test 时,不加就互相覆盖,
+        # 留下的是后跑的那份而文件名叫 val(实测踩过:两个模型都叫 best)。
         project=str(RUNTIME_EVAL_DIR),
-        name=Path(cfg.weights).stem or "val",
+        name=f"{Path(cfg.weights).stem or 'val'}-{split}",
         exist_ok=True,
     )
 

@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
-from fire_sight_platform.common.paths import PROCESSED_DATA_DIR, RUNS_DIR
+from fire_sight_platform.common.paths import PROCESSED_DATA_DIR, RAW_DATA_DIR, RUNS_DIR
 from fire_sight_platform.common.performance_utils import time_it
 from fire_sight_platform.common.system_utils import log_device_info
 from fire_sight_platform.runtime_config.base import TrainConfig
@@ -27,9 +27,25 @@ class TrainResult:
 
 
 def _resolve_dataset_yaml(dataset: str) -> Path:
+    """把数据集标签解析成 data.yaml 的路径。
+
+    两个来源，与 `infer._dataset_dirs()` 的口径保持一致：
+
+    - `data/processed/<标签>/data.yaml` —— pipeline 产物，可重建
+    - `data/raw/D-Fire/data.yaml`（标签 `D-Fire/raw`）—— 提供方切好的，不可重建
+
+    raw 那一份刻意不放进 processed，理由写在那个 data.yaml 的注释里：切分不是
+    本项目做的，放 processed 会暗示它可由 pipeline 重生成。所以这里要显式认它，
+    否则界面上能选、一训练就报「找不到数据集 yaml」。
+    """
     p = Path(dataset)
     if p.suffix.lower() in {".yaml", ".yml"} and p.exists():
         return p
+    if dataset == "D-Fire/raw":
+        raw_yaml = RAW_DATA_DIR / "D-Fire" / "data.yaml"
+        if raw_yaml.exists():
+            return raw_yaml
+        raise FileNotFoundError(f"找不到数据集 yaml: {raw_yaml}")
     yaml_path = PROCESSED_DATA_DIR / dataset / "data.yaml"
     if not yaml_path.exists():
         raise FileNotFoundError(f"找不到数据集 yaml: {yaml_path}(请先 fs-transform)")

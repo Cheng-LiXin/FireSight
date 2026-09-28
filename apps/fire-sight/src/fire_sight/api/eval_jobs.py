@@ -55,6 +55,7 @@ class EvalJob:
     dataset: str
     imgsz: int
     device: str
+    split: str = "val"
     status: str = "running"
     started_at: str = ""
     finished_at: Optional[str] = None
@@ -75,8 +76,8 @@ class EvalJob:
             "run_ids": list(self.run_ids),
             "dataset": self.dataset,
             "imgsz": self.imgsz,
-            # 评估固定跑 val split（ultralytics 的默认），显式回给前端而不是让它猜
-            "split": "val",
+            # 回给前端而不是让它猜：val 与 test 的数不可混着比
+            "split": self.split,
             "status": self.status,
             "started_at": self.started_at,
             "finished_at": self.finished_at,
@@ -110,6 +111,7 @@ class EvalManager:
         dataset: str,
         imgsz: int,
         device: str,
+        split: str = "val",
     ) -> EvalJob:
         # 同一个 run 选两次没有意义，去重但保序
         ordered = list(dict.fromkeys(run_ids))
@@ -123,6 +125,7 @@ class EvalManager:
             dataset=dataset,
             imgsz=imgsz,
             device=device,
+            split=split,
             started_at=datetime.now().isoformat(timespec="seconds"),
         )
         with self._lock:
@@ -158,6 +161,7 @@ class EvalManager:
                             weights=str(run.best_pt),
                             dataset=job.dataset,
                             imgsz=job.imgsz,
+                            split=job.split,
                             device=job.device,
                         )
                     )

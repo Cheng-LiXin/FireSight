@@ -143,6 +143,9 @@ class ModelInfo(BaseModel):
     dataset: Optional[str] = None
     created: Optional[str] = None
     is_active: bool = False
+    #: 用旧数据（processed 的 8:1:1 随机划分）训的归档。新数据 val 里有一部分图
+    #: 当初是训过的，拿旧归档在新 val 上评估会虚高，所以列表里要标出来。
+    legacy: bool = False
 
 
 class ActiveModel(BaseModel):
@@ -242,11 +245,17 @@ class EvalJobInfo(BaseModel):
 
 
 class EvalRequest(BaseModel):
-    """发起一次对比。run_ids 至少两个——单个权重用不到「对比」。"""
+    """发起一次对比。run_ids 至少两个——单个权重用不到「对比」。
+
+    `split` 选在哪个划分上评估。默认 `val`——它是平时选模型用的那一份；
+    `test` 留给最终汇报，因为它从未参与任何决策（选模型、调参、比对照），
+    在这上面出的数才是「没被挑过的」。写别的值由路由层拒绝并列出可选值。
+    """
 
     run_ids: List[str] = Field(min_length=2, max_length=5)
     imgsz: int = Field(640, ge=32, le=2048)
     dataset: str = ""
+    split: str = "val"
     device: str = "0"
 
 

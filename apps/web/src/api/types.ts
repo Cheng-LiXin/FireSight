@@ -101,6 +101,9 @@ export interface ModelInfo {
   dataset: string | null
   created: string | null
   is_active: boolean
+  /** 用旧数据（processed 的 8:1:1 随机划分）训的。
+   *  新 val 里有一部分图当初进过旧 train，拿它评旧归档会虚高，列表要标出来。 */
+  legacy: boolean
 }
 
 /** 当前权重的解析结果。source 说明「为什么是它」，note 是给人看的一句解释。 */
@@ -176,8 +179,13 @@ export interface EvalRequest {
   run_ids: string[]
   imgsz?: number
   dataset?: string
+  /** 在哪个划分上评估。val 用来选模型；test 只留给最终汇报，两者的数不可混着比。 */
+  split?: EvalSplit
   device?: string
 }
+
+/** 允许评估的划分。train 故意不在里面——在训过的数据上报指标没有意义。 */
+export type EvalSplit = 'val' | 'test'
 
 // --------------------------------------------------------------------------
 // 识别检测

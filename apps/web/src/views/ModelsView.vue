@@ -8,7 +8,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 
 import { api, ApiError } from '@/api/client'
-import type { ActiveModel, EvalJobInfo, ModelInfo } from '@/api/types'
+import type { ActiveModel, EvalJobInfo, EvalSplit, ModelInfo } from '@/api/types'
 
 const rows = ref<ModelInfo[]>([])
 const active = ref<ActiveModel | null>(null)
@@ -22,6 +22,8 @@ const error = ref<string | null>(null)
 const picked = ref<string[]>([])
 const evalImgsz = ref(640)
 const evalDevice = ref('0')
+/** 在哪个划分上评估。默认 val——它才是平时选模型用的那一份。 */
+const evalSplit = ref<EvalSplit>('val')
 const job = ref<EvalJobInfo | null>(null)
 const starting = ref(false)
 
@@ -126,6 +128,7 @@ async function startCompare(): Promise<void> {
     const started = await api.startEval({
       run_ids: picked.value,
       imgsz: evalImgsz.value,
+      split: evalSplit.value,
       device: evalDevice.value,
     })
     job.value = started
@@ -297,6 +300,11 @@ onBeforeUnmount(stopPolling)
             <td class="mono run">
               {{ shortName(r.run_id) }}
               <span v-if="r.is_active" class="tag tag--ok">当前</span>
+              <!-- 旧数据的指标不可与新数据直接比：新 val 里有一部分图当初进过
+                   旧 train。不标出来的话，用户会拿虚高的旧数去挑模型。 -->
+              <span v-if="r.legacy" class="tag" title="用旧数据训的，指标不可与新数据直接比">
+                旧数据
+              </span>
             </td>
             <td>{{ r.dataset ?? '—' }}</td>
             <td class="is-num">{{ r.epochs ?? '—' }}</td>
@@ -389,6 +397,13 @@ onBeforeUnmount(stopPolling)
           <input v-model.number="evalImgsz" class="field__control" type="number" min="32" max="2048" />
         </label>
         <label class="field field--narrow">
+          <span class="field__label">划分</span>
+          <select v-model="evalSplit" class="field__control" data-field="eval-split">
+            <option value="val">val（选模型）</option>
+            <option value="test">test（最终汇报）</option>
+          </select>
+        </label>
+        <label class="field field--narrow">
           <span class="field__label">设备</span>
           <select v-model="evalDevice" class="field__control">
             <option value="0">GPU (0)</option>
@@ -409,9 +424,12 @@ onBeforeUnmount(stopPolling)
       </div>
 
       <p class="note">
-        同一份 val 集上逐个评估，阈值口径与归档 metrics.txt 一致（conf=0.001 / iou=0.7，
-        mAP 计算口径），所以**模型之间**可比。<br />
-        但评估用的 imgsz 可能与训练时不同（这里统一用上面的值），因此绝对数值会和归档里
+        同一次对比里所有模型跑**同一个划分**，阈值口径与归档 metrics.txt 一致
+        （conf=0.001 / iou=0.7，mAP 计算口径），所以**模型之间**可比。<br />
+        默认 <span class="mono">val</span>——它是平时选模型用的那一份；
+        <span class="mono">test</span> 留给最终汇报，它从未参与过任何决策（选模型、比对照），
+        所以在那上面出的数才算「没被挑过的」。**两者的数不要混着比**。<br />
+        评估用的 imgsz 可能与训练时不同（这里统一用上面的值），因此绝对数值会和归档里
         训练期验证的数字略有差异——对比看的是同一条起跑线上的排序，不是复现归档的数。
         选 CPU 会非常慢，val 集有上千张图。
       </p>

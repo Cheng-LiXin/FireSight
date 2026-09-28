@@ -272,6 +272,79 @@ test('对比评估：进度按模型推进，结果标出最佳值', async ({ pa
   await expect(resultRows.first().locator('.note-cell')).toHaveCount(1)
 })
 
+test('评估的划分默认 val，且真的发给后端', async ({ page }) => {
+  const count = await archivedCount(page)
+  test.skip(count < 2, '至少需要两份归档，跳过')
+  await openModels(page)
+
+  // 断言前端**发出的请求体**，而不是只看界面：split 漏传的话后端会用它的默认值
+  // 兜住，页面上一切正常，但用户以为在 test 上评、实际评的是 val——这种错
+  // 只有盯住请求才看得见。
+  let sent: Record<string, unknown> | null = null
+  await page.route('**/api/eval', async (route) => {
+    if (route.request().method() !== 'POST') return route.fallback()
+    sent = JSON.parse(route.request().postData() ?? '{}')
+    await route.fulfill({
+      status: 201,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        id: 'fake-split',
+        run_ids: (sent.run_ids as string[]) ?? [],
+        dataset: 'D-Fire/raw',
+        imgsz: 640,
+        split: sent.split,
+        status: 'done',
+        started_at: '2026-09-27T18:00:00',
+        finished_at: '2026-09-27T18:01:00',
+        done: 2,
+        total: 2,
+        results: [],
+        error: null,
+      }),
+    })
+  })
+
+  const splitSelect = page.locator('select[data-field="eval-split"]')
+  await expect(splitSelect).toHaveValue('val') // 默认是 val，不是 test
+
+  const boxes = archiveBoxes(page)
+  await boxes.nth(0).check()
+  await boxes.nth(1).check()
+  await page.getByRole('button', { name: '开始对比' }).click()
+  await expect(page.locator('.job__line')).toContainText('评估完成')
+  expect(sent).not.toBeNull()
+  expect(sent!.split).toBe('val')
+
+  // 改成 test 再发一次，确认它跟着走（而不是写死的 val）
+  sent = null
+  await splitSelect.selectOption('test')
+  await page.getByRole('button', { name: '开始对比' }).click()
+  await expect(page.locator('.job__meta')).toContainText('test')
+  expect(sent).not.toBeNull()
+  expect(sent!.split).toBe('test')
+})
+
+test('旧数据归档带标记，新数据的不带', async ({ page }) => {
+  const count = await archivedCount(page)
+  test.skip(count === 0, '没有归档，跳过')
+  await openModels(page)
+
+  // 后端的 legacy 口径与页面上的标记必须一致——标记本身是给用户看的，
+  // 它错了比没有更糟（会让人以为可以放心比）。
+  const res = await page.request.get('/api/models')
+  const models = (await res.json()) as { run_id: string; legacy: boolean }[]
+  const legacy = models.filter((m) => m.legacy).map((m) => m.run_id)
+  test.skip(legacy.length === 0, '没有旧数据归档，标记无处可验')
+
+  for (const runId of legacy) {
+    await expect(
+      page.locator(`${ARCHIVES} tbody tr[data-run-id="${runId}"] .tag`).filter({
+        hasText: '旧数据',
+      }),
+    ).toHaveCount(1)
+  }
+})
+
 test('删除入口：默认只删归档，勾选才连现场一起', async ({ page }) => {
   const count = await archivedCount(page)
   test.skip(count === 0, '没有归档，跳过')

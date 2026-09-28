@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import base64
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import cv2
 import numpy as np
@@ -24,7 +24,7 @@ from fire_sight.api.schemas import (
 )
 from fire_sight.scene.class_map import NAME_CN, display_name
 from fire_sight_platform.common.constants import IMAGE_EXTENSIONS
-from fire_sight_platform.common.paths import PROCESSED_DATA_DIR
+from fire_sight_platform.common.paths import PROCESSED_DATA_DIR, RAW_DATA_DIR
 
 router = APIRouter(prefix="/api/infer", tags=["infer"])
 
@@ -65,45 +65,66 @@ def _to_detections(raw: List[Dict[str, Any]]) -> List[Detection]:
     ]
 
 
-def _dataset_dirs() -> List[Path]:
-    """data/processed 下的数据集目录。
+def _dataset_dirs() -> List[Tuple[str, Path]]:
+    """可用于训练/推理的数据集，返回 (标签, data.yaml 所在目录)。
 
-    产物名可能自带一层子路径（`--dataset "D-Fire/train"` 的产物是
-    `processed/D-Fire/train/`），所以最多认两层。以 `data.yaml` 是否存在
-    作为完整性标志——只看目录会因为半成品也被列出来。
+    两个来源，标签空间由这里统一：
+
+    - `data/processed/*/data.yaml` → 标签 `D-Fire/train` 这样保留子路径。
+      产物名可能自带一层子路径（`--dataset "D-Fire/train"` 的产物是
+      `processed/D-Fire/train/`），所以最多认两层。以 data.yaml 是否存在
+      作为完整性标志——只看目录会因为半成品也被列出来。
+    - `data/raw/D-Fire/data.yaml` → 标签 `D-Fire/raw`。
+      这一份是数据集提供方切好的 train/val/test，不是 pipeline 产物
+      （fire_sight_meta.split_strategy=provided），故意放在 raw 下就地训练；
+      所以这里要一并认。**它排在前面**：用户已指定以后统一用它。
     """
-    if not PROCESSED_DATA_DIR.exists():
-        return []
-    found: List[Path] = []
-    for pattern in ("*/data.yaml", "*/*/data.yaml"):
-        found.extend(p.parent for p in PROCESSED_DATA_DIR.glob(pattern))
-    return sorted(set(found))
+    found: List[Tuple[str, Path]] = []
+
+    raw_yaml = RAW_DATA_DIR / "D-Fire" / "data.yaml"
+    if raw_yaml.exists():
+        found.append(("D-Fire/raw", raw_yaml.parent))
+
+    if PROCESSED_DATA_DIR.exists():
+        for pattern in ("*/data.yaml", "*/*/data.yaml"):
+            for p in PROCESSED_DATA_DIR.glob(pattern):
+                found.append((p.parent.relative_to(PROCESSED_DATA_DIR).as_posix(), p.parent))
+
+    # 同标签只留一个（浅层优先，与 archived_runs 的口径一致）
+    seen: Dict[str, Path] = {}
+    for name, directory in found:
+        seen.setdefault(name, directory)
+    return [(name, seen[name]) for name in seen]
 
 
 def _source_options() -> List[SourceOption]:
-    """data/processed 下可用于批量推理的图片目录。"""
+    """可用于批量推理的图片目录。
+
+    raw 下那份的图在 `train/images/`（split 目录在上一层），processed 下的在
+    `images/train/`。两种布局都要认，否则新数据集选不了来源。
+    """
     out: List[SourceOption] = []
-    for ds in _dataset_dirs():
-        name = ds.relative_to(PROCESSED_DATA_DIR).as_posix()
+    for name, ds in _dataset_dirs():
         for split in ("train", "val", "test"):
-            directory = ds / "images" / split
-            if not directory.is_dir():
-                continue
-            n = sum(
-                1
-                for p in directory.iterdir()
-                if p.is_file() and p.suffix.lower() in IMAGE_EXTENSIONS
-            )
-            if n:
-                out.append(
-                    SourceOption(
-                        key=f"{name}/{split}",
-                        dataset=name,
-                        split=split,
-                        path=str(directory),
-                        image_count=n,
-                    )
+            for directory in (ds / "images" / split, ds / split / "images"):
+                if not directory.is_dir():
+                    continue
+                n = sum(
+                    1
+                    for p in directory.iterdir()
+                    if p.is_file() and p.suffix.lower() in IMAGE_EXTENSIONS
                 )
+                if n:
+                    out.append(
+                        SourceOption(
+                            key=f"{name}/{split}",
+                            dataset=name,
+                            split=split,
+                            path=str(directory),
+                            image_count=n,
+                        )
+                    )
+                break
     return out
 
 

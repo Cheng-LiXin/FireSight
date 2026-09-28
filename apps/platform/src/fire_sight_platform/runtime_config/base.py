@@ -65,6 +65,7 @@ class ValConfig(BaseConfig):
     weights: str = Field(default="", description="待评估权重路径")
     imgsz: int = Field(default=640, ge=32)
     batch: int = Field(default=8, ge=1)
+    split: str = Field(default="val", description="val 用于选模型；test 只留给最终汇报")
     conf: float = Field(default=0.001, ge=0, le=1, description="mAP 口径，勿当部署阈值")
     iou: float = Field(default=0.7, ge=0, le=1, description="NMS 口径，与训练期验证一致")
 

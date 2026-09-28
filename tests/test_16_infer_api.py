@@ -78,6 +78,7 @@ def test_list_models_shape(client):
             "dataset",
             "created",
             "is_active",
+            "legacy",
         }
         # 指标缺失必须是 null，不能是 0——「没测过」和「测得 0 分」不是一回事
         assert m["mAP50"] is None or isinstance(m["mAP50"], float)
@@ -126,9 +127,60 @@ def test_sources_includes_nested_dataset_dirs(tmp_path, monkeypatch):
     (root / "halfdone" / "images" / "train").mkdir(parents=True)
 
     monkeypatch.setattr(infer_router, "PROCESSED_DATA_DIR", root)
+    # raw 那份走真实路径。不隔离掉的话本机装着 D-Fire/raw 时它会混进来，
+    # 断言就得同时写死两份数据集的 key——真实机器与 CI 上结果还不一样。
+    monkeypatch.setattr(infer_router, "RAW_DATA_DIR", tmp_path / "raw")
 
     keys = {s.key for s in infer_router._source_options()}
     assert keys == {"flat/train", "Nested/train/val"}
+
+
+def test_sources_includes_raw_dataset(tmp_path, monkeypatch):
+    """raw 下的数据集切分在上一层（`train/images/`），与 processed 的布局相反。
+
+    新数据集（提供方切好、就地训练）就长这样；只认 `images/train` 会让它
+    在批量来源里整个消失。
+    """
+    from fire_sight.api.routers import infer as infer_router
+
+    raw = tmp_path / "raw"
+    for split, n in (("train", 2), ("val", 1)):
+        d = raw / "D-Fire" / split / "images"
+        d.mkdir(parents=True)
+        for i in range(n):
+            (d / f"{i}.jpg").write_bytes(b"x")
+    (raw / "D-Fire" / "data.yaml").write_text("names:\n  0: smoke\n", encoding="utf-8")
+
+    monkeypatch.setattr(infer_router, "RAW_DATA_DIR", raw)
+    monkeypatch.setattr(infer_router, "PROCESSED_DATA_DIR", tmp_path / "none")
+
+    opts = {s.key: s for s in infer_router._source_options()}
+    assert set(opts) == {"D-Fire/raw/train", "D-Fire/raw/val"}
+    assert opts["D-Fire/raw/train"].image_count == 2
+    # 标签是数据集名，不是目录名——界面上要能看出用的是哪一份
+    assert opts["D-Fire/raw/train"].dataset == "D-Fire/raw"
+
+
+def test_raw_dataset_comes_first(tmp_path, monkeypatch):
+    """raw 那份排在前面：用户已指定以后统一用它，默认选中它省一次点击。"""
+    from fire_sight.api.routers import infer as infer_router
+
+    raw = tmp_path / "raw"
+    d = raw / "D-Fire" / "train" / "images"
+    d.mkdir(parents=True)
+    (d / "a.jpg").write_bytes(b"x")
+    (raw / "D-Fire" / "data.yaml").write_text("names:\n  0: smoke\n", encoding="utf-8")
+
+    root = tmp_path / "processed"
+    p = root / "old" / "images" / "train"
+    p.mkdir(parents=True)
+    (p / "a.jpg").write_bytes(b"x")
+    (root / "old" / "data.yaml").write_text("names:\n  0: smoke\n", encoding="utf-8")
+
+    monkeypatch.setattr(infer_router, "RAW_DATA_DIR", raw)
+    monkeypatch.setattr(infer_router, "PROCESSED_DATA_DIR", root)
+
+    assert infer_router._source_options()[0].dataset == "D-Fire/raw"
 
 
 def test_batch_rejects_unknown_source(client):
