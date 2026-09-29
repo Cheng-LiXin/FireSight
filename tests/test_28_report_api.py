@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sys
 import time
+from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
@@ -12,6 +13,16 @@ ROOT = Path(__file__).resolve().parents[1]
 for p in (ROOT, ROOT / "apps" / "fire-sight" / "src", ROOT / "apps" / "platform" / "src"):
     if str(p) not in sys.path:
         sys.path.insert(0, str(p))
+
+# 区间不写死月份：种子事件的 ts 是 EventStore.insert 打的 **now**，而过滤是日期前缀
+# 比较——写死成某个月份（如 2026-09），过了月末种子事件就掉到区间外，整套测试到期作废。
+_TODAY = date.today()
+# 「有事件」区间：以今天为锚、前后各十年。既永远盖住 now，也让**生产库里任何一条
+# 真实事件**都落进来——守卫测试靠「读生产库会数出非零」来证伪，窗口越宽越不会落空。
+HAS_START = (_TODAY - timedelta(days=3650)).isoformat()
+HAS_END = (_TODAY + timedelta(days=3650)).isoformat()
+# 「无事件」区间：昨天。种子事件（今天）永远落在外面。
+EMPTY_START = EMPTY_END = (_TODAY - timedelta(days=1)).isoformat()
 
 
 @pytest.fixture()
@@ -24,7 +35,11 @@ def reports_dir(tmp_path, monkeypatch):
 
 @pytest.fixture()
 def fake_llm(monkeypatch):
-    """假模型：返回带五节的正文，不联网、不花钱。"""
+    """假模型：返回带五节的正文，不联网、不花钱；并记下收到的 user prompt。
+
+    返回**单例**而不是类：守卫测试要拿它验证 prompt 里的统计数字，每次 chat 都
+    新建实例的话，captured 就落不到测试手里。
+    """
     import fire_sight.api.report_jobs as rj
 
     # 「通道已配置」这个前置条件也要在测试里成立，不能依赖跑测试的机器恰好配了
@@ -33,7 +48,12 @@ def fake_llm(monkeypatch):
     monkeypatch.setenv("FIRESIGHT_LLM_API_KEY", "sk-test-not-real")
 
     class _Fake:
+        def __init__(self) -> None:
+            #: 最近一次收到的 user prompt（内含统计 JSON）
+            self.user = ""
+
         def chat(self, system, user, *, max_tokens=4000):
+            self.user = user
             return "\n".join(
                 [
                     "## 火情态势",
@@ -49,8 +69,9 @@ def fake_llm(monkeypatch):
                 ]
             )
 
-    monkeypatch.setattr(rj, "resolve_client", lambda: _Fake())
-    return _Fake
+    client = _Fake()
+    monkeypatch.setattr(rj, "resolve_client", lambda: client)
+    return client
 
 
 @pytest.fixture()
@@ -79,7 +100,7 @@ def test_report_job_lifecycle(reports_dir, fake_llm, seeded_db, monkeypatch):
 
     monkeypatch.setattr(report_jobs, "EVENTS_DB", seeded_db)
 
-    job = report_jobs.REPORTS.start("2026-09-01", "2026-09-30")
+    job = report_jobs.REPORTS.start(HAS_START, HAS_END)
     assert job["status"] in {"queued", "running"}
 
     deadline = time.time() + 10
@@ -94,7 +115,7 @@ def test_report_job_lifecycle(reports_dir, fake_llm, seeded_db, monkeypatch):
 
     loaded = report_service.load_report(j["report_id"], directory=reports_dir)
     assert "## 火情态势" in loaded["markdown"]
-    assert loaded["meta"]["start"] == "2026-09-01"
+    assert loaded["meta"]["start"] == HAS_START
 
 
 def test_post_rejects_empty_range_and_missing_key(reports_dir, seeded_db, monkeypatch):
@@ -110,7 +131,7 @@ def test_post_rejects_empty_range_and_missing_key(reports_dir, seeded_db, monkey
     client = TestClient(app)
 
     # 区间无事件 → 400，说清「没有告警记录」
-    resp = client.post("/api/reports", json={"start": "2020-01-01", "end": "2020-01-31"})
+    resp = client.post("/api/reports", json={"start": EMPTY_START, "end": EMPTY_END})
     assert resp.status_code == 400
     assert "没有告警" in resp.json()["detail"]
 
@@ -123,7 +144,7 @@ def test_post_rejects_empty_range_and_missing_key(reports_dir, seeded_db, monkey
     ):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setattr(report_jobs, "EVENTS_DB", seeded_db)
-    resp = client.post("/api/reports", json={"start": "2026-09-01", "end": "2026-09-30"})
+    resp = client.post("/api/reports", json={"start": HAS_START, "end": HAS_END})
     assert resp.status_code == 400
     assert "FIRESIGHT_LLM_API_KEY" in resp.json()["detail"]
 
@@ -131,8 +152,9 @@ def test_post_rejects_empty_range_and_missing_key(reports_dir, seeded_db, monkey
 def test_post_reads_events_db_at_call_time(tmp_path, monkeypatch):
     """路由必须在**调用时**读 report_jobs.EVENTS_DB，换成空库就该当场拒绝。
 
-    若按值把路径拷进路由，这里读到的会是生产库 data/events/events.db——那个区间
-    在开发机上有事件，「没有告警」这条拒绝就永远测不到，测试也就落到了生产数据上。
+    若按值把路径拷进路由，这里读到的会是生产库 data/events/events.db——HAS 区间
+    （前后各十年）保证生产库里任何一条真实事件都落进来，拒绝就永远测不到，测试
+    也就落到了生产数据上。
     """
     import fire_sight.api.report_jobs as report_jobs
     from fire_sight.alerting import EventStore
@@ -147,9 +169,39 @@ def test_post_reads_events_db_at_call_time(tmp_path, monkeypatch):
 
     from fire_sight.api.app import app
 
-    resp = TestClient(app).post("/api/reports", json={"start": "2026-09-01", "end": "2026-09-30"})
+    resp = TestClient(app).post("/api/reports", json={"start": HAS_START, "end": HAS_END})
     assert resp.status_code == 400
     assert "没有告警" in resp.json()["detail"]
+
+
+def test_worker_aggregates_from_patched_events_db(reports_dir, fake_llm, tmp_path, monkeypatch):
+    """后台线程也必须在**调用时**读 report_jobs.EVENTS_DB——空库就该数出 0 起。
+
+    路由守卫只证明了 POST 那一侧；真正的聚合发生在 _run 的线程里（若线程按值/
+    硬编码读生产库 data/events/events.db，前一条守卫照样全绿）。HAS 区间保证生产库
+    里任何一条真实事件都会落进来，于是「读生产库」会让 fake 客户端收到的统计 JSON
+    变成真实计数，下面这条断言失败。
+    """
+    from fire_sight.alerting import EventStore
+    from fire_sight.api import report_jobs
+
+    empty_db = tmp_path / "worker_empty.db"
+    with EventStore(empty_db):
+        pass
+    monkeypatch.setattr(report_jobs, "EVENTS_DB", empty_db)
+
+    job = report_jobs.REPORTS.start(HAS_START, HAS_END)
+    deadline = time.time() + 10
+    while time.time() < deadline:
+        j = report_jobs.REPORTS.get(job["id"])
+        if j["status"] in {"done", "failed"}:
+            break
+        time.sleep(0.05)
+    j = report_jobs.REPORTS.get(job["id"])
+    assert j["status"] == "done", j.get("error")
+
+    # fake 客户端收到的 user prompt 内嵌统计 JSON：空库 → total 必为 0
+    assert '"total": 0' in fake_llm.user, fake_llm.user
 
 
 def test_reports_rest_roundtrip(reports_dir, fake_llm, seeded_db, monkeypatch):
@@ -163,7 +215,10 @@ def test_reports_rest_roundtrip(reports_dir, fake_llm, seeded_db, monkeypatch):
     from fire_sight.api.app import app
 
     client = TestClient(app)
-    created = client.post("/api/reports", json={"start": "2026-09-01", "end": "2026-09-30"}).json()
+    resp = client.post("/api/reports", json={"start": HAS_START, "end": HAS_END})
+    # 显式断言响应形状：POST 失败时这里给出原因，而不是下游一个裸 KeyError
+    assert resp.status_code == 201, resp.text
+    created = resp.json()
 
     deadline = time.time() + 10
     while time.time() < deadline:
@@ -180,7 +235,7 @@ def test_reports_rest_roundtrip(reports_dir, fake_llm, seeded_db, monkeypatch):
 
     detail = client.get(f"/api/reports/{rid}").json()
     assert "## 火情态势" in detail["markdown"]
-    assert detail["meta"]["start"] == "2026-09-01"
+    assert detail["meta"]["start"] == HAS_START
 
     dl = client.get(f"/api/reports/{rid}", params={"download": 1})
     assert dl.status_code == 200
