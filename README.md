@@ -1,6 +1,6 @@
 # FireSight · 基于 YOLO 的火灾烟雾智能预警系统
 
-[![version](https://img.shields.io/badge/version-v1.3.1-blue)](CHANGELOG.md)
+[![version](https://img.shields.io/badge/version-v1.8.1-blue)](CHANGELOG.md)
 [![python](https://img.shields.io/badge/python-3.12-3776ab)](https://www.python.org/)
 [![vue](https://img.shields.io/badge/vue-3-42b883)](https://vuejs.org/)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
@@ -10,7 +10,8 @@
 
 ![FireSight 值班控制台](docs/assets/dashboard.png)
 
-> 上图为首次启动的样子——事件库还是空的，所以风险尺停在 0、图表显示空态。
+> 上图为值班控制台首页：顶部是风险尺（近 24 小时读数），下方依次为告警读数、
+> 30 日趋势、类别构成与当前模型。右上角可直接进入月度大屏。
 
 ---
 
@@ -38,9 +39,13 @@
 | 冻结划分 | 固定随机种子，同一数据集重复划分结果 100% 一致，训练只读该划分 |
 | 数据质检 | 图-标配对、坐标越界、类别不平衡、划分泄漏等五项检查 + HTML 报告 |
 | 时序确认 | 连续 N 帧检出才触发告警，显著降低夕阳、车灯、蒸汽等场景的误报 |
-| 告警闭环 | 中文语音播报 + 事件写入 SQLite + 告警前后视频片段留存 |
+| 告警闭环 | 中文语音播报 + 事件写入 SQLite + **告警前后各 30 秒**视频片段留存 |
 | 实验归档 | 每次训练自动归档权重、配置与指标，可随时还原与横向对比 |
-| 值班控制台 | 风险尺、告警趋势、事件复核、模型指标，集中在一个界面 |
+| 常驻监控 | 网页启停一路 RTSP/视频监控：MJPEG 实时画面、断线退避重连、与训练互斥（训练优先） |
+| 分析报告 | 大模型按选定区间生成火情分析与防火建议，落盘归档、可回看下载 |
+| 月度大屏 | 近 12 个月趋势、24 小时时段分布与环比，独立页面供投影/汇报 |
+| 模型管理 | 指定当前权重、多权重对比评估、权重下载、断点续训、删除可恢复 |
+| 值班控制台 | 风险尺、告警趋势、事件复核、训练、模型、报告、大屏，集中在一个界面 |
 
 ### 类别约定
 
@@ -51,7 +56,7 @@
 | `0` | `smoke` | 烟雾 |
 | `1` | `fire` | 明火 |
 
-这一顺序是硬约束，唯一真相在 `fire_sight/scene/class_map.py`，其余位置一律引用它，不得另行硬编码。
+这一顺序是硬约束，唯一真相在 `apps/fire-sight/src/fire_sight/scene/class_map.py`，其余位置一律引用它，不得另行硬编码。
 
 D-Fire 的原始标注恰好就是 `0=smoke / 1=fire`，与本契约一致（已抽查样本图像确认）。
 但**不同公开数据集的约定并不统一，接入新数据集时务必自行核对**：
@@ -257,14 +262,18 @@ FireSight/
 │   │       ├── alerting/      # 事件库、片段缓冲、语音播报
 │   │       ├── services/      # 数据服务层（路由只调这里）
 │   │       └── api/           # FastAPI 路由
-│   └── web/               # 前端：Vue 3 + Element Plus + ECharts
+│   └── web/               # 前端：Vue 3 + TypeScript + Vite + ECharts
+│       └── e2e/           # Playwright 端到端用例（驱动系统 Edge）
 ├── frame_source/          # 顶层能力包：可插拔帧输入
 ├── visualization/         # 顶层能力包：检测框绘制、中文标签
-├── data/                  # raw 只读原始 / processed 冻结划分 / events 事件库
+├── scripts/               # 一键启动/关闭（firesight.ps1，含整棵进程树）
+├── data/                  # raw 只读原始 / processed 冻结划分 / events 事件库 / reports 报告归档
 ├── models/                # pretrained 输入 / trained 归档产物
 ├── runs/                  # 每次训练的完整现场
-├── docs/                  # 项目文档
-└── tests/                 # 跨端测试
+├── docs/                  # 项目文档（含 architecture / tech / api / devlog / superpowers）
+├── tests/                 # 跨端测试
+├── 启动.cmd · 关闭.cmd     # Windows 一键入口
+└── .runtime/              # 运行时缓存与日志（已 gitignore，可随时删）
 ```
 
 **依赖方向单向无环**：`cli → 业务模块 → common`，`inference → frame_source / visualization`，
@@ -279,41 +288,43 @@ FireSight/
 | 深度学习 | PyTorch、Ultralytics YOLO11 |
 | 视觉 | OpenCV |
 | 后端 | FastAPI、Uvicorn、Pydantic、SQLite |
-| 前端 | Vue 3、TypeScript、Vite、Element Plus、ECharts |
+| 前端 | Vue 3、TypeScript、Vite、ECharts、marked + DOMPurify |
+| 大模型 | `anthropic` SDK（Claude）/ OpenAI 兼容接口（DeepSeek、SiliconFlow、自定义），按环境变量切换 |
+| 语音 | pyttsx3（离线中文播报，无设备时降级为日志） |
 | 配置 | PyYAML、Pydantic 三源合并 |
-| 质量 | pytest、Ruff、Mypy |
+| 质量 | pytest、Ruff、Mypy、Playwright |
 
 ---
 
 ## 实测结果
 
-YOLO11n 在 D-Fire 上训练 50 epochs（`imgsz=480, batch=72, seed=42, fraction=1.0`，
-训练/验证/测试 = 13,776 / 1,722 / 1,723，RTX 4060 Laptop 8GB，约 42 分钟）：
+YOLO11s 在 D-Fire 上训练 100 epochs（采用提供方划分 `data/raw/D-Fire`，
+train / val / test = 14,122 / 3,099 / 4,306；`imgsz=640, batch=20, lr0=0.01,
+seed=42, patience=10, fraction=1.0`，RTX 4060 Laptop 8GB）：
 
 | 指标 | 数值 |
 |---|---|
-| mAP@50 | **0.748**（末轮） |
-| mAP@50-95 | 0.427 |
-| 精确率 P | 0.752 |
-| 召回率 R | 0.692 |
+| mAP@50 | **0.792**（val）/ 0.793（test） |
+| mAP@50-95 | 0.471 |
+| 精确率 P | 0.789 |
+| 召回率 R | 0.733 |
 
-源自该次运行的混淆矩阵（按列归一化）：
+对应归档 `models/trained/20260928-165715-D-Fire-raw-yolo11s`，可在模型库「设为当前」。
+混淆矩阵、PR 曲线等训练图件随每次运行归档在 `runs/training/<run>/`（本地文件，不入库）；
+泄漏量化的完整分析见
+[`docs/devlog/2026-09-28-新数据首训与泄漏的量化.md`](docs/devlog/2026-09-28-新数据首训与泄漏的量化.md)。
 
-| 真实 \ 预测 | 烟雾 | 明火 | 背景 |
-|---|---:|---:|---:|
-| **烟雾** | 0.80 | — | 0.20 |
-| **明火** | — | 0.67 | 0.33 |
+召回（0.733）仍低于精确率（0.789）——**漏检是当前的主要短板**。可试的方向：
+更大输入尺寸、针对明火的定向数据增强，或按机位分组的划分来测真实泛化能力。
 
-**明火是明显的弱类**——召回仅 0.67，三分之一的明火被漏检；烟雾召回 0.80。
-优先优化方向：yolo11s、更大输入尺寸，或针对明火的定向数据增强。
+> ⚠️ **这些数字是「同机位」性能，不能直接当作跨场景泛化能力。**
+> D-Fire 由固定监控摄像头采集；即便沿用提供方划分，train 与 val 之间仍大概率
+> 存在同机位相邻帧的重叠（旧版实测：≤0 汉明距离的相邻帧占 21.1%，间隔 10–13 秒）。
+> 模型可以靠记住背景拿到不属于泛化的分数。要评估真实泛化，需按**机位/视频来源**
+> 分组划分，或另找一批未见过的场景做终评。
 
-> ⚠️ **这个 mAP 是「同机位」性能，不能直接当作跨场景泛化能力。**
-> D-Fire 由固定监控摄像头采集，划分按图片随机、不含分组感知，因此同一机位、
-> 同一场景的不同时刻会同时落在训练集与测试集两侧（实测：编号相邻的图对中有
-> 34.2% 跨 split，与随机划分的理论值一致）。模型可以靠记住背景拿到不属于泛化的分数。
-> 要评估真实泛化能力，需按**机位/视频来源**分组划分，或另找一批未见过的场景做终评。
-
-> 提速提示：`imgsz=480, batch=72` 约为 `640/16` 速度的 3 倍，但 mAP@50 会掉 2–3 个点。
+> 旧数据（`data/processed/D-Fire`）训出的归档在模型库里标着**「旧数据不可比」**：
+> 新旧划分有 17,221 张交集，在旧 val 上评估会虚高，指标不可与新数据直接比。
 
 ---
 
@@ -359,6 +370,24 @@ pip install torch torchvision --index-url https://download.pytorch.org/whl/cu126
 训练与推理不可同时进行，控制台内置了全局互斥锁。除此之外，**提交训练时会按
 显卡总显存校验 `batch × imgsz`**，超预算直接返回 400 并给出上限——不必等
 ultralytics 报 CUDA OOM。启动面板里也会显示当前 `imgsz` 下的批量上限。
+实时监控占着显存时，**训练优先**：点「开始训练」会自动停掉监控并在训练日志里
+说明原因；反过来训练进行中启动监控会得到 409 提示。
+
+**分析报告提示「未配置模型通道」**
+报告是大模型生成的，走哪条通道由环境变量决定，不配就生成不了：
+
+```bash
+# 默认 DeepSeek（OpenAI 兼容）
+set FIRESIGHT_LLM_API_KEY=sk-xxxx
+
+# 可选：换通道 / 换模型 / 换端点
+set FIRESIGHT_LLM_PROVIDER=deepseek   # deepseek | siliconflow | claude | custom
+set FIRESIGHT_LLM_MODEL=deepseek-chat
+set FIRESIGHT_LLM_BASE_URL=https://api.deepseek.com
+```
+
+设好后重启服务。没配 key 时界面会直接给出上面这行提示，而不是静默失败；
+`data/reports/` 下的归档与 `data/events/` 同属运行时产物，已 gitignore。
 
 **磁盘占用：训练会不会写满系统盘**
 不会。所有缓存、临时文件与过程副产物都收敛在工作区内的运行时目录
@@ -384,13 +413,15 @@ venv 是在这条入口加进 `pyproject.toml` 之前装的（`.venv\Scripts\` �
 欢迎提 Issue 与 PR。提交前请确保：
 
 ```bash
-pytest tests apps/platform/tests -q      # 后端，预期 222 passed
+pytest tests apps/platform/tests -q      # 后端，预期 278 passed
 cd apps/web && npm run typecheck         # 前端类型检查通过
-npm run test:e2e                         # 前端端到端（需先起 fs-serve），预期 31 passed / 2 skipped
+npm run test:e2e                         # 前端端到端（需先起 fs-serve），预期 40 passed / 3 skipped
 ```
 
 前端 E2E 用 Playwright 驱动系统已装的 Edge，不下载自带浏览器；
-其中会真正跑训练的用例默认跳过，见 [`docs/api/测试说明.md`](docs/api/测试说明.md)。
+其中会真正跑训练的用例默认跳过，**真调大模型生成报告的用例只在设置了
+`FIRESIGHT_LLM_API_KEY` 时才跑**（它会花钱），其余见
+[`docs/api/测试说明.md`](docs/api/测试说明.md)。
 
 ---
 
