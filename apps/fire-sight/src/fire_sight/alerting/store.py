@@ -152,5 +152,16 @@ class EventStore:
         )
         self._conn.commit()
 
+    def set_clip(self, event_id: str, clip_path: str) -> None:
+        """片段写完后回填路径。
+
+        事件先入库（clip 为空）、片段后补齐：告警当帧就能在账册里看见，
+        中途断电也不会丢事件——丢的最多是一段还没写完的片子。
+        """
+        self._conn.execute(
+            "UPDATE alerts SET clip_path=? WHERE event_id=?", (clip_path, event_id)
+        )
+        self._conn.commit()
+
     def count(self) -> int:
         return self._conn.execute("SELECT COUNT(*) FROM alerts").fetchone()[0]

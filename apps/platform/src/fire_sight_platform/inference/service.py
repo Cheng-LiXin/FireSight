@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -25,7 +26,11 @@ class InferConfig:
     camera_name: str = ""
     confirm_frames: int = 3
     cooldown_sec: float = 30.0
-    buffer_frames: int = 90
+    # 片段时长直接用秒——需求口径是「前后 30 秒」，帧数换算见 run_inference
+    clip_before_sec: float = 30.0
+    clip_after_sec: float = 30.0
+    # 源没有标称帧率（图片目录）时的兜底，与 write_clip 的历史默认一致
+    clip_fps: float = 25.0
     enable_tts: bool = True
     save_annotated_dir: Optional[str] = None
     events_db: Optional[str] = None
@@ -54,8 +59,7 @@ def run_inference(cfg: InferConfig) -> InferStats:
     from frame_source import create_frame_source
     from visualization import BeautifyVisualizer, Detection
 
-    from fire_sight.alerting import EventStore, RingClipBuffer, TtsNotifier
-    from fire_sight.alerting.clip_buffer import write_clip
+    from fire_sight.alerting import ClipAssembler, EventStore, RingClipBuffer, TtsNotifier
     from fire_sight.scene import AlertPolicy, DetectionLite, FrameObservation, MultiFrameConfirm
     from fire_sight_platform.common.runtime_env import (
         apply_runtime_env,
@@ -84,7 +88,6 @@ def run_inference(cfg: InferConfig) -> InferStats:
         location=cfg.camera_name,
         id_prefix=f"{run_stamp}-",
     )
-    buffer = RingClipBuffer(max_frames=cfg.buffer_frames)
     tts = TtsNotifier(enabled=cfg.enable_tts)
 
     db_path = cfg.events_db or (DATA_DIR / "events" / "events.db")
@@ -95,12 +98,57 @@ def run_inference(cfg: InferConfig) -> InferStats:
         Path(cfg.save_annotated_dir).mkdir(parents=True, exist_ok=True)
 
     stats = InferStats()
-    tail_queue: List = []  # 告警后收集少量帧
 
     with create_frame_source(cfg.source, source_id=cfg.camera_name or str(cfg.source)) as source:
+        # 秒→帧换算：优先用源自己的帧率（摄像头/视频），图片目录这类没有标称帧率的走兜底
+        fps = float(getattr(source, "fps", None) or cfg.clip_fps)
+        buffer = RingClipBuffer(before_sec=cfg.clip_before_sec, fps=fps)
+        tail_frames = max(0, int(round(cfg.clip_after_sec * fps)))
+
+        # 片段写盘比读帧慢一个数量级（千帧 VP9），放后台单线程写，主循环继续推理。
+        # 回填事件库仍留在主线程做，省掉 SQLite 的跨线程约束。
+        executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="clip-write")
+        pending: List[dict] = []  # 还在攒尾巴的：{event_id, assembler, entry}
+        writing: List[tuple] = []  # 已提交写盘：(event_id, future)
+
+        def _submit(p: dict) -> None:
+            fut = executor.submit(p["assembler"].write)
+            writing.append((p["event_id"], p["entry"], fut))
+
+        def _drain(wait: bool = False) -> None:
+            keep = []
+            for event_id, entry, fut in writing:
+                if not wait and not fut.done():
+                    keep.append((event_id, entry, fut))
+                    continue
+                try:
+                    written = fut.result()
+                    clip_str = str(written)
+                except Exception as exc:  # noqa: BLE001 - 单段失败不该打断整轮推理
+                    # 写不出可播放片段就不记路径：界面宁可显示「未留存」，
+                    # 也不要给一个点了没反应的「回放」按钮。
+                    logger.warning(f"片段写出失败，本次不记片段: {exc}")
+                    clip_str = ""
+                if clip_str:
+                    store.set_clip(event_id, clip_str)
+                    entry["clip"] = clip_str
+            writing[:] = keep
+
         for frame in source:
             if cfg.max_frames is not None and stats.frames >= cfg.max_frames:
                 break
+
+            # 先把本帧喂给在攒尾巴的片段。放在告警之前是有意的：
+            # 告警帧自己已经进过环形缓冲，属于「前 N 秒」，不能又算进「后 N 秒」。
+            still = []
+            for p in pending:
+                if p["assembler"].add(frame.image):
+                    _submit(p)
+                else:
+                    still.append(p)
+            pending = still
+            _drain()
+
             stats.frames += 1
             buffer.push(frame.index, frame.timestamp, frame.image)
 
@@ -130,35 +178,48 @@ def run_inference(cfg: InferConfig) -> InferStats:
             if confirmed and policy.should_fire(confirmed):
                 conf = max((d.conf for d in lite if d.name in confirmed), default=0.0)
                 event = policy.fire(confirmed, conf=conf, frame_index=frame.index)
-                # 导出缓冲 + 后续几帧
-                tail = list(buffer.snapshot())[-cfg.buffer_frames :]
-                # 用返回路径而不是自己拼的那条：write_clip 会按可用编码挑后缀
-                # （webm / mp4），拼死的 .mp4 会指向一个不存在的文件。
-                try:
-                    written = write_clip(tail, clip_dir / f"{event.event_id}.mp4", fps=25.0)
-                    clip_str = str(written)
-                except Exception as exc:
-                    # 写不出可播放片段就不记路径：界面宁可显示「未留存」，
-                    # 也不要给一个点了没反应的「回放」按钮。
-                    logger.warning(f"片段写出失败，本次不记片段: {exc}")
-                    clip_str = ""
-                store.insert(event, clip_path=clip_str)
+                # 事件立刻入库、片段路径等写完再回填：告警当帧就能在账册里看见，
+                # 中途断电丢的最多是一段还没写完的片子，不会丢事件本身。
+                entry = {
+                    "event_id": event.event_id,
+                    "message": event.message,
+                    "clip": "",
+                    "frame_index": event.frame_index,
+                }
+                assembler = ClipAssembler(
+                    pre_frames=buffer.snapshot(),
+                    tail_frames=tail_frames,
+                    fps=fps,
+                    # 用返回路径而不是自己拼的那条：write_clip 会按可用编码挑后缀
+                    # （webm / mp4），拼死的 .mp4 会指向一个不存在的文件。
+                    out_path=clip_dir / f"{event.event_id}.mp4",
+                )
+                store.insert(event, clip_path="")
                 tts.speak(event.message)
                 stats.alerts += 1
-                stats.events.append(
-                    {
-                        "event_id": event.event_id,
-                        "message": event.message,
-                        "clip": clip_str,
-                        "frame_index": event.frame_index,
-                    }
+                stats.events.append(entry)
+                if assembler.ready:
+                    _submit({"event_id": event.event_id, "assembler": assembler, "entry": entry})
+                else:
+                    pending.append(
+                        {"event_id": event.event_id, "assembler": assembler, "entry": entry}
+                    )
+                logger.info(
+                    f"[告警] {event.message}（片段待补齐：前 {len(assembler.frames)} 帧 + 后 {tail_frames} 帧）"
                 )
-                logger.info(f"[告警] {event.message} clip={clip_str}")
 
             annotated = visualizer.draw(frame.image, vis_dets)
             if cfg.save_annotated_dir:
                 out_p = Path(cfg.save_annotated_dir) / f"{frame.index:06d}.jpg"
                 cv2.imwrite(str(out_p), annotated)
+
+        # 源结束（视频放完/图片目录读完/被 max_frames 打断）：没攒满的尾巴
+        # 截到现有长度照写。短片段好过没片段。
+        for p in pending:
+            _submit(p)
+        pending.clear()
+        _drain(wait=True)
+        executor.shutdown(wait=True)
 
     store.close()
     logger.info(

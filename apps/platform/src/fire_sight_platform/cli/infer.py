@@ -23,7 +23,8 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--camera-name", default="", help="位置名，写入 TTS/事件")
     p.add_argument("--confirm-frames", type=int, default=3)
     p.add_argument("--cooldown", type=float, default=30.0, help="告警冷却秒")
-    p.add_argument("--buffer-frames", type=int, default=90, help="片段缓冲帧数")
+    p.add_argument("--clip-before", type=float, default=30.0, help="片段告警前秒数")
+    p.add_argument("--clip-after", type=float, default=30.0, help="片段告警后秒数")
     p.add_argument("--no-tts", action="store_true", help="关闭语音")
     p.add_argument("--save-dir", default=None, help="标注图输出目录")
     p.add_argument("--events-db", default=None)
@@ -43,7 +44,8 @@ def main(argv=None) -> int:
         camera_name=args.camera_name,
         confirm_frames=args.confirm_frames,
         cooldown_sec=args.cooldown,
-        buffer_frames=args.buffer_frames,
+        clip_before_sec=args.clip_before,
+        clip_after_sec=args.clip_after,
         enable_tts=not args.no_tts,
         save_annotated_dir=args.save_dir,
         events_db=args.events_db,

@@ -13,6 +13,8 @@ class FrameSource(ABC):
 
     def __init__(self, source_id: str = "") -> None:
         self.source_id = source_id or self.__class__.__name__
+        # 源的标称帧率；拿不到（如图片目录）就是 None，由调用方给兜底值
+        self.fps: Optional[float] = None
 
     @abstractmethod
     def __iter__(self) -> Iterator[Frame]:

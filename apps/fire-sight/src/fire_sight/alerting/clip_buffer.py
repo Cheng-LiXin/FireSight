@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Deque, List, Optional, Tuple
+from typing import Deque, List, Tuple
 
 import numpy as np
 
@@ -20,34 +20,113 @@ _CODECS: Tuple[Tuple[str, str], ...] = (
     ("AV01", ".mp4"),
 )
 
+# 缓冲里存压缩帧：30 秒 × 30fps ≈ 900 帧，原始 BGR 会到 GB 级，压着放是 20~40 MB。
+# 85 是「事后还认得出火」与体积的平衡点，再高收益很小。
+_JPEG_QUALITY = 85
+
+
+def _encode_jpeg(img: np.ndarray) -> bytes:
+    import cv2
+
+    ok, buf = cv2.imencode(".jpg", img, [int(cv2.IMWRITE_JPEG_QUALITY), _JPEG_QUALITY])
+    if not ok:
+        raise ValueError("帧 JPEG 编码失败")
+    return buf.tobytes()
+
+
+def _decode_jpeg(data: bytes) -> np.ndarray:
+    import cv2
+
+    img = cv2.imdecode(np.frombuffer(data, dtype=np.uint8), cv2.IMREAD_COLOR)
+    if img is None:
+        raise ValueError("帧 JPEG 解码失败")
+    return img
+
 
 @dataclass
 class BufferedFrame:
     index: int
     timestamp: float
-    image: np.ndarray
+    jpeg: bytes
 
 
 class RingClipBuffer:
-    """内存环形缓冲，不绑定视频编解码(低耦合)。"""
+    """内存环形缓冲，不绑定视频编解码(低耦合)。
 
-    def __init__(self, max_frames: int = 90, fps: float = 30.0) -> None:
-        self.max_frames = max_frames
-        self.fps = fps
-        self._buf: Deque[BufferedFrame] = deque(maxlen=max_frames)
+    容量按「秒 × fps」给，与需求口径一致；调用方不该自己换算帧数。
+    """
+
+    def __init__(self, before_sec: float = 30.0, fps: float = 25.0) -> None:
+        self.fps = float(fps)
+        self.max_frames = max(1, int(round(float(before_sec) * self.fps)))
+        self._buf: Deque[BufferedFrame] = deque(maxlen=self.max_frames)
 
     def push(self, index: int, timestamp: float, image: np.ndarray) -> None:
-        self._buf.append(BufferedFrame(index=index, timestamp=timestamp, image=image))
+        self._buf.append(
+            BufferedFrame(index=index, timestamp=timestamp, jpeg=_encode_jpeg(image))
+        )
 
-    def snapshot(self, tail_frames: int = 0) -> List[np.ndarray]:
-        """返回当前缓冲中的帧(可追加告警后的 tail_frames 由调用方续推)。"""
-        return [f.image.copy() for f in self._buf]
+    def snapshot(self) -> List[np.ndarray]:
+        """返回当前缓冲中的帧（解码后的副本，可安全续推/落盘）。"""
+        return [_decode_jpeg(f.jpeg) for f in self._buf]
+
+    @property
+    def stored_bytes(self) -> int:
+        """缓冲当前占用的字节数——守住「30 秒不能堆原始数组」这条线。"""
+        return sum(len(f.jpeg) for f in self._buf)
 
     def clear(self) -> None:
         self._buf.clear()
 
     def __len__(self) -> int:
         return len(self._buf)
+
+
+class ClipAssembler:
+    """一段告警的片段：前段（来自环形缓冲）+ 后段（调用方逐帧 add）。
+
+    后段攒满才 ready；源提前结束时也可以直接 write()，截到现有长度照写——
+    短片段好过没片段。
+    """
+
+    def __init__(
+        self,
+        pre_frames: List[np.ndarray],
+        tail_frames: int,
+        fps: float,
+        out_path: Path | str,
+    ) -> None:
+        self._frames: List[np.ndarray] = list(pre_frames)
+        self._pre_count = len(self._frames)
+        self._tail_frames = max(0, int(tail_frames))
+        self._fps = float(fps)
+        self._out_path = Path(out_path)
+        self._tail_added = 0
+
+    @property
+    def ready(self) -> bool:
+        return self._tail_added >= self._tail_frames
+
+    @property
+    def frames(self) -> List[np.ndarray]:
+        return list(self._frames)
+
+    def add(self, frame: np.ndarray) -> bool:
+        """喂入告警后的一帧；后段攒满返回 True。"""
+        if self._tail_added >= self._tail_frames:
+            return True
+        self._frames.append(frame)
+        self._tail_added += 1
+        return self._tail_added >= self._tail_frames
+
+    def write(self) -> Path:
+        """落盘，返回实际路径（后缀可能被换成 webm/mp4）。
+
+        不在这里吞异常：写失败的原因（哪个编码器挂了）要能被上层记进日志。
+        """
+        if not self._frames:
+            raise ValueError("无帧可写")
+        return write_clip(self._frames, self._out_path, fps=self._fps)
 
 
 def write_clip(

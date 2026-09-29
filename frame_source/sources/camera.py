@@ -19,6 +19,9 @@ class CameraSource(FrameSource):
         self.device = device
         super().__init__(source_id or f"camera-{device}")
         self._cap = cv2.VideoCapture(device)
+        fps = float(self._cap.get(cv2.CAP_PROP_FPS) or 0.0)
+        if fps > 0:
+            self.fps = fps
 
     def __iter__(self) -> Iterator[Frame]:
         i = 0

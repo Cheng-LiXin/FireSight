@@ -20,6 +20,9 @@ class VideoFileSource(FrameSource):
         if not self.path.exists():
             raise FileNotFoundError(f"视频不存在: {self.path}")
         self._cap = cv2.VideoCapture(str(self.path))
+        fps = float(self._cap.get(cv2.CAP_PROP_FPS) or 0.0)
+        if fps > 0:
+            self.fps = fps
 
     def __iter__(self) -> Iterator[Frame]:
         i = 0
