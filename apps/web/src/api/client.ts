@@ -55,7 +55,17 @@ async function unwrap<T>(res: Response): Promise<T> {
     let detail = `${res.status} ${res.statusText}`
     try {
       const body = await res.json()
-      if (body?.detail) detail = String(body.detail)
+      if (Array.isArray(body?.detail)) {
+        // pydantic 校验错误是一列 {loc, msg}：拼成一行给人看，
+        // 否则 String(数组) 会在界面上显示成 "[object Object]"
+        detail = body.detail
+          .map((d: { loc?: (string | number)[]; msg?: string }) =>
+            [Array.isArray(d?.loc) ? d.loc.slice(1).join('.') : '', d?.msg ?? '']
+              .filter(Boolean)
+              .join(': '),
+          )
+          .join('；')
+      } else if (body?.detail) detail = String(body.detail)
     } catch {
       /* 响应不是 JSON，保留状态行即可 */
     }

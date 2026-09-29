@@ -12,6 +12,58 @@ test('报告页结构：时间选择、生成按钮、历史区都在', async ({
   await expect(page.getByText('历史报告')).toBeVisible()
 })
 
+test('模型输出的 Markdown 过消毒后再进 v-html', async ({ page }) => {
+  // 报告正文是模型输出（还掺着事件的 location / message），按不可信内容处理：
+  // 直接喂注入载荷，验证 <script>/onerror/javascript: 都进不了文档
+  const malicious = [
+    '## 火情态势',
+    '<script>window.__pwned = "script"</script>',
+    '<img src=x onerror="window.__pwned = \'onerror\'">',
+    '<a href="javascript:window.__pwned = \'js-url\'">点我</a>',
+  ].join('\n')
+
+  await page.route('**/api/reports/rep-xss', (route) =>
+    route.fulfill({
+      json: {
+        meta: {
+          id: 'rep-xss',
+          title: '注入测试报告',
+          start: '2026-03-01',
+          end: '2026-03-31',
+          created_at: '2026-09-29T10:00:00',
+          model: 'test-model',
+        },
+        markdown: malicious,
+      },
+    }),
+  )
+  await page.route('**/api/reports', (route) =>
+    route.fulfill({
+      json: [
+        {
+          id: 'rep-xss',
+          title: '注入测试报告',
+          start: '2026-03-01',
+          end: '2026-03-31',
+          created_at: '2026-09-29T10:00:00',
+          model: 'test-model',
+        },
+      ],
+    }),
+  )
+
+  await page.goto('/reports')
+  await page.getByRole('button', { name: '注入测试报告' }).click()
+
+  // 正常的 Markdown 还是要渲染出来的
+  await expect(page.getByRole('heading', { name: '火情态势' })).toBeVisible()
+  // 注入的东西一条都不该活下来
+  expect(await page.evaluate(() => (window as unknown as { __pwned?: string }).__pwned)).toBeUndefined()
+  await expect(page.locator('article.md script')).toHaveCount(0)
+  await expect(page.locator('article.md [onerror]')).toHaveCount(0)
+  await expect(page.locator('article.md a[href^="javascript:"]')).toHaveCount(0)
+})
+
 test('区间无事件时拒绝生成并说清原因', async ({ page }) => {
   // 前提：真实事件库的告警都在近期，2020-01 这段没有事件（走「没有告警」分支）；
   // 区间真有了事件则落到「未配置」分支，正则两个分支都接得住

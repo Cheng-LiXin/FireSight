@@ -5,6 +5,7 @@
  * 不必上 SSE（与 eval 任务同结论）。
  */
 import { computed, onMounted, onUnmounted, ref } from 'vue'
+import DOMPurify from 'dompurify'
 import { marked } from 'marked'
 
 import { api } from '@/api/client'
@@ -27,10 +28,12 @@ const busy = ref(false)
 
 const running = computed(() => job.value?.status === 'running')
 
-/** 显式 async:false：marked 的重载在无参时返回 string | Promise<string>，
+/** 报告正文是**模型输出**（还掺着事件的 location / message 原文），按不可信内容
+ *  处理：marked 自 v4 起原样放行原始 HTML，必须过 DOMPurify 消毒再进 v-html。
+ *  显式 async:false：marked 的重载在无参时返回 string | Promise<string>，
  *  直接 as string 会把 Promise 渲染成 "[object Promise]"。 */
 const html = computed(() =>
-  detail.value ? marked.parse(detail.value.markdown, { async: false }) : '',
+  detail.value ? DOMPurify.sanitize(marked.parse(detail.value.markdown, { async: false })) : '',
 )
 
 /** 未配通道时补一段配置说明——只甩一个环境变量名，用户还是不知道从哪配起。 */
@@ -170,7 +173,8 @@ onUnmounted(() => {
 
     <section v-if="detail" class="fs-viewfinder panel">
       <h2 class="fs-viewfinder__title">{{ String(detail.meta.title || '报告') }}</h2>
-      <!-- eslint-disable-next-line vue/no-v-html —— 内容是本系统自己生成的 Markdown -->
+      <!-- eslint-disable-next-line vue/no-v-html —— 模型输出按不可信内容处理：
+           marked 会原样放行原始 HTML，进 v-html 前先过 DOMPurify 消毒 -->
       <article class="md" v-html="html"></article>
     </section>
 
