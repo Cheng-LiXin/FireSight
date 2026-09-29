@@ -744,6 +744,21 @@ OOM。**本次训练不会归档**，但现场记录留在 `runs/` 下，曲线�
 
 ---
 
+## 分析报告
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| POST | `/api/reports` | `{start, end}` 生成报告任务 → 201 `{id, status}`。区间无事件或未配置模型通道 → 400 |
+| GET | `/api/reports/jobs/{id}` | 任务状态：`{id, status, stage, error, report_id}` |
+| GET | `/api/reports` | 历史归档列表 |
+| GET | `/api/reports/{id}` | 报告全文 `{meta, markdown}`；`?download=1` 下载 .md |
+
+模型通道由环境变量配置：`FIRESIGHT_LLM_PROVIDER`（deepseek / siliconflow / claude / custom）、
+`FIRESIGHT_LLM_API_KEY`、`FIRESIGHT_LLM_BASE_URL`、`FIRESIGHT_LLM_MODEL`。
+归档落在 `data/reports/`。
+
+---
+
 ## 环境变量
 
 | 变量 | 默认 | 说明 |

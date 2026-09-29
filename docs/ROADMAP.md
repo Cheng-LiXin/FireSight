@@ -23,7 +23,7 @@ flowchart LR
   S2 --> S3[S3 推理与告警]
   S3 --> S4[S4 Streamlit 界面]
   S4 -.重做.-> S5[S5 Vue 控制台]
-  S5 -.可选.-> X[LLM 报告 / Agent / 边缘部署]
+  S5 -.可选.-> X[Agent / 边缘部署]
   style S4 stroke-dasharray: 4 4
 ```
 
@@ -106,6 +106,7 @@ Monorepo 布局、`.firesight-workspace` 工作区标记、双端可安装包
 | 数据集换代 | 训练统一使用提供方给出的 `data/raw/D-Fire`（就地训练，不建 processed 副本）；旧数据训的归档标「旧数据不可比」 |
 | 评估划分 | 对比评估可选 `val`（选模型）或 `test`（最终汇报），默认 val；`train` 不在列表里 |
 | 训练几何入列表 | 训练记录显示 `batch` / `imgsz`（取自现场 `args.yaml`），不同几何的结果不可直接比 |
+| LLM 智能报告 | 大模型火情分析报告：模型通道适配（DeepSeek / SiliconFlow / Claude）、事件摘要与 Prompt、Markdown 归档、后台生成任务与 REST、报告页（生成 / 展示 / 下载 / 历史回看） |
 
 ### 待办
 
@@ -125,7 +126,6 @@ FastAPI + Uvicorn + Pydantic（后端）· Vue 3 + TypeScript + Vite + Element P
 
 | 扩展 | 说明 |
 |---|---|
-| LLM 智能报告 | 数据质检诊断、训练结果分析、火情处置建议 |
 | AI 助手 Agent | 对话式数据准备与训练诊断（Function Calling） |
 | 边缘部署 | 模型导出 ONNX / 量化，便于嵌入式设备运行 |
 | 实时监控页 | 摄像头 / RTSP 常驻监控（需解决与前端的显存争抢） |
@@ -154,4 +154,4 @@ FastAPI + Uvicorn + Pydantic（后端）· Vue 3 + TypeScript + Vite + Element P
 
 ---
 
-*最后更新：2026-09-28*
+*最后更新：2026-09-29*
