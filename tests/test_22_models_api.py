@@ -94,10 +94,36 @@ def test_store_roundtrip(tmp_path):
     assert store.read() is None
     store.write("a/b")
     assert store.read() == "a/b"
-    # 清除 = 删文件（文件存在即「指定过」，语义只有一种）
+
+    # 清除 = 去掉 run_id 这个键。若文件里还有别的东西（例如切换基准
+    # last_effective），文件留下；没有别的才删掉。
     store.write(None)
     assert store.read() is None
-    assert not (tmp_path / "active.json").exists()
+
+
+def test_store_clear_deletes_the_file_when_nothing_remains(tmp_path):
+    """没记过切换基准时，清除就该把文件删干净——不留空壳。"""
+    from fire_sight.services import ActiveModelStore
+
+    path = tmp_path / "active.json"
+    store = ActiveModelStore(path)
+    store.write("a/b")
+    store.write(None)
+    assert not path.exists()
+
+
+def test_store_clear_keeps_the_switch_baseline(tmp_path):
+    """清除指定 ≠ 换过模型：把 last_effective 一起抹掉，下一次解析会误报成切换。"""
+    from fire_sight.services import ActiveModelStore
+
+    path = tmp_path / "active.json"
+    store = ActiveModelStore(path)
+    store.resolve(["x"])  # 落下 last_effective=x
+    store.write(None)
+
+    assert store.read() is None
+    assert store.last_effective() == "x"
+    assert path.exists()
 
 
 def test_store_survives_a_corrupt_file(tmp_path):
@@ -150,6 +176,108 @@ def test_resolve_with_no_archives(tmp_path):
     state = ActiveModelStore(tmp_path / "a.json").resolve([])
     assert state.run_id is None
     assert state.source == "none"
+
+
+# --------------------------------------------------------------------------
+# 「被新归档顶掉」的可见性
+#
+# 「没指定过就取最新」这条退路有个副作用：每有一个新归档落盘，线上模型就悄悄
+# 换掉一次。2026-09-28 真发生过——20260928-165715 一归档就顶掉了 20260927-204643，
+# 页面上没有任何提示。这里把「换过」这件事钉成可断言的行为。
+# --------------------------------------------------------------------------
+
+
+def test_resolve_flags_an_auto_switch(tmp_path):
+    from fire_sight.services import ActiveModelStore
+
+    store = ActiveModelStore(tmp_path / "a.json")
+    assert store.resolve([OLDER]).run_id == OLDER  # 落下基准 OLDER
+
+    # 新归档落地，没指定过 → 自动换成最新，必须说出来了
+    state = store.resolve([NEWER, OLDER])
+    assert state.run_id == NEWER
+    assert state.source == "fallback-newest"
+    assert state.switched is True
+    assert state.switched_from == OLDER
+    assert OLDER in state.note and NEWER in state.note
+
+
+def test_resolve_does_not_flag_when_nothing_changed(tmp_path):
+    from fire_sight.services import ActiveModelStore
+
+    store = ActiveModelStore(tmp_path / "a.json")
+    store.resolve([NEWER, OLDER])
+    state = store.resolve([NEWER, OLDER])
+    assert state.switched is False
+    assert state.switched_from is None
+
+
+def test_resolve_does_not_flag_a_user_choice(tmp_path):
+    """用户点「设为当前」是他自己干的，不算需要提醒的自动切换。"""
+    from fire_sight.services import ActiveModelStore
+
+    store = ActiveModelStore(tmp_path / "a.json")
+    store.resolve([NEWER, OLDER])  # 基准 NEWER
+    store.write(OLDER)             # 显式指定
+    state = store.resolve([NEWER, OLDER])
+    assert state.source == "pinned"
+    assert state.switched is False
+
+
+def test_resolve_does_not_flag_when_previous_was_deleted(tmp_path):
+    """上一次生效的归档被删了 → 那是删除流程的失效回落，由它自己说明，
+    不算「被新归档顶掉」（避免同一件事报两遍）。"""
+    from fire_sight.services import ActiveModelStore
+
+    store = ActiveModelStore(tmp_path / "a.json")
+    store.resolve([NEWER, OLDER])  # 基准 NEWER
+    state = store.resolve([OLDER])  # NEWER 被删，OLDER 顶上
+    assert state.run_id == OLDER
+    assert state.switched is False
+
+
+def test_resolve_records_the_baseline_only_when_it_changes(tmp_path):
+    """解析是读路径：值没变就不要写盘。每次读都落盘会让状态文件无谓磨损。"""
+    from fire_sight.services import ActiveModelStore
+
+    path = tmp_path / "a.json"
+    store = ActiveModelStore(path)
+    store.resolve([NEWER, OLDER])
+
+    calls = []
+    original = store._save
+    store._save = lambda payload: (calls.append(payload), original(payload))[1]
+
+    store.resolve([NEWER, OLDER])
+    assert calls == []
+
+    store.resolve([OLDER])  # 生效值 NEWER → OLDER，这时才该落盘
+    assert len(calls) == 1
+
+
+def test_active_endpoint_surfaces_an_auto_switch(client, models_env):
+    """接口要把「被顶掉」带出来——界面据此提醒，否则又是一次静默切换。"""
+    first = client.get("/api/models/active").json()
+    assert first["run_id"] == NEWER
+    assert first["switched"] is False
+    assert first["switched_from"] is None
+
+    _write_archive(models_env / "20260103-c", mAP50=0.60, epochs=5)
+
+    second = client.get("/api/models/active").json()
+    assert second["run_id"] == "20260103-c"
+    assert second["switched"] is True
+    assert second["switched_from"] == NEWER
+    assert NEWER in second["note"]  # 说明里点名被顶掉的那个
+
+
+def test_active_endpoint_stays_quiet_after_a_user_choice(client, models_env):
+    client.get("/api/models/active")  # 落下基准
+    client.post("/api/models/active", json={"run_id": OLDER})
+
+    body = client.get("/api/models/active").json()
+    assert body["source"] == "pinned"
+    assert body["switched"] is False
 
 
 # --------------------------------------------------------------------------

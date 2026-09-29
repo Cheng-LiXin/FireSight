@@ -181,6 +181,9 @@ export interface ActiveModel {
   pinned: string | null
   source: 'pinned' | 'fallback-newest' | 'fallback-missing' | 'none'
   note: string
+  /** 自动换成别的归档了（没指定过时「取最新」会这样）。用户自己设的不算。 */
+  switched: boolean
+  switched_from: string | null
 }
 
 /** 删除归档的结果。

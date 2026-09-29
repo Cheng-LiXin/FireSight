@@ -187,12 +187,18 @@ class ActiveModel(BaseModel):
 
     `source` 说明它怎么来的：`pinned`（用户指定的）/ `fallback-newest`（没指定过，
     取最新）/ `fallback-missing`（指定的已失效，暂用最新）/ `none`（没有归档）。
+
+    `switched` / `switched_from` 说的是「自动换成别的了」：没指定过时「取最新」
+    这条退路会让每个新归档悄悄顶掉线上模型，界面据此提醒一次。用户自己点
+    「设为当前」不算切换。
     """
 
     run_id: Optional[str] = None
     pinned: Optional[str] = None
     source: str = "none"
     note: str = ""
+    switched: bool = False
+    switched_from: Optional[str] = None
 
 
 class ActiveModelRequest(BaseModel):

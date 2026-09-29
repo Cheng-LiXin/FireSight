@@ -72,11 +72,26 @@ async function load(): Promise<void> {
   }
 }
 
+async function refreshRows(): Promise<void> {
+  /** 只刷归档列表。
+   *
+   * 「设为当前 / 清除指定」的响应就是此刻最权威的状态——尤其带着「已自动切换」
+   * 这种**一次性**提示。再整体 load() 一次会立刻把它覆盖掉，用户永远看不见。
+   */
+  try {
+    const list = await api.models()
+    rows.value = list
+    picked.value = picked.value.filter((id) => list.some((r) => r.run_id === id))
+  } catch (e) {
+    error.value = describe(e)
+  }
+}
+
 async function setActive(runId: string): Promise<void> {
   error.value = null
   try {
     active.value = await api.setActiveModel(runId)
-    await load()
+    await refreshRows()
   } catch (e) {
     error.value = describe(e)
   }
@@ -86,7 +101,7 @@ async function clearActive(): Promise<void> {
   error.value = null
   try {
     active.value = await api.clearActiveModel()
-    await load()
+    await refreshRows()
   } catch (e) {
     error.value = describe(e)
   }
@@ -240,6 +255,8 @@ onBeforeUnmount(stopPolling)
       <template v-else>
         <p class="now">
           <span class="now__id mono">{{ active?.run_id ?? '—' }}</span>
+          <!-- 自动切换是「需要知道」而不是「需要处置」：用中性标签，不占告警红 -->
+          <span v-if="active?.switched" class="tag">已自动切换</span>
           <span v-if="active?.source === 'pinned'" class="tag tag--ok">已指定</span>
           <span v-else-if="active?.source === 'fallback-newest'" class="tag">取最新</span>
           <span v-else-if="active?.source === 'fallback-missing'" class="tag tag--warn">指定已失效</span>

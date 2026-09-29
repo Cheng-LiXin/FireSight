@@ -137,6 +137,18 @@ def list_models() -> List[ModelInfo]:
     return out
 
 
+def _active(state) -> ActiveModel:
+    """解析结果 → 接口模型。四个接口都用同一份字段，别各写各的。"""
+    return ActiveModel(
+        run_id=state.run_id,
+        pinned=state.pinned,
+        source=state.source,
+        note=state.note,
+        switched=state.switched,
+        switched_from=state.switched_from,
+    )
+
+
 @router.get("/active", response_model=ActiveModel)
 def get_active() -> ActiveModel:
     """当前权重，以及它为什么是这一个。
@@ -144,10 +156,7 @@ def get_active() -> ActiveModel:
     单独一个接口是因为识别页只需要 run_id，而模型库页要把 `note` 显示出来——
     「没指定过，按最新取」和「指定的已被删，暂用最新」对用户是两件事。
     """
-    state = deps.active_model_state()
-    return ActiveModel(
-        run_id=state.run_id, pinned=state.pinned, source=state.source, note=state.note
-    )
+    return _active(deps.active_model_state())
 
 
 @router.post("/active", response_model=ActiveModel)
@@ -156,23 +165,18 @@ def set_active(req: ActiveModelRequest) -> ActiveModel:
     if deps.find_archived_run(req.run_id) is None:
         raise HTTPException(status_code=404, detail=f"未找到归档: {req.run_id}")
     deps.ACTIVE_MODEL_STORE.write(req.run_id)
-    state = deps.active_model_state()
-    return ActiveModel(
-        run_id=state.run_id, pinned=state.pinned, source=state.source, note=state.note
-    )
+    return _active(deps.active_model_state())
 
 
 @router.delete("/active", response_model=ActiveModel)
 def clear_active() -> ActiveModel:
     """清除指定，回到「取最新归档」。
 
-    删状态文件而不是写 null：文件存在就等于「用户指定过」，这样语义只有一种。
+    只删 `run_id` 这个键——「是否指定过」看的是这个键在不在，不是文件在不在。
+    状态文件里还留着切换基准（`last_effective`）时文件会继续存在，那不是没清干净。
     """
     deps.ACTIVE_MODEL_STORE.write(None)
-    state = deps.active_model_state()
-    return ActiveModel(
-        run_id=state.run_id, pinned=state.pinned, source=state.source, note=state.note
-    )
+    return _active(deps.active_model_state())
 
 
 @router.get("/download")
@@ -235,9 +239,7 @@ def delete_model(req: DeleteRequest) -> DeleteResult:
     deps.clear_infer_cache()
 
     state = deps.active_model_state()
-    active = ActiveModel(
-        run_id=state.run_id, pinned=state.pinned, source=state.source, note=state.note
-    )
+    active = _active(state)
 
     parts = []
     if run is not None:
