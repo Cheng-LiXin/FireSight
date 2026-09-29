@@ -17,7 +17,12 @@ withDefaults(
   <div class="tile" :class="`tile--${tone}`">
     <div class="tile__label">{{ label }}</div>
     <div class="tile__value">
-      {{ value }}<span v-if="unit" class="tile__unit">{{ unit }}</span>
+      <transition name="num" mode="out-in">
+        <!-- :key 让数值变化时走一次淡入，而不是原地跳变 -->
+        <span :key="String(value)" class="tile__num"
+          >{{ value }}<span v-if="unit" class="tile__unit">{{ unit }}</span></span
+        >
+      </transition>
     </div>
   </div>
 </template>
@@ -27,6 +32,14 @@ withDefaults(
   padding: var(--sp-3) var(--sp-4);
   background: var(--ash);
   border: var(--hairline);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-1);
+  transition: box-shadow var(--dur-2) var(--ease), transform var(--dur-2) var(--ease);
+}
+
+.tile:hover {
+  box-shadow: var(--shadow-2);
+  transform: translateY(-2px);
 }
 
 .tile__label {
@@ -40,6 +53,28 @@ withDefaults(
   font-weight: 500;
   line-height: 1.2;
   color: var(--bone);
+}
+
+.tile__num {
+  display: inline-block;
+}
+
+/* 数值淡入：进场 250ms 从下方 4px 升起，退场直接交棒（out-in） */
+.num-enter-active {
+  transition: opacity var(--dur-2) var(--ease), transform var(--dur-2) var(--ease);
+}
+
+.num-leave-active {
+  transition: opacity var(--dur-1) var(--ease);
+}
+
+.num-enter-from {
+  opacity: 0;
+  transform: translateY(4px);
+}
+
+.num-leave-to {
+  opacity: 0;
 }
 
 .tile__unit {

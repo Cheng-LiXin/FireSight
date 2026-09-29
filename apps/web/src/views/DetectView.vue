@@ -443,12 +443,14 @@ function fix(v: number | null | undefined, digits = 3): string {
   padding: var(--sp-3) var(--sp-4);
   background: var(--ash);
   border: var(--hairline);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-1);
 }
 .modes {
   display: flex;
   margin-left: auto;
   border: 1px solid var(--cinder);
-  border-radius: var(--radius);
+  border-radius: var(--radius-sm);
   overflow: hidden;
 }
 
@@ -461,6 +463,13 @@ function fix(v: number | null | undefined, digits = 3): string {
   background: transparent;
   border: 0;
   cursor: pointer;
+  transition: background-color var(--dur-1) var(--ease),
+    color var(--dur-1) var(--ease);
+}
+
+.modes__btn:hover:not(.is-on) {
+  background: var(--highlight);
+  color: var(--bone);
 }
 
 .modes__btn + .modes__btn {
@@ -489,7 +498,9 @@ function fix(v: number | null | undefined, digits = 3): string {
    静止时安静，只在悬停/拖入时响应。 */
 .dropzone {
   border: 1px dashed var(--ink-4);
-  transition: border-color 150ms ease, background-color 150ms ease;
+  border-radius: var(--radius-sm);
+  transition: border-color var(--dur-1) var(--ease),
+    background-color var(--dur-1) var(--ease);
 }
 
 .dropzone.is-over {
@@ -559,6 +570,7 @@ function fix(v: number | null | undefined, digits = 3): string {
   height: auto;
   background: var(--soot);
   border: var(--hairline);
+  border-radius: var(--radius-sm);
 }
 
 .pair__pending {
@@ -570,6 +582,7 @@ function fix(v: number | null | undefined, digits = 3): string {
   color: var(--dross);
   background: var(--soot);
   border: var(--hairline);
+  border-radius: var(--radius-sm);
 }
 
 .viewfinder__foot {
@@ -585,12 +598,15 @@ function fix(v: number | null | undefined, digits = 3): string {
   color: var(--bone);
   background: transparent;
   border: 1px solid var(--cinder);
-  border-radius: var(--radius);
+  border-radius: var(--radius-sm);
   cursor: pointer;
+  transition: border-color var(--dur-1) var(--ease),
+    background-color var(--dur-1) var(--ease);
 }
 
 .relink:hover:not(:disabled) {
   border-color: var(--dross);
+  background: var(--highlight);
 }
 
 .relink:disabled {
@@ -634,6 +650,14 @@ function fix(v: number | null | undefined, digits = 3): string {
   padding: var(--sp-3) var(--sp-4);
   background: var(--ash);
   border: var(--hairline);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-1);
+  transition: box-shadow var(--dur-2) var(--ease), transform var(--dur-2) var(--ease);
+}
+
+.tile:hover {
+  box-shadow: var(--shadow-2);
+  transform: translateY(-2px);
 }
 
 .tile__label {
@@ -660,7 +684,7 @@ function fix(v: number | null | undefined, digits = 3): string {
   width: 8px;
   height: 8px;
   margin-right: var(--sp-2);
-  border-radius: 1px;
+  border-radius: 50%;
   vertical-align: baseline;
 }
 

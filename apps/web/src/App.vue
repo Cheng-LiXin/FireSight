@@ -78,7 +78,11 @@ const jobText = computed(() => {
         <span>{{ store.error }}</span>
         <button type="button" class="alert__retry" @click="store.load()">重试</button>
       </div>
-      <RouterView />
+      <RouterView v-slot="{ Component }">
+        <transition name="page" mode="out-in">
+          <component :is="Component" />
+        </transition>
+      </RouterView>
     </main>
   </div>
 </template>
@@ -100,6 +104,10 @@ const jobText = computed(() => {
   padding: 0 var(--sp-5);
   background: var(--ash);
   border-bottom: var(--hairline);
+  box-shadow: var(--shadow-1);
+  position: sticky;
+  top: 0;
+  z-index: 10;
 }
 
 .brand {
@@ -121,22 +129,26 @@ const jobText = computed(() => {
   gap: var(--sp-1);
 }
 
+/* 胶囊导航：激活态是圆角背景而不是下划线，靠底色与位移表达「当前在这」 */
 .nav__link {
   padding: var(--sp-2) var(--sp-3);
   font-size: var(--fs-base);
   color: var(--dross);
   text-decoration: none;
-  border-bottom: 2px solid transparent;
-  transition: color 150ms ease;
+  border-radius: var(--radius-pill);
+  transition: color var(--dur-1) var(--ease),
+    background-color var(--dur-2) var(--ease);
 }
 
 .nav__link:hover {
   color: var(--bone);
+  background: var(--highlight);
 }
 
 .nav__link.router-link-exact-active {
   color: var(--bone);
-  border-bottom-color: var(--accent);
+  font-weight: 500;
+  background: var(--highlight);
 }
 
 .env {
@@ -175,6 +187,8 @@ const jobText = computed(() => {
   background: var(--ash);
   border: var(--hairline);
   border-left: 3px solid var(--accent);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-1);
 }
 
 .alert__retry {
@@ -184,12 +198,35 @@ const jobText = computed(() => {
   color: var(--bone);
   background: transparent;
   border: 1px solid var(--cinder);
-  border-radius: var(--radius);
+  border-radius: var(--radius-sm);
   cursor: pointer;
+  transition: border-color var(--dur-1) var(--ease),
+    background-color var(--dur-1) var(--ease);
 }
 
 .alert__retry:hover {
   border-color: var(--dross);
+  background: var(--highlight);
+}
+
+/* --- 页面切换：淡入 + 轻微上移，出场上更快一点 ------------------------- */
+
+.page-enter-active {
+  transition: opacity var(--dur-2) var(--ease), transform var(--dur-2) var(--ease);
+}
+
+.page-leave-active {
+  transition: opacity var(--dur-1) var(--ease), transform var(--dur-1) var(--ease);
+}
+
+.page-enter-from {
+  opacity: 0;
+  transform: translateY(8px);
+}
+
+.page-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
 }
 
 /* --- 窄屏：导航换行，顶栏让高 ------------------------------------------ */

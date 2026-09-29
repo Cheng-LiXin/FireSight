@@ -717,6 +717,8 @@ onBeforeUnmount(disconnect)
   margin-bottom: var(--sp-3);
   background: var(--ash);
   border: var(--hairline);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-1);
 }
 
 .actions {
@@ -803,6 +805,7 @@ onBeforeUnmount(disconnect)
   color: var(--dross);
   background: var(--soot);
   border: var(--hairline);
+  border-radius: var(--radius-sm);
   white-space: pre-wrap;
   word-break: break-all;
 }
@@ -827,7 +830,8 @@ onBeforeUnmount(disconnect)
   font-size: var(--fs-xs);
   color: var(--dross);
   border: 1px solid var(--cinder);
-  border-radius: var(--radius);
+  border-radius: var(--radius-pill);
+  white-space: nowrap;
 }
 
 /* 已归档是中性状态，不是火情——用亮一档的文字而不是明火色。
@@ -855,6 +859,7 @@ onBeforeUnmount(disconnect)
   height: auto;
   background: var(--soot);
   border: var(--hairline);
+  border-radius: var(--radius-sm);
 }
 
 .shot figcaption {

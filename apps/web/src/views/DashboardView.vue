@@ -195,7 +195,7 @@ const metricRows = computed(() => [
 
 .ratio__seg {
   display: block;
-  border-radius: 2px;
+  border-radius: var(--radius-pill);
 }
 
 .ratio__seg--smoke {
@@ -236,7 +236,7 @@ const metricRows = computed(() => [
 .ratio__dot {
   width: 8px;
   height: 8px;
-  border-radius: 1px;
+  border-radius: 50%;
 }
 
 .ratio__dot--smoke {

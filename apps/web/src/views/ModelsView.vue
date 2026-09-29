@@ -590,7 +590,8 @@ onBeforeUnmount(stopPolling)
   padding: var(--sp-3);
   background: var(--highlight);
   border: 1px solid var(--alarm);
-  border-radius: var(--radius);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-1);
 }
 
 .confirm__title {
@@ -645,6 +646,8 @@ onBeforeUnmount(stopPolling)
   font-size: var(--fs-xs);
   color: var(--dross);
   border: 1px solid var(--cinder);
+  border-radius: var(--radius-pill);
+  white-space: nowrap;
 }
 
 .tag--ok {
@@ -672,6 +675,8 @@ onBeforeUnmount(stopPolling)
   padding: var(--sp-3) var(--sp-4);
   background: var(--ash);
   border: var(--hairline);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-1);
 }
 
 .bar__picked {

@@ -133,9 +133,12 @@ const scoreText = computed(() => (props.risk?.score ?? 0).toFixed(2))
   width: 2px;
   margin-left: -1px;
   background: var(--cursor-color);
+  /* 同色柔光晕：让游标从刻度线里浮起来，颜色仍只来自档位本身 */
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--cursor-color) 18%, transparent);
   transition:
     left 700ms cubic-bezier(0.22, 1, 0.36, 1),
-    background-color 400ms ease;
+    background-color 400ms ease,
+    box-shadow 400ms ease;
 }
 
 .ruler__cursor::before {

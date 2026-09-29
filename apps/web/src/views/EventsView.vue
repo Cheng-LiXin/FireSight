@@ -341,6 +341,8 @@ onMounted(async () => {
   padding: var(--sp-3) var(--sp-4);
   background: var(--ash);
   border: var(--hairline);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-1);
 }
 
 .bar__actions {
@@ -378,6 +380,8 @@ onMounted(async () => {
   font-size: var(--fs-xs);
   color: var(--dross);
   border: 1px solid var(--cinder);
+  border-radius: var(--radius-pill);
+  white-space: nowrap;
 }
 
 /* 明火用告警红——这是全界面唯一允许的彩色，也正是它该出现的地方 */
@@ -430,6 +434,8 @@ onMounted(async () => {
   max-height: 460px;
   background: #000;
   border: var(--hairline);
+  border-radius: var(--radius);
+  overflow: hidden;
 }
 
 .clip__note {
