@@ -112,3 +112,6 @@ HANDOFF.md
 data/events/
 # 归档的分析报告（.md + .json）：与 data/events 同类的运行时产物，含真实统计数据
 data/reports/
+
+# ===== Claude Code 本地配置 =====
+.claude/
