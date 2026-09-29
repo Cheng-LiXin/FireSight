@@ -110,3 +110,5 @@ HANDOFF.md
 
 # 告警运行产物(片段/基准图/临时库)
 data/events/
+# 归档的分析报告（.md + .json）：与 data/events 同类的运行时产物，含真实统计数据
+data/reports/
