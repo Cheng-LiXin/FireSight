@@ -27,6 +27,19 @@ EVENTS_DB = DATA_DIR / "events" / "events.db"
 
 # 状态机：running → done | failed。start() 直接置 running，没有中间态
 # （早先注释里的 queued 从未被发出过，别再按它写断言）
+ACTIVE_STATUSES = frozenset({"running"})
+
+# 任务带完整统计快照（summary），常驻服务里只增不减就是内存漏斗。
+# 与 jobs.py / eval_jobs 同一个口径。
+MAX_JOBS = 20
+
+
+class GenerationInProgress(RuntimeError):
+    """同一区间已有生成在跑——LLM 调用按次计费，重复发起就是重复花钱。"""
+
+    def __init__(self, job_id: str) -> None:
+        self.job_id = job_id
+        super().__init__(f"该时间段已有生成任务在进行（{job_id}）")
 
 
 class ReportJobManager:
@@ -44,16 +57,15 @@ class ReportJobManager:
             job = self._jobs.get(job_id)
             return dict(job) if job else None
 
-    def list(self) -> List[Dict[str, Any]]:
-        with self._lock:
-            return [dict(self._jobs[i]) for i in reversed(self._order) if i in self._jobs]
-
     # ------------------------------------------------------------------
     # 生命周期
     # ------------------------------------------------------------------
 
     def start(self, start: str, end: str) -> Dict[str, Any]:
-        """起一次生成。无事件、未配通道由调用方先拦，这里只管跑。"""
+        """起一次生成。无事件、未配通道由调用方先拦，这里只管跑。
+
+        同区间的重复发起在这里拦（在锁内判，检查与登记是原子的）。
+        """
         from fire_sight.services.report_service import make_report_id
 
         job = {
@@ -67,8 +79,16 @@ class ReportJobManager:
             "created_at": datetime.now().isoformat(timespec="seconds"),
         }
         with self._lock:
+            for other in self._jobs.values():
+                if (
+                    other["status"] in ACTIVE_STATUSES
+                    and other["start"] == start
+                    and other["end"] == end
+                ):
+                    raise GenerationInProgress(other["id"])
             self._jobs[job["id"]] = job
             self._order.append(job["id"])
+            self._evict_locked()
 
         threading.Thread(
             target=self._run,
@@ -77,9 +97,25 @@ class ReportJobManager:
         ).start()
         return dict(job)
 
+    def _evict_locked(self) -> None:
+        """超过上限时丢最旧的**已结束**任务。
+
+        运行中的绝不裁：它收尾时要按 id 回填片段/状态，表里找不到就静默丢了。
+        但如果全都在跑（单机上罕见），宁可暂时超上限也不能硬裁。
+        """
+        while len(self._order) > MAX_JOBS:
+            for idx, key in enumerate(self._order):
+                if self._jobs.get(key, {}).get("status") not in ACTIVE_STATUSES:
+                    self._jobs.pop(self._order.pop(idx), None)
+                    break
+            else:
+                return
+
     def _set(self, job_id: str, **kw: Any) -> None:
         with self._lock:
-            self._jobs[job_id].update(kw)
+            job = self._jobs.get(job_id)
+            if job is not None:
+                job.update(kw)
 
     def _run(self, job: Dict[str, Any], start: str, end: str, report_id: str) -> None:
         """后台线程：聚合 → 生成 → 归档。任何一步失败都落到 failed 并带中文原因。"""

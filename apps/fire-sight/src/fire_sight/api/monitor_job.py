@@ -142,35 +142,43 @@ class MonitorManager:
 
         try:
             run = deps.resolve_run(weights or None)
+            self._stop = threading.Event()
+            self._jpeg = None
+            self._state = {
+                **self._blank(),
+                "status": "connecting",
+                "source": source,
+                "camera_name": camera_name,
+                "started_at": datetime.now().isoformat(timespec="seconds"),
+            }
+            cfg = InferConfig(
+                source=source,
+                weights=str(run.best_pt),
+                conf=conf,
+                iou=iou,
+                device=device,
+                camera_name=camera_name,
+                clip_before_sec=clip_before_sec,
+                clip_after_sec=clip_after_sec,
+                enable_tts=enable_tts,
+                events_db=str(deps.EVENTS_DB),
+            )
+            self._thread = threading.Thread(
+                target=self._run, args=(cfg,), name="monitor-infer", daemon=True
+            )
+            self._thread.start()
         except FileNotFoundError as exc:
-            deps.GPU_LOCK.release()
+            deps.GPU_LOCK.release("monitor")
             raise ValueError(str(exc)) from exc
-
-        self._stop = threading.Event()
-        self._jpeg = None
-        self._state = {
-            **self._blank(),
-            "status": "connecting",
-            "source": source,
-            "camera_name": camera_name,
-            "started_at": datetime.now().isoformat(timespec="seconds"),
-        }
-        cfg = InferConfig(
-            source=source,
-            weights=str(run.best_pt),
-            conf=conf,
-            iou=iou,
-            device=device,
-            camera_name=camera_name,
-            clip_before_sec=clip_before_sec,
-            clip_after_sec=clip_after_sec,
-            enable_tts=enable_tts,
-            events_db=str(deps.EVENTS_DB),
-        )
-        self._thread = threading.Thread(
-            target=self._run, args=(cfg,), name="monitor-infer", daemon=True
-        )
-        self._thread.start()
+        except Exception:
+            # 拿到锁之后到线程起来之前的任何一步失败（线程数耗尽等），
+            # 都要把锁还回去——否则显存被一个永远不起的监控占着，直到重启服务。
+            # 状态也要挪出 ACTIVE：留着 connecting 会让下次 start 直接被判「已占用」。
+            deps.GPU_LOCK.release("monitor")
+            with self._lock:
+                if self._state["status"] == "connecting":
+                    self._state = self._blank()
+            raise
         return self.status()
 
     def stop(self) -> bool:
@@ -184,15 +192,24 @@ class MonitorManager:
         return True
 
     def stop_for_training(self, timeout: float = 10.0) -> bool:
-        """训练优先：停掉监控并等它把显存还回来。
+        """训练优先：停掉监控并等它把**锁**真正还回来。
 
-        不等回收就放行训练，会撞上「监控线程还占着锁」——正是互斥要防的事。
+        只等状态是不够的：收尾线程把状态置成 stopped 之后、`_release_lock()` 之前
+        还有一两句在跑，这段窗口里锁还攥在 monitor 手上。届时训练去 `acquire`
+        非阻塞会拿到 False，用户看到的是一句莫名其妙的「GPU 正被 monitor 占用」
+        ——而监控其实已经停了，再点一次就好。等锁空出来就能消掉这个假 409。
         """
         if not self.is_active():
             return False
         self.stop()
         self.wait(timeout=timeout)
         if self.is_active():
+            raise deps.GpuBusy("monitor（正在停止，请稍候重试）")
+
+        deadline = time.time() + timeout
+        while deps.GPU_LOCK.holder == "monitor" and time.time() < deadline:
+            time.sleep(0.01)
+        if deps.GPU_LOCK.holder == "monitor":
             raise deps.GpuBusy("monitor（正在停止，请稍候重试）")
         return True
 
@@ -251,7 +268,8 @@ class MonitorManager:
 
     def _release_lock(self) -> None:
         try:
-            deps.GPU_LOCK.release()
+            # 带上持有者身份：收尾线程迟到时不至于放掉别人刚拿到的锁
+            deps.GPU_LOCK.release("monitor")
         except Exception as exc:  # noqa: BLE001 - 锁状态异常只记日志，别盖掉真实错误
             logger.warning(f"释放 GPU 锁失败: {exc}")
 

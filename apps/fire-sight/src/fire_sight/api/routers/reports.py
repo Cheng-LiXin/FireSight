@@ -38,7 +38,11 @@ def create_report(req: ReportRequest) -> Dict[str, Any]:
     except LlmNotConfigured as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    return report_jobs.REPORTS.start(req.start, req.end)
+    try:
+        return report_jobs.REPORTS.start(req.start, req.end)
+    except report_jobs.GenerationInProgress as exc:
+        # 同区间重复发起：LLM 按次计费，挡在接口层而不是靠界面的按钮禁用
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @router.get("/jobs/{job_id}", response_model=ReportJobInfo)

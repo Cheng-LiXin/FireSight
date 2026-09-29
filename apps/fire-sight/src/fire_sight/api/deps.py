@@ -59,7 +59,16 @@ class GpuLock:
             if who in self._waiting:
                 self._waiting.remove(who)
 
-    def release(self) -> None:
+    def release(self, who: Optional[str] = None) -> None:
+        """归还锁。`who` 是持有者身份，用来防止收尾线程迟到时放错。
+
+        任务是靠状态判断自己该收工的，状态可见与锁归还之间总有一小段窗口；
+        不认持有者的 release 在迟到时会把别人刚拿到的锁一并放掉，而 GPU 互斥
+        放错一次就是静默失效（与锁原本要防的 OOM 同源）。不传 `who` 保持原语义
+        ——既有调用点都在确认自己持有之后才调。
+        """
+        if who is not None and self._holder != who:
+            return
         self._holder = None
         if self._lock.locked():
             self._lock.release()

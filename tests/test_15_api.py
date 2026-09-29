@@ -76,6 +76,33 @@ def test_gpu_lock_rejects_when_held():
     assert lock.status() == {"holder": None, "waiting": [], "busy": False}
 
 
+def test_gpu_lock_release_checks_ownership():
+    """只有真正拿着锁的人放得开。
+
+    收尾线程是靠「状态」判断自己该收工的，状态可见与锁归还之间总有一小段窗口；
+    release() 若不认持有者，迟到的收尾就可能把别人刚拿到的锁一并放掉——
+    GPU 互斥一旦放错就是静默失效。
+    """
+    from fire_sight.api.deps import GpuLock
+
+    lock = GpuLock()
+    assert lock.acquire("monitor") is True
+
+    # 报错的人放不开别人的锁
+    lock.release("train")
+    assert lock.status()["holder"] == "monitor"
+    assert lock.acquire("train") is False
+
+    # 本人放得开
+    lock.release("monitor")
+    assert lock.status()["holder"] is None
+
+    # 不传 who 保持原语义（既有调用点都在确认自己持有之后才调）
+    assert lock.acquire("train") is True
+    lock.release()
+    assert lock.status()["holder"] is None
+
+
 # --------------------------------------------------------------------------
 # HTTP 契约
 # --------------------------------------------------------------------------

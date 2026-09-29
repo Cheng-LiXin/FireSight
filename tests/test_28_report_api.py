@@ -292,3 +292,101 @@ def test_post_rejects_malformed_dates(reports_dir, seeded_db, monkeypatch):
     assert resp.status_code == 422, resp.text
     assert "start" in resp.text
     assert "没有告警" not in resp.text
+
+
+def test_duplicate_generation_is_refused(reports_dir, seeded_db, monkeypatch):
+    """同一区间连发两次是真花钱的重复调用——必须挡在接口层。
+
+    界面的 busy 只挡双击，挡不住超时重试、脚本和 curl。
+    """
+    import threading
+
+    from fire_sight.api import report_jobs
+
+    monkeypatch.setattr(report_jobs, "EVENTS_DB", seeded_db)
+
+    entered = threading.Event()
+    release = threading.Event()
+
+    class BlockingLLM:
+        settings = type("S", (), {"model": "blocked"})()
+
+        def chat(self, system, user, *, max_tokens=None):
+            entered.set()
+            release.wait(timeout=15)
+            return "## 火情态势\n占位\n"
+
+    monkeypatch.setattr(report_jobs, "resolve_client", lambda: BlockingLLM())
+
+    pytest.importorskip("fastapi")
+    from fastapi.testclient import TestClient
+
+    from fire_sight.api.app import app
+
+    client = TestClient(app, raise_server_exceptions=False)
+    try:
+        first = client.post("/api/reports", json={"start": HAS_START, "end": HAS_END})
+        assert first.status_code == 201, first.text
+        assert entered.wait(timeout=5), "第一个任务没有进入生成阶段"
+
+        dup = client.post("/api/reports", json={"start": HAS_START, "end": HAS_END})
+        assert dup.status_code == 409, dup.text
+        # 409 的 detail 要说清在等什么，而不是甩一个 id
+        assert "进行" in str(dup.json().get("detail", ""))
+
+        # 不同区间不受影响
+        other = client.post(
+            "/api/reports", json={"start": HAS_START, "end": _TODAY.isoformat()}
+        )
+        assert other.status_code == 201, other.text
+        other_id = other.json()["id"]
+    finally:
+        release.set()
+
+    # 等两个任务进终态，别把线程漏给下一个用例（每条按 id 查，不靠 list 接口）
+    for job_id in (first.json()["id"], other_id):
+        for _ in range(200):
+            job = report_jobs.REPORTS.get(job_id)
+            if job is None or job["status"] != "running":
+                break
+            time.sleep(0.02)
+
+
+def test_job_registry_caps_itself(monkeypatch):
+    """任务表只增不减是常驻服务里的内存漏斗——对齐 jobs.py 的 MAX_JOBS。"""
+    import threading
+
+    from fire_sight.api import report_jobs
+
+    gate = threading.Event()
+
+    def fake_run(self, job, start, end, report_id):
+        # start=="BLOCK" 的那条停住，用来验证「运行中的任务绝不被裁掉」
+        if start == "BLOCK":
+            gate.wait(timeout=15)
+        self._set(job["id"], status="done", stage="")
+
+    monkeypatch.setattr(report_jobs.ReportJobManager, "_run", fake_run)
+
+    mgr = report_jobs.ReportJobManager()
+    terminal_ids = []
+    held_id = None
+    try:
+        held_id = mgr.start("BLOCK", "BLOCK")["id"]
+        for _ in range(report_jobs.MAX_JOBS + 3):
+            job_id = mgr.start(EMPTY_START, EMPTY_START)["id"]
+            for _ in range(200):
+                job = mgr.get(job_id)
+                if job and job["status"] == "done":
+                    break
+                time.sleep(0.005)
+            assert (mgr.get(job_id) or {}).get("status") == "done", "任务没进终态，测试前提不成立"
+            terminal_ids.append(job_id)
+    finally:
+        gate.set()
+
+    live = [i for i in terminal_ids + [held_id] if mgr.get(i) is not None]
+    assert len(live) <= report_jobs.MAX_JOBS, f"任务表涨到了 {len(live)} 条"
+    assert mgr.get(held_id) is not None, "运行中的任务被裁掉了——它的回填就找不到落点了"
+    assert mgr.get(terminal_ids[0]) is None, "最旧的已结束任务该被裁掉"
+    assert mgr.get(terminal_ids[-1]) is not None, "最新一条还该在"

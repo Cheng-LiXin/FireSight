@@ -138,3 +138,31 @@ def test_api_monthly_contract(monkeypatch, tmp_path):
     ).json()
     assert picked["detail"]["month"] == "2026-03"
     assert picked["detail"]["total"] == 1
+
+
+def test_api_monthly_rejects_bad_inputs(tmp_path, monkeypatch):
+    """month/months 是公开查询参数：非法值必须 4xx，不能 500 也不能无界分配。"""
+    from fire_sight.api import deps
+
+    db = tmp_path / "events.db"
+    _seed(db, [])
+    monkeypatch.setattr(deps, "EVENTS_DB", db)
+
+    pytest.importorskip("fastapi")
+    from fastapi.testclient import TestClient
+
+    from fire_sight.api.app import app
+
+    # raise_server_exceptions=False：坏值若走成 500，这里拿到的是 500 而不是异常，
+    # 断言才有机会把它判成红
+    client = TestClient(app, raise_server_exceptions=False)
+
+    # 日期形状对、但月份不存在 → 现在会变成 500（strptime 抛 ValueError）
+    for bad in ("garbage", "2026-13", "2026-09-99", "09/2026"):
+        resp = client.get("/api/stats/monthly", params={"month": bad})
+        assert resp.status_code in (400, 422), f"month={bad} → {resp.status_code}"
+        assert "month" in str(resp.json().get("detail", "")).lower()
+
+    # 巨大的 months 会走进 range(max(1, n)) 无上界循环
+    resp = client.get("/api/stats/monthly", params={"months": 10**6})
+    assert resp.status_code == 422
