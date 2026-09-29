@@ -13,6 +13,8 @@ test('报告页结构：时间选择、生成按钮、历史区都在', async ({
 })
 
 test('区间无事件时拒绝生成并说清原因', async ({ page }) => {
+  // 前提：真实事件库的告警都在近期，2020-01 这段没有事件（走「没有告警」分支）；
+  // 区间真有了事件则落到「未配置」分支，正则两个分支都接得住
   await page.goto('/reports')
 
   await page.getByLabel('起始日期').fill('2020-01-01')
@@ -24,6 +26,9 @@ test('区间无事件时拒绝生成并说清原因', async ({ page }) => {
 })
 
 test('生成冒烟：真调模型并出现五节标题', async ({ page }) => {
+  // 整条用例预算 120 秒：playwright.config 的 60 秒会先掐掉整条用例，
+  // 只给 expect 更大的 timeout 没用（生成本身要几十秒，60~120 秒就会误报超时）
+  test.setTimeout(120_000)
   test.skip(!process.env.FIRESIGHT_LLM_API_KEY, '未配 FIRESIGHT_LLM_API_KEY，跳过真调模型的用例')
 
   await page.goto('/reports')
@@ -31,6 +36,8 @@ test('生成冒烟：真调模型并出现五节标题', async ({ page }) => {
 
   // 生成要几十秒：等「火情态势」这一节出现
   await expect(page.getByRole('heading', { name: '火情态势' })).toBeVisible({ timeout: 120_000 })
-  // 下载是导航，控件是 <a href>，角色是 link 而不是 button
-  await expect(page.getByRole('link', { name: '下载 .md' })).toBeVisible()
+  // 下载是导航，控件是 <a href>，角色是 link 而不是 button；href 必须带 download=1
+  const link = page.getByRole('link', { name: '下载 .md' })
+  await expect(link).toBeVisible()
+  await expect(link).toHaveAttribute('href', /download=1/)
 })
