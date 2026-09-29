@@ -21,6 +21,7 @@ from fire_sight.api.routers import (
     models,
     monitor,
     overview,
+    reports,
     stats,
     system,
     train,
@@ -59,6 +60,7 @@ def create_app() -> FastAPI:
     app.include_router(system.router)
     app.include_router(overview.router)
     app.include_router(stats.router)
+    app.include_router(reports.router)
     app.include_router(monitor.router)
     app.include_router(events.router)
     app.include_router(models.router)

@@ -406,3 +406,42 @@ class SourceOption(BaseModel):
     split: str
     path: str
     image_count: int
+
+
+# --------------------------------------------------------------------------
+# 火情分析报告
+# --------------------------------------------------------------------------
+
+
+class ReportRequest(BaseModel):
+    """一次生成请求。start/end 是日期（YYYY-MM-DD），含两端。"""
+
+    start: str = Field(min_length=8, description="起始日期 YYYY-MM-DD")
+    end: str = Field(min_length=8, description="结束日期 YYYY-MM-DD")
+
+
+class ReportJobInfo(BaseModel):
+    """一次生成任务。stage 是离散阶段标签——生成没有可信的百分比。"""
+
+    id: str
+    status: str = "running"
+    stage: str = ""
+    start: str = ""
+    end: str = ""
+    error: Optional[str] = None
+    report_id: Optional[str] = None
+    created_at: Optional[str] = None
+
+
+class ReportListItem(BaseModel):
+    id: str
+    title: str = ""
+    start: str = ""
+    end: str = ""
+    model: str = ""
+    created_at: Optional[str] = None
+
+
+class ReportDetail(BaseModel):
+    meta: Dict[str, Any] = Field(default_factory=dict)
+    markdown: str = ""
