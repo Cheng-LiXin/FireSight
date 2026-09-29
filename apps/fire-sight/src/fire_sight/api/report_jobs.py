@@ -25,8 +25,8 @@ logger = logging.getLogger(__name__)
 # 事件库位置。可被 monkeypatch，便于测试喂临时库
 EVENTS_DB = DATA_DIR / "events" / "events.db"
 
-# 状态机：queued → running → done | failed
-TERMINAL = frozenset({"done", "failed"})
+# 状态机：running → done | failed。start() 直接置 running，没有中间态
+# （早先注释里的 queued 从未被发出过，别再按它写断言）
 
 
 class ReportJobManager:

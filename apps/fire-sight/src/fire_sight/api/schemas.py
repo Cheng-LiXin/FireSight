@@ -414,10 +414,22 @@ class SourceOption(BaseModel):
 
 
 class ReportRequest(BaseModel):
-    """一次生成请求。start/end 是日期（YYYY-MM-DD），含两端。"""
+    """一次生成请求。start/end 是日期（YYYY-MM-DD），含两端。
 
-    start: str = Field(min_length=8, description="起始日期 YYYY-MM-DD")
-    end: str = Field(min_length=8, description="结束日期 YYYY-MM-DD")
+    pattern 卡在 schema 层：8 个字符的乱码（`abcdefgh`）不该一路走到聚合、
+    被当成「所选时间段没有告警记录」拒绝——那是两回事。
+    """
+
+    start: str = Field(
+        min_length=8,
+        pattern=r"^\d{4}-\d{2}-\d{2}$",
+        description="起始日期 YYYY-MM-DD",
+    )
+    end: str = Field(
+        min_length=8,
+        pattern=r"^\d{4}-\d{2}-\d{2}$",
+        description="结束日期 YYYY-MM-DD",
+    )
 
 
 class ReportJobInfo(BaseModel):

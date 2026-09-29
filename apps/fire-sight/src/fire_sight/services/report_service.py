@@ -7,7 +7,8 @@
 from __future__ import annotations
 
 import os
-from datetime import datetime
+import re
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -31,9 +32,43 @@ def _rows_in_range(db_path: Path | str, start: str, end: str) -> List[Dict[str, 
         return store.query_events(start=start, end=end, limit=100000, offset=0)
 
 
+def _previous_window(start: str, end: str) -> tuple[str, str] | None:
+    """[start, end] 之前**等长**且首尾相接的窗口（prev_end = start - 1 天）。
+
+    整月区间不一定是整月（3 月 31 天对上 2 月 28 天），但等长对比对任意区间
+    都成立；整月时它就是「与上月对比」。日期形状不对时返回 None——调用方据此
+    把 mom_pct 记成 None，而不是拿一个错窗口去比。
+    """
+    try:
+        s = datetime.strptime(start, "%Y-%m-%d").date()
+        e = datetime.strptime(end, "%Y-%m-%d").date()
+    except ValueError:
+        return None
+    if e < s:
+        return None
+    span = (e - s).days + 1
+    try:
+        prev_end = s - timedelta(days=1)
+        prev_start = prev_end - timedelta(days=span - 1)
+    except OverflowError:
+        return None  # 0001-01-01 之前没有日期，也就没有可比的窗口
+    return prev_start.isoformat(), prev_end.isoformat()
+
+
 def aggregate_events(db_path: Path | str, start: str, end: str) -> Dict[str, Any]:
-    """时间段内的统计摘要。形状稳定——Prompt 与前端都按它说话。"""
+    """时间段内的统计摘要。形状稳定——Prompt 与前端都按它说话。
+
+    `mom_pct`：与**前一个等长窗口**的环比（百分比，保留 1 位）。对整日历月区间
+    它就是「与上月对比」；前一窗口 0 起时是 `None`——「从 0 涨到 N」无从比较，
+    与月度大屏（MonthDetail.mom_pct）同一条规则。前一窗口日期解析不出来时同样是
+    `None`。
+    """
     rows = _rows_in_range(db_path, start, end)
+
+    # 环比：前一等长窗口的事件数。0 起无从比较 → None（同月度大屏）
+    prev = _previous_window(start, end)
+    prev_total = len(_rows_in_range(db_path, *prev)) if prev else 0
+    mom_pct = round((len(rows) - prev_total) / prev_total * 100, 1) if prev_total else None
 
     by_class = {"fire": 0, "smoke": 0}
     by_hour = [0] * 24
@@ -85,6 +120,7 @@ def aggregate_events(db_path: Path | str, start: str, end: str) -> Dict[str, Any
         "false_positives": fp,
         "false_positive_rate": round(fp / len(rows), 4) if rows else 0.0,
         "avg_conf": round(sum(confs) / len(confs), 4) if confs else 0.0,
+        "mom_pct": mom_pct,
         "samples": samples,
     }
 
@@ -125,6 +161,16 @@ def make_report_id(now: Optional[datetime] = None) -> str:
     return f"{stamp}-{uuid.uuid4().hex[:8]}"
 
 
+#: id 即文件名：只放行 make_report_id 的形状（字母/数字/连字符）。挡掉 `..%5C`
+#: 与 `..%2F` 穿出目录（Windows 上反斜杠与斜杠都能穿）、`.` 落到目录本身、
+#: 以及 with_suffix 的点号别名（`<真id>.x` 读成 `<真id>.md`）。
+REPORT_ID_RE = re.compile(r"^[A-Za-z0-9-]+$")
+
+
+def is_valid_report_id(report_id: str) -> bool:
+    return bool(REPORT_ID_RE.match(report_id))
+
+
 def _dir(directory: Optional[Path]) -> Path:
     target = Path(directory) if directory is not None else REPORTS_DIR
     target.mkdir(parents=True, exist_ok=True)
@@ -153,6 +199,10 @@ def save_report(
 
 def load_report(report_id: str, *, directory: Optional[Path] = None) -> Dict[str, Any]:
     import json
+
+    # 拼进文件系统之前先过白名单：路由侧已挡一层，这里兜住任何直调方
+    if not is_valid_report_id(report_id):
+        raise FileNotFoundError(f"报告不存在: {report_id}")
 
     base = _dir(directory) / report_id
     md_path = base.with_suffix(".md")

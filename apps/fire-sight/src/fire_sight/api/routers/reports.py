@@ -58,7 +58,12 @@ def list_reports() -> List[Dict[str, Any]]:
 
 @router.get("/{report_id}", response_model=ReportDetail)
 def get_report(report_id: str, download: int = 0) -> Any:
-    from fire_sight.services.report_service import load_report
+    from fire_sight.services.report_service import is_valid_report_id, load_report
+
+    # id 会拼进文件路径、也会插进 Content-Disposition：白名单之外一律 404，
+    # 不给 `..%5C..%5C`（Windows 穿目录）、`.`、点号别名留任何缝隙
+    if not is_valid_report_id(report_id):
+        raise HTTPException(status_code=404, detail=f"报告不存在: {report_id}")
 
     try:
         data = load_report(report_id)

@@ -101,7 +101,8 @@ def test_report_job_lifecycle(reports_dir, fake_llm, seeded_db, monkeypatch):
     monkeypatch.setattr(report_jobs, "EVENTS_DB", seeded_db)
 
     job = report_jobs.REPORTS.start(HAS_START, HAS_END)
-    assert job["status"] in {"queued", "running"}
+    # start() 直接置 running——不存在 queued 态，断言不给幽灵状态留后门
+    assert job["status"] == "running"
 
     deadline = time.time() + 10
     while time.time() < deadline:
@@ -240,3 +241,54 @@ def test_reports_rest_roundtrip(reports_dir, fake_llm, seeded_db, monkeypatch):
     dl = client.get(f"/api/reports/{rid}", params={"download": 1})
     assert dl.status_code == 200
     assert "text/markdown" in dl.headers["content-type"]
+
+
+def test_get_report_rejects_traversal_and_dotted_ids(reports_dir, tmp_path):
+    """坏 id 一律 404，且绝不把 reports 目录**之外**的内容吐出来。
+
+    id 会被拼进文件路径和 Content-Disposition：Windows 上 `..%5C..%5C` 同样能穿出
+    目录，点号别名（with_suffix）还能读到**别的**报告——所以白名单必须卡在接口这一层。
+    """
+    import json as _json
+
+    from fire_sight.services.report_service import save_report
+
+    meta = {"title": "真报告", "start": HAS_START, "end": HAS_END}
+    save_report("20260929-100000-abc123", meta, "# 真报告", directory=reports_dir)
+    # reports 目录的上一级放「秘密」：穿出去就该读到它
+    (tmp_path / "secret.md").write_text("SECRET-OUTSIDE", encoding="utf-8")
+    (tmp_path / "secret.json").write_text(_json.dumps(meta), encoding="utf-8")
+
+    pytest.importorskip("fastapi")
+    from fastapi.testclient import TestClient
+
+    from fire_sight.api.app import app
+
+    client = TestClient(app)
+    for bad in ("..%5Csecret", "..%2Fsecret", "..%5C..%5Csecret", "20260929-100000-abc123.extra", "a b"):
+        resp = client.get(f"/api/reports/{bad}")
+        assert resp.status_code == 404, (bad, resp.text)
+        assert "SECRET-OUTSIDE" not in resp.text
+        assert "真报告" not in resp.text
+
+    # 合法 id 照常
+    ok = client.get("/api/reports/20260929-100000-abc123")
+    assert ok.status_code == 200, ok.text
+    assert ok.json()["markdown"] == "# 真报告"
+
+
+def test_post_rejects_malformed_dates(reports_dir, seeded_db, monkeypatch):
+    """日期不是 YYYY-MM-DD 就在 schema 层拒掉——不再落到「没有告警」这种误导文案。"""
+    import fire_sight.api.report_jobs as report_jobs
+
+    monkeypatch.setattr(report_jobs, "EVENTS_DB", seeded_db)
+
+    pytest.importorskip("fastapi")
+    from fastapi.testclient import TestClient
+
+    from fire_sight.api.app import app
+
+    resp = TestClient(app).post("/api/reports", json={"start": "abcdefgh", "end": HAS_END})
+    assert resp.status_code == 422, resp.text
+    assert "start" in resp.text
+    assert "没有告警" not in resp.text
