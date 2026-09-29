@@ -66,6 +66,22 @@ class _FakeResponse:
         return False
 
 
+class _RawResponse:
+    """200 但正文不是 JSON（网关 HTML 错误页、代理截断……）的响应。"""
+
+    def __init__(self, body: bytes):
+        self._body = body
+
+    def read(self):
+        return self._body
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+
 def test_openai_compat_chat_posts_and_returns_text(monkeypatch):
     from fire_sight.services import llm
 
@@ -107,6 +123,57 @@ def test_openai_compat_chat_maps_http_errors(monkeypatch):
     assert "限流" in str(exc.value)
 
 
+def test_openai_compat_chat_empty_content_raises(monkeypatch):
+    """content 为 null/空串时不能 str() 成 "None" 归档成报告正文。
+
+    Claude 适配器对空正文抛「模型通道返回了空内容」，OpenAI 兼容层必须等价——
+    否则一份报告的正文就是字符串 "None"。
+    """
+    from fire_sight.services import llm
+
+    client = llm.OpenAICompatChat(
+        llm.LlmSettings("deepseek", "https://api.deepseek.com", "sk-x", "deepseek-chat")
+    )
+
+    for bad in (None, "", "   "):
+        with monkeypatch.context() as m:
+            m.setattr(
+                llm.urllib.request,
+                "urlopen",
+                lambda req, timeout=0, _bad=bad: _FakeResponse(
+                    {"choices": [{"message": {"content": _bad}}]}
+                ),
+            )
+            with pytest.raises(llm.LlmError) as exc:
+                client.chat("s", "u")
+        assert "空内容" in str(exc.value), bad
+        assert "None" not in str(exc.value)
+
+
+def test_openai_compat_chat_non_json_body_raises_llm_error(monkeypatch):
+    """200 但正文不是 JSON：按可读中文的 LlmError 抛，不能漏出 JSONDecodeError。
+
+    报错文案要能直接贴进界面（spec 的可读中文错误契约），原始 JSONDecodeError
+    既不是 LlmError，文案也是英文。
+    """
+    from fire_sight.services import llm
+
+    def fake_urlopen(req, timeout=0):
+        return _RawResponse(b"<html><body>502 Bad Gateway</body></html>")
+
+    monkeypatch.setattr(llm.urllib.request, "urlopen", fake_urlopen)
+    client = llm.OpenAICompatChat(
+        llm.LlmSettings("deepseek", "https://api.deepseek.com", "sk-x", "deepseek-chat")
+    )
+
+    with pytest.raises(llm.LlmError) as exc:
+        client.chat("s", "u")
+    assert not isinstance(exc.value, json.JSONDecodeError)
+    # 中文可读：说明是「模型通道」的响应解析不了，而不是一句英文 traceback
+    assert "模型通道" in str(exc.value)
+    assert "JSON" in str(exc.value)
+
+
 def test_anthropic_chat_uses_sdk_and_takes_final_text(monkeypatch):
     """Claude 通道走官方 SDK，不走 OpenAI 兼容层——这是规范要求。"""
     from fire_sight.services import llm
@@ -146,6 +213,67 @@ def test_anthropic_chat_uses_sdk_and_takes_final_text(monkeypatch):
     assert out.startswith("## 火情态势")
     assert captured["model"] == "claude-opus-5-5"
     assert captured["system"] == "system"
+
+
+def test_anthropic_chat_wires_base_url_and_generous_max_tokens(monkeypatch):
+    """Claude 路径两条底线：settings.base_url 要真传给 SDK（否则
+    FIRESIGHT_LLM_BASE_URL 对 claude 是死配置），max_tokens 默认要给足——
+    claude-opus-5-5 的自适应思考计入输出预算，4000 会把长报告拦腰截断。
+    """
+    from fire_sight.services import llm
+
+    ctor: dict = {}
+    stream_kw: dict = {}
+
+    class _Block:
+        type = "text"
+        text = "## 火情态势"
+
+    class _Msg:
+        content = [_Block()]
+
+    class _Stream:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def get_final_message(self):
+            return _Msg()
+
+    class _Messages:
+        def stream(self, **kw):
+            stream_kw.clear()
+            stream_kw.update(kw)
+            return _Stream()
+
+    class _Client:
+        messages = _Messages()
+
+    def fake_client_cls(**kw):
+        ctor.clear()
+        ctor.update(kw)
+        return _Client()
+
+    monkeypatch.setattr(llm, "_anthropic_client_cls", fake_client_cls)
+    monkeypatch.delenv("FIRESIGHT_LLM_MAX_TOKENS", raising=False)
+
+    client = llm.AnthropicChat(
+        llm.LlmSettings("claude", "https://claude.example.com", "sk-x", "claude-opus-5-5")
+    )
+    client.chat("s", "u")
+    assert ctor["base_url"] == "https://claude.example.com"
+    assert stream_kw["max_tokens"] >= 16000
+
+    # 环境变量可覆盖；写坏了回落到默认，而不是把 ValueError 甩给用户
+    monkeypatch.setenv("FIRESIGHT_LLM_MAX_TOKENS", "4096")
+    client.chat("s", "u")
+    assert stream_kw["max_tokens"] == 4096
+
+    monkeypatch.setenv("FIRESIGHT_LLM_MAX_TOKENS", "不是数字")
+    client.chat("s", "u")
+    assert stream_kw["max_tokens"] >= 16000
 
 
 def test_anthropic_sdk_available_and_has_streaming_surface():

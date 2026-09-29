@@ -106,16 +106,28 @@ class OpenAICompatChat:
         )
         try:
             with urllib.request.urlopen(req, timeout=self.timeout) as resp:
-                payload = json.loads(resp.read().decode("utf-8"))
+                body = resp.read()
         except urllib.error.HTTPError as exc:
             raise LlmError(_http_error_text(exc)) from exc
         except urllib.error.URLError as exc:
             raise LlmError(f"模型通道网络异常（网络或超时）：{exc.reason}") from exc
 
+        # 200 不等于 JSON：网关错误页、代理截断都会走这里。JSONDecodeError /
+        # UnicodeDecodeError 是英文裸异常，直接漏出去违反「可读中文错误」契约。
         try:
-            return str(payload["choices"][0]["message"]["content"])
+            payload = json.loads(body.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise LlmError(f"模型通道返回了无法解析的响应（不是合法 JSON）：{exc}") from exc
+
+        try:
+            content = payload["choices"][0]["message"]["content"]
         except (KeyError, IndexError, TypeError) as exc:
             raise LlmError("模型通道返回了无法解析的响应") from exc
+        # content 为 null / 空串时 str() 会变成 "None" 并被当成报告正文归档——
+        # 与 Claude 适配器对齐：空内容就是失败
+        if content is None or not str(content).strip():
+            raise LlmError("模型通道返回了空内容")
+        return str(content)
 
 
 def _http_error_text(exc: urllib.error.HTTPError) -> str:
@@ -134,6 +146,19 @@ def _anthropic_client_cls(**kw):
     return anthropic.Anthropic(**kw)
 
 
+#: Claude 路径的默认输出预算。claude-opus-5-5 的自适应思考计入输出 token，
+#: 4000 会把一份长报告拦腰截断；FIRESIGHT_LLM_MAX_TOKENS 可按需调高/调低。
+CLAUDE_MAX_TOKENS_DEFAULT = 16000
+
+
+def _claude_max_tokens() -> int:
+    raw = (os.environ.get("FIRESIGHT_LLM_MAX_TOKENS") or "").strip()
+    try:
+        return int(raw) if raw else CLAUDE_MAX_TOKENS_DEFAULT
+    except ValueError:
+        return CLAUDE_MAX_TOKENS_DEFAULT  # 写坏了回落到默认，不把 ValueError 甩给用户
+
+
 class AnthropicChat:
     """Claude 通道：官方 anthropic SDK，模型默认 claude-opus-5-5。
 
@@ -142,13 +167,17 @@ class AnthropicChat:
 
     def __init__(self, settings: LlmSettings) -> None:
         self.settings = settings
-        self._client = _anthropic_client_cls(api_key=settings.api_key)
+        # base_url 也传：否则 FIRESIGHT_LLM_BASE_URL 对 claude 通道是死配置
+        self._client = _anthropic_client_cls(
+            api_key=settings.api_key,
+            base_url=settings.base_url or None,
+        )
 
-    def chat(self, system: str, user: str, *, max_tokens: int = 4000) -> str:
+    def chat(self, system: str, user: str, *, max_tokens: int | None = None) -> str:
         try:
             with self._client.messages.stream(
                 model=self.settings.model,
-                max_tokens=max_tokens,
+                max_tokens=max_tokens if max_tokens is not None else _claude_max_tokens(),
                 system=system,
                 messages=[{"role": "user", "content": user}],
             ) as stream:
