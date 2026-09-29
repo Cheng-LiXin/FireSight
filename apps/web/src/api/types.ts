@@ -426,3 +426,35 @@ export interface TrainStreamEvent {
   code?: number
   status?: JobStatus
 }
+
+// --------------------------------------------------------------------------
+// 火情分析报告
+// --------------------------------------------------------------------------
+
+export type ReportJobStatus = 'running' | 'done' | 'failed'
+
+export interface ReportJob {
+  id: string
+  status: ReportJobStatus
+  /** 离散阶段标签：聚合数据 / 模型生成中 / 归档中。不做假百分比 */
+  stage: string
+  start: string
+  end: string
+  error: string | null
+  report_id: string | null
+  created_at: string | null
+}
+
+export interface ReportListItem {
+  id: string
+  title: string
+  start: string
+  end: string
+  model: string
+  created_at: string | null
+}
+
+export interface ReportDetail {
+  meta: Record<string, unknown>
+  markdown: string
+}

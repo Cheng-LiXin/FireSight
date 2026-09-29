@@ -17,6 +17,9 @@ import type {
   MonitorStartParams,
   MonitorStatus,
   Overview,
+  ReportDetail,
+  ReportJob,
+  ReportListItem,
   SourceOption,
   SystemStatus,
   TrainJob,
@@ -231,6 +234,16 @@ export const api = {
 
   /** MJPEG 地址。浏览器 <img src> 直接吃，不需要 fetch。 */
   monitorStreamUrl: () => `${BASE}/monitor/stream`,
+
+  // --- 分析报告 -------------------------------------------------------
+
+  createReport: (start: string, end: string) =>
+    request<ReportJob>('/reports', { method: 'POST', body: JSON.stringify({ start, end }) }),
+  reportJob: (id: string) => request<ReportJob>(`/reports/jobs/${encodeURIComponent(id)}`),
+  reports: () => request<ReportListItem[]>('/reports'),
+  report: (id: string) => request<ReportDetail>(`/reports/${encodeURIComponent(id)}`),
+  /** 下载交给浏览器原生下载（后端带 Content-Disposition）。 */
+  reportDownloadUrl: (id: string) => `${BASE}/reports/${encodeURIComponent(id)}?download=1`,
 }
 
 export interface TrainJobRequest {

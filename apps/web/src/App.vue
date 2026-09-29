@@ -18,6 +18,7 @@ const NAV = [
   { to: '/detect', label: '识别检测' },
   { to: '/monitor', label: '实时监控' },
   { to: '/training', label: '训练中心' },
+  { to: '/reports', label: '分析报告' },
   { to: '/events', label: '告警事件' },
   { to: '/models', label: '模型库' },
 ]
