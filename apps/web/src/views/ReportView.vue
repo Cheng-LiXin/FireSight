@@ -68,23 +68,35 @@ async function generate() {
     // 任务 id 抓成局部常量：轮询期间用户可能点开历史报告把 job 置空，
     // 下一轮不能再去读 job.value!.id
     const jobId = created.id
+    let inFlight = false
     timer = window.setInterval(async () => {
+      if (inFlight) return // 上一轮还没回来：轮询比 2 秒慢时不叠请求
+      inFlight = true
       try {
-        job.value = await api.reportJob(jobId)
-        if (job.value.status !== 'running') {
+        const next = await api.reportJob(jobId)
+        if (!alive) return
+        job.value = next
+        if (next.status !== 'running') {
           stopPolling()
           busy.value = false
-          if (job.value.status === 'done' && job.value.report_id) {
-            detail.value = await api.report(job.value.report_id)
+          if (next.status === 'done' && next.report_id) {
+            const loaded = await api.report(next.report_id)
+            if (!alive) return
+            detail.value = loaded
             await refreshHistory()
-          } else if (job.value.status === 'failed') {
-            error.value = job.value.error || '生成失败'
+          } else if (next.status === 'failed') {
+            error.value = next.error || '生成失败'
           }
         }
       } catch (e) {
+        // 一次轮询失败（网络抖动 / 后端重启）就停表，但不能把表单卡死在
+        // running：清掉任务让按钮与日期立刻可用，错误走横幅，用户可直接重试
         stopPolling()
         busy.value = false
+        job.value = null
         error.value = e instanceof Error ? e.message : String(e)
+      } finally {
+        inFlight = false
       }
     }, 2000)
   } catch (e) {
@@ -144,10 +156,9 @@ onUnmounted(() => {
           <button type="button" class="fs-btn-primary" :disabled="busy || running" @click="generate">
             {{ running ? (job?.stage || '生成中…') : '生成报告' }}
           </button>
-          <!-- role="button"：e2e 按按钮角色取它；href 仍交给浏览器原生下载 -->
+          <!-- 下载是导航，角色就是 link：与事件导出、权重下载的 <a> 保持一致 -->
           <a
             v-if="detail"
-            role="button"
             class="fs-btn-ghost btn-link"
             :href="api.reportDownloadUrl(String(detail.meta.id))"
           >
