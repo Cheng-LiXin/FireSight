@@ -748,14 +748,15 @@ OOM。**本次训练不会归档**，但现场记录留在 `runs/` 下，曲线�
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| POST | `/api/reports` | `{start, end}` 生成报告任务 → 201 `{id, status}`。区间无事件或未配置模型通道 → 400 |
+| POST | `/api/reports` | `{start, end}` 生成报告任务 → 201 `{id, status}`。区间无事件或未配置模型通道 → 400；日期不是 `YYYY-MM-DD` → 422 |
 | GET | `/api/reports/jobs/{id}` | 任务状态：`{id, status, stage, error, report_id}` |
 | GET | `/api/reports` | 历史归档列表 |
-| GET | `/api/reports/{id}` | 报告全文 `{meta, markdown}`；`?download=1` 下载 .md |
+| GET | `/api/reports/{id}` | 报告全文 `{meta, markdown}`；`?download=1` 下载 .md。id 白名单 `^[A-Za-z0-9-]+$`，不合形状一律 404（id 即文件名，不给路径穿越留口子） |
 
 模型通道由环境变量配置：`FIRESIGHT_LLM_PROVIDER`（deepseek / siliconflow / claude / custom）、
-`FIRESIGHT_LLM_API_KEY`、`FIRESIGHT_LLM_BASE_URL`、`FIRESIGHT_LLM_MODEL`。
-归档落在 `data/reports/`。
+`FIRESIGHT_LLM_API_KEY`、`FIRESIGHT_LLM_BASE_URL`、`FIRESIGHT_LLM_MODEL`，
+以及 Claude 通道的输出上限 `FIRESIGHT_LLM_MAX_TOKENS`（默认 16000）。
+归档落在 `data/reports/`（运行时产物，不入库）。
 
 ---
 
