@@ -14,6 +14,8 @@ import type {
   ModelInfo,
   ModelOption,
   MonthlyStats,
+  MonitorStartParams,
+  MonitorStatus,
   Overview,
   SourceOption,
   SystemStatus,
@@ -216,6 +218,19 @@ export const api = {
    * 要等训练起起来才报「找不到权重」。这里把清单一次给全。
    */
   trainModels: () => request<ModelOption[]>('/train/models'),
+
+  // --- 实时监控 -------------------------------------------------------
+
+  monitorStatus: () => request<MonitorStatus>('/monitor/status'),
+  monitorStart: (payload: MonitorStartParams) =>
+    request<MonitorStatus>('/monitor/start', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  monitorStop: () => request<MonitorStatus & { stopped: boolean }>('/monitor/stop', { method: 'POST' }),
+
+  /** MJPEG 地址。浏览器 <img src> 直接吃，不需要 fetch。 */
+  monitorStreamUrl: () => `${BASE}/monitor/stream`,
 }
 
 export interface TrainJobRequest {

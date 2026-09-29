@@ -28,6 +28,12 @@ const router = createRouter({
       meta: { title: '告警事件' },
     },
     {
+      path: '/monitor',
+      name: 'monitor',
+      component: () => import('@/views/MonitorView.vue'),
+      meta: { title: '实时监控' },
+    },
+    {
       path: '/models',
       name: 'models',
       component: () => import('@/views/ModelsView.vue'),

@@ -14,7 +14,17 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from fire_sight._version import __version__ as fire_sight_version
-from fire_sight.api.routers import eval, events, infer, models, overview, stats, system, train
+from fire_sight.api.routers import (
+    eval,
+    events,
+    infer,
+    models,
+    monitor,
+    overview,
+    stats,
+    system,
+    train,
+)
 from fire_sight_platform.common.paths import ROOT_DIR
 from fire_sight_platform.common.runtime_env import apply_runtime_env
 
@@ -49,6 +59,7 @@ def create_app() -> FastAPI:
     app.include_router(system.router)
     app.include_router(overview.router)
     app.include_router(stats.router)
+    app.include_router(monitor.router)
     app.include_router(events.router)
     app.include_router(models.router)
     app.include_router(eval.router)

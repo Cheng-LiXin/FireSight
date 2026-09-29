@@ -16,6 +16,7 @@ const route = useRoute()
 const NAV = [
   { to: '/', label: '仪表盘' },
   { to: '/detect', label: '识别检测' },
+  { to: '/monitor', label: '实时监控' },
   { to: '/training', label: '训练中心' },
   { to: '/events', label: '告警事件' },
   { to: '/models', label: '模型库' },

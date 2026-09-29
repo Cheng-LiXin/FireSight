@@ -19,6 +19,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from fire_sight.api import deps
+from fire_sight.api.monitor_job import MONITOR
 from fire_sight_platform.common.paths import ROOT_DIR, RUNTIME_TMP_DIR
 from fire_sight_platform.common.runtime_env import apply_runtime_env
 
@@ -122,6 +123,13 @@ class JobManager:
                 raise deps.GpuBusy(f"训练 {active.id}（正在停止，几秒内释放）")
             raise deps.GpuBusy("train")
 
+        # 训练优先：监控在占卡时自动让路，而不是丢一句 409 让用户自己去停。
+        # 让路这件事必须写进任务事件——静默停掉会被当成监控自己崩了。
+        monitor_note = ""
+        if MONITOR.is_active():
+            if MONITOR.stop_for_training():
+                monitor_note = "训练优先：已自动停止实时监控并释放显存。"
+
         # 先拿锁再起进程：拿不到就根本不该起
         if not deps.GPU_LOCK.acquire("train"):
             raise deps.GpuBusy(deps.GPU_LOCK.holder)
@@ -133,6 +141,8 @@ class JobManager:
             started_at=datetime.now().isoformat(timespec="seconds"),
             config=config,
         )
+        if monitor_note:
+            job.add_event({"type": "log", "text": monitor_note})
 
         try:
             # 任务配置落运行时目录,不用 tempfile.gettempdir()——后者在 Windows

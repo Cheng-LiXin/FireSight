@@ -9,7 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, Callable, List, Optional
 
 from fire_sight_platform.common.paths import DATA_DIR
 
@@ -53,8 +53,16 @@ def _xyxy_from_ultralytics(boxes) -> List[tuple]:
     return out
 
 
-def run_inference(cfg: InferConfig) -> InferStats:
-    """执行一轮推理；模块间通过类型/回调协作，不互相 import 内部实现。"""
+def run_inference(
+    cfg: InferConfig,
+    frame_sink: Optional[Callable[[Any], None]] = None,
+    stop_event: Optional[Any] = None,
+) -> InferStats:
+    """执行一轮推理；模块间通过类型/回调协作，不互相 import 内部实现。
+
+    frame_sink：每帧标注图回调，供常驻监控推流给浏览器；CLI 不传。
+    stop_event：置位即收流退出（threading.Event），常驻监控的停止信号。
+    """
     import cv2
     from frame_source import create_frame_source
     from visualization import BeautifyVisualizer, Detection
@@ -137,6 +145,8 @@ def run_inference(cfg: InferConfig) -> InferStats:
         for frame in source:
             if cfg.max_frames is not None and stats.frames >= cfg.max_frames:
                 break
+            if stop_event is not None and stop_event.is_set():
+                break
 
             # 先把本帧喂给在攒尾巴的片段。放在告警之前是有意的：
             # 告警帧自己已经进过环形缓冲，属于「前 N 秒」，不能又算进「后 N 秒」。
@@ -209,6 +219,8 @@ def run_inference(cfg: InferConfig) -> InferStats:
                 )
 
             annotated = visualizer.draw(frame.image, vis_dets)
+            if frame_sink is not None:
+                frame_sink(annotated)
             if cfg.save_annotated_dir:
                 out_p = Path(cfg.save_annotated_dir) / f"{frame.index:06d}.jpg"
                 cv2.imwrite(str(out_p), annotated)

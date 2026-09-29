@@ -111,6 +111,42 @@ export interface MonthlyStats {
   detail: MonthDetail
 }
 
+// --------------------------------------------------------------------------
+// 实时监控
+// --------------------------------------------------------------------------
+
+export type MonitorStatusKind =
+  | 'idle'
+  | 'connecting'
+  | 'running'
+  | 'stopping'
+  | 'stopped'
+  | 'ended'
+  | 'failed'
+
+export interface MonitorStatus {
+  status: MonitorStatusKind
+  source: string
+  camera_name: string
+  started_at: string | null
+  finished_at: string | null
+  frames: number
+  alerts: number
+  reconnects: number
+  error: string | null
+}
+
+export interface MonitorStartParams {
+  source: string
+  camera_name?: string
+  conf?: number
+  iou?: number
+  device?: string
+  enable_tts?: boolean
+  clip_before_sec?: number
+  clip_after_sec?: number
+}
+
 /** 类别名 → 中文名。唯一真相在后端 class_map，这里只做显示映射的兜底。 */
 export const CLASS_CN: Record<string, string> = {
   smoke: '烟雾',
