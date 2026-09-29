@@ -5,11 +5,13 @@
  * 无论切到哪个模块，值班人都应该看得到当前风险。
  */
 import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { useRoute } from 'vue-router'
 
 import RiskRuler from '@/components/RiskRuler.vue'
 import { useConsoleStore } from '@/stores/console'
 
 const store = useConsoleStore()
+const route = useRoute()
 
 const NAV = [
   { to: '/', label: '仪表盘' },
@@ -49,10 +51,19 @@ const jobText = computed(() => {
   if (!job?.busy) return null
   return job.holder === 'train' ? '训练占用中' : '推理占用中'
 })
+
+/** 大屏页要整页展示：顶栏、风险尺、内容留白都不要。 */
+const isFullscreen = computed(() => route.meta.fullscreen === true)
 </script>
 
 <template>
-  <div class="shell">
+  <RouterView v-if="isFullscreen" v-slot="{ Component }">
+    <transition name="page" mode="out-in">
+      <component :is="Component" />
+    </transition>
+  </RouterView>
+
+  <div v-else class="shell">
     <header class="topbar">
       <RouterLink to="/" class="brand">
         <span class="brand__mark">Fire</span><span class="brand__rest">Sight</span>
@@ -65,6 +76,7 @@ const jobText = computed(() => {
       </nav>
 
       <div class="env">
+        <RouterLink to="/bigscreen" class="env__link">月度大屏</RouterLink>
         <span v-if="jobText" class="env__job">{{ jobText }}</span>
         <span v-if="gpuText" class="env__gpu">{{ gpuText }}</span>
         <span class="env__clock fs-num">{{ clock }}</span>
@@ -158,6 +170,22 @@ const jobText = computed(() => {
   margin-left: auto;
   font-size: var(--fs-sm);
   color: var(--dross);
+}
+
+.env__link {
+  padding: var(--sp-1) var(--sp-3);
+  color: var(--dross);
+  text-decoration: none;
+  border: 1px solid var(--cinder);
+  border-radius: var(--radius-pill);
+  transition: color var(--dur-1) var(--ease), border-color var(--dur-1) var(--ease),
+    background-color var(--dur-1) var(--ease);
+}
+
+.env__link:hover {
+  color: var(--bone);
+  border-color: var(--dross);
+  background: var(--highlight);
 }
 
 .env__job {

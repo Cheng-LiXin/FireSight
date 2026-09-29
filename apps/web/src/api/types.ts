@@ -78,6 +78,39 @@ export interface Overview {
   model: ModelMetrics
 }
 
+// --------------------------------------------------------------------------
+// 月度统计（大屏）
+// --------------------------------------------------------------------------
+
+export interface MonthBucket {
+  month: string
+  count: number
+  fire: number
+  smoke: number
+  false_positives: number
+  avg_conf: number
+}
+
+export interface MonthDetail {
+  month: string
+  total: number
+  fire: number
+  smoke: number
+  false_positives: number
+  pending: number
+  false_positive_rate: number
+  avg_conf: number
+  /** 24 个小时桶，下标即小时 */
+  hourly: number[]
+  /** 较上月环比（%）；上月为 0 时是 null——不是 0，是无从比较 */
+  mom_pct: number | null
+}
+
+export interface MonthlyStats {
+  months: MonthBucket[]
+  detail: MonthDetail
+}
+
 /** 类别名 → 中文名。唯一真相在后端 class_map，这里只做显示映射的兜底。 */
 export const CLASS_CN: Record<string, string> = {
   smoke: '烟雾',

@@ -33,6 +33,13 @@ const router = createRouter({
       component: () => import('@/views/ModelsView.vue'),
       meta: { title: '模型库' },
     },
+    {
+      path: '/bigscreen',
+      name: 'bigscreen',
+      component: () => import('@/views/BigScreenView.vue'),
+      // 大屏是给投影/汇报看的：脱掉顶栏与风险尺，整页就是内容
+      meta: { title: '月度火情统计大屏', fullscreen: true },
+    },
     { path: '/:pathMatch(.*)*', redirect: '/' },
   ],
 })

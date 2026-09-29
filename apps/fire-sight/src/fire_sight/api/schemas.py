@@ -94,6 +94,40 @@ class Overview(BaseModel):
 
 
 # --------------------------------------------------------------------------
+# 月度统计（大屏）
+# --------------------------------------------------------------------------
+
+
+class MonthBucket(BaseModel):
+    month: str
+    count: int = 0
+    fire: int = 0
+    smoke: int = 0
+    false_positives: int = 0
+    avg_conf: float = 0.0
+
+
+class MonthDetail(BaseModel):
+    month: str
+    total: int = 0
+    fire: int = 0
+    smoke: int = 0
+    false_positives: int = 0
+    pending: int = 0
+    false_positive_rate: float = 0.0
+    avg_conf: float = 0.0
+    """24 小时时段分布，下标即小时（0..23）。"""
+    hourly: List[int] = Field(default_factory=list)
+    """较上月环比（百分比）。上月为 0 时是 null——不是 100，是从 0 到 N 无从比较。"""
+    mom_pct: Optional[float] = None
+
+
+class MonthlyStats(BaseModel):
+    months: List[MonthBucket] = Field(default_factory=list)
+    detail: MonthDetail
+
+
+# --------------------------------------------------------------------------
 # 告警事件
 # --------------------------------------------------------------------------
 

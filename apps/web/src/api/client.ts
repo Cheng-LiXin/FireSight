@@ -13,6 +13,7 @@ import type {
   InferResult,
   ModelInfo,
   ModelOption,
+  MonthlyStats,
   Overview,
   SourceOption,
   SystemStatus,
@@ -94,6 +95,9 @@ export const api = {
   health: () => request<{ status: string; spa_built: boolean }>('/health'),
   systemStatus: () => request<SystemStatus>('/system/status'),
   overview: (days = 30) => request<Overview>(`/overview?days=${days}`),
+  /** 月度大屏：N 个月趋势桶 + 所选月（默认当月）明细，一次拉全 */
+  monthlyStats: (months = 12, month = '') =>
+    request<MonthlyStats>(`/stats/monthly${qs({ months, month })}`),
   models: () => request<ModelInfo[]>('/models'),
   activeModel: () => request<ActiveModel>('/models/active'),
 

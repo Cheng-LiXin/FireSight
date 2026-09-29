@@ -8,7 +8,7 @@
 
 import type { EChartsOption } from 'echarts'
 
-import type { DailyPoint } from '@/api/types'
+import type { DailyPoint, MonthBucket } from '@/api/types'
 
 import { AXIS_FONT, PALETTE, TRAIN_PALETTE } from './palette'
 
@@ -105,6 +105,109 @@ export function alertTrendOption(daily: DailyPoint[]): EChartsOption {
           borderColor: PALETTE.surface,
           borderWidth: 1,
         },
+      },
+    ],
+  }
+}
+
+// --------------------------------------------------------------------------
+// 月度（大屏）
+// --------------------------------------------------------------------------
+
+/** 近 N 个月告警量，按类别堆叠。空月份补 0 柱，不画「无数据」大字。 */
+export function monthlyTrendOption(months: MonthBucket[]): EChartsOption {
+  const smoke = months.map((m) => ({
+    value: m.smoke,
+    itemStyle: { borderRadius: m.fire > 0 ? [0, 0, 0, 0] : [4, 4, 0, 0] },
+  }))
+  const fire = months.map((m) => ({ value: m.fire, itemStyle: { borderRadius: [4, 4, 0, 0] } }))
+
+  return {
+    backgroundColor: 'transparent',
+    grid: GRID,
+    legend: {
+      top: 0,
+      left: 0,
+      itemWidth: 10,
+      itemHeight: 10,
+      itemGap: 18,
+      textStyle: { color: PALETTE.inkMuted, fontSize: 12 },
+      data: ['烟雾', '明火'],
+    },
+    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, ...tooltipBase },
+    xAxis: {
+      type: 'category',
+      // 只显示 MM 月：12 个 YYYY-MM 会把轴挤爆
+      data: months.map((m) => `${Number(m.month.slice(5))}月`),
+      boundaryGap: true,
+      axisLine: { lineStyle: { color: PALETTE.hairline } },
+      axisTick: { show: false },
+      axisLabel,
+    },
+    yAxis: {
+      type: 'value',
+      minInterval: 1,
+      axisLine: { show: false },
+      axisTick: { show: false },
+      axisLabel,
+      splitLine,
+    },
+    series: [
+      {
+        name: '烟雾',
+        type: 'bar',
+        stack: 'alerts',
+        barMaxWidth: 22,
+        data: smoke,
+        itemStyle: { color: PALETTE.catSmoke, borderColor: PALETTE.surface, borderWidth: 1 },
+      },
+      {
+        name: '明火',
+        type: 'bar',
+        stack: 'alerts',
+        barMaxWidth: 22,
+        data: fire,
+        itemStyle: { color: PALETTE.catFire, borderColor: PALETTE.surface, borderWidth: 1 },
+      },
+    ],
+  }
+}
+
+/** 24 小时时段分布。不是类别身份，不占类别色——用主文字的中性灰。 */
+export function hourlyOption(hourly: number[]): EChartsOption {
+  const data = Array.from({ length: 24 }, (_, h) => hourly[h] ?? 0)
+  return {
+    backgroundColor: 'transparent',
+    grid: GRID,
+    tooltip: {
+      trigger: 'axis',
+      axisPointer: { type: 'shadow' },
+      ...tooltipBase,
+      valueFormatter: (v: unknown) => `${v} 次`,
+    },
+    xAxis: {
+      type: 'category',
+      data: data.map((_, h) => (h % 3 === 0 ? String(h) : '')),
+      boundaryGap: true,
+      axisLine: { lineStyle: { color: PALETTE.hairline } },
+      axisTick: { show: false },
+      axisLabel: { ...axisLabel, interval: 0 },
+    },
+    yAxis: {
+      type: 'value',
+      minInterval: 1,
+      axisLine: { show: false },
+      axisTick: { show: false },
+      axisLabel,
+      splitLine,
+    },
+    series: [
+      {
+        name: '告警次数',
+        type: 'bar',
+        barMaxWidth: 14,
+        data,
+        itemStyle: { color: PALETTE.ink, borderRadius: [4, 4, 0, 0] },
       },
     ],
   }
