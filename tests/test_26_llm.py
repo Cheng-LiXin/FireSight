@@ -146,3 +146,21 @@ def test_anthropic_chat_uses_sdk_and_takes_final_text(monkeypatch):
     assert out.startswith("## 火情态势")
     assert captured["model"] == "claude-opus-5-5"
     assert captured["system"] == "system"
+
+
+def test_anthropic_sdk_available_and_has_streaming_surface():
+    """验证 anthropic 包已安装且提供 AnthropicChat 用到的 API 表面。
+
+    不联网：只检查构造与方法存在，确保下游 provider=claude 不会在 __init__ 里
+    因缺包而崩，也不因 SDK 接口变动而悄悄失效。
+    """
+    import anthropic
+
+    assert hasattr(anthropic, "Anthropic"), "anthropic.Anthropic 不存在"
+    client = anthropic.Anthropic(api_key="sk-test")
+    assert hasattr(client, "messages"), "client.messages 不存在"
+    assert hasattr(client.messages, "stream"), "client.messages.stream 不存在"
+    # stream() 返回 MessageStreamManager，上下文里拿到 MessageStream
+    from anthropic.lib.streaming._messages import MessageStream
+
+    assert hasattr(MessageStream, "get_final_message"), "MessageStream.get_final_message 不存在"
