@@ -20,8 +20,11 @@ from fire_sight.api.schemas import EvalJobInfo, EvalRequest
 
 router = APIRouter(prefix="/api/eval", tags=["eval"])
 
-# 归档里没记数据集时的兜底：本仓库的默认数据集
-_FALLBACK_DATASET = "D-Fire/train"
+# 归档里没记数据集时的兜底：本仓库的默认数据集。
+# 旧值 D-Fire/train 指向 data/processed/D-Fire/train/，该产物已于 2026-10-05 删除
+# （内容可由 data/raw/D-Fire 用 seed 42 精确重建，见 docs/devlog）。兜底只应指向
+# 现存的那份，否则这里会把「找不到 yaml」伪装成一次评估请求。
+_FALLBACK_DATASET = "D-Fire/raw"
 
 #: 允许评估的划分。`val` 用来选模型；`test` 只留给最终汇报——它从未参与过任何
 #: 决策（选模型、调参、比对照），所以在这一份上出的数才算「没被挑过的」。

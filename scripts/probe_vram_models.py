@@ -45,8 +45,8 @@ if str(ROOT) not in sys.path:
 MODELS = ["yolo11n.pt", "yolo11s.pt", "yolo11m.pt"]
 BATCHES = [8, 32]
 IMGSZ = 480
-DATASET = "D-Fire/train"
-# 13776 × 0.003 ≈ 41 张：够撑满 batch=32 的一批，又不必等整个数据集
+DATASET = "D-Fire/raw"
+# 14122 × 0.003 ≈ 42 张：够撑满 batch=32 的一批，又不必等整个数据集
 FRACTION = 0.003
 
 

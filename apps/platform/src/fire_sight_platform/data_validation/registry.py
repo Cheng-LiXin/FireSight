@@ -35,6 +35,9 @@ class CheckContext:
     # filled by snapshot
     splits: Dict[str, List[Path]] = field(default_factory=dict)
     label_files: Dict[str, List[Path]] = field(default_factory=dict)
+    # 每个划分实际用的标签目录。snapshot 已解析好两种布局（processed 的
+    # `labels/<split>` 与提供方划分的 `<split>/labels`），检查项不要再自己拼。
+    label_dirs: Dict[str, Path] = field(default_factory=dict)
 
 
 from pathlib import Path  # noqa: E402  (kept near Path usage in dataclass)

@@ -14,10 +14,13 @@ import { expect, test } from '@playwright/test'
 // 前端包是 ESM（package.json 里 "type": "module"），没有 __dirname
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const ROOT = path.resolve(HERE, '../../..')
-const IMAGE = path.join(ROOT, 'data/processed/D-Fire/train/images/test/AoF04059.jpg')
+// 取图走新数据集 raw/D-Fire：processed/D-Fire 已于 2026-10-05 删除（内容可由
+// data/raw/D-Fire 用 seed 42 精确重建，但不值得为此在测试里依赖一份 2.4GB 的产物）。
+// 同一张图在 raw 的 train/images 与旧 processed 的 test 划分下字节一致。
+const IMAGE = path.join(ROOT, 'data/raw/D-Fire/train/images/AoF04059.jpg')
 
 test.beforeEach(() => {
-  test.skip(!existsSync(IMAGE), `缺少测试图: ${IMAGE}（需先 fs-transform）`)
+  test.skip(!existsSync(IMAGE), `缺少测试图: ${IMAGE}（需先准备 data/raw/D-Fire）`)
 })
 
 test('上传真实火情图，出结果对比与检测框账册', async ({ page }) => {

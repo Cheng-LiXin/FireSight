@@ -106,7 +106,9 @@ def _make_clip_source(tmp_path, n_lead: int, n_fire: int) -> "Path":
     """前 n_lead 张空帧 + n_fire 张真实火情图，构成「先无事、后告警」的流。"""
     import cv2
 
-    fire = ROOT / "data" / "processed" / "D-Fire" / "train" / "images" / "test" / "AoF04059.jpg"
+    # 走新数据集 raw/D-Fire：processed/D-Fire 已删除（旧产物里这张图在 test 划分，
+    # raw 的 train/images 下有字节一致的副本）。
+    fire = ROOT / "data" / "raw" / "D-Fire" / "train" / "images" / "AoF04059.jpg"
     if not fire.exists():
         return None
 

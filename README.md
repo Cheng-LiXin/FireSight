@@ -145,13 +145,21 @@ cd apps/web && npm run dev     # http://localhost:5173，自动代理 /api 到 8
 
 ```text
 data/raw/D-Fire/
+  data.yaml            # 标签 D-Fire/raw，划分由数据集提供方给定
   train/
-    images/          # 17,221 张
-    labels/          # 同名 .txt，YOLO 格式
+    images/            # 14,122 张
+    labels/            # 同名 .txt，YOLO 格式
+  val/
+    images/            # 3,099 张
+    labels/
   test/
-    images/          # 4,306 张
+    images/            # 4,306 张
     labels/
 ```
+
+`images/` 与 `labels/` 是 split 目录下的两个**兄弟**（`split_strategy: provided`）。
+划分不是本项目做的，无法重新生成，所以这份 `data.yaml` 就地放在 raw 下——
+理由写在那个文件自己的注释里。
 
 **B. 未切分的原始标注**
 
@@ -168,29 +176,37 @@ data/raw/<数据集名>/
 > 与我们的契约一致；但不少公开数据集是反的。顺序搞反会让「明火」和「烟雾」整体互换，
 > 而模型照常训练、指标照常好看——这类错误极难在事后发现。
 
-### 2. 转换 + 冻结划分
+### 2. 转换 + 冻结划分（仅未切分的数据集需要）
 
 ```bash
 # 路径相对 data/raw/
-fs-transform --dataset "D-Fire/train" --format yolo --classes smoke,fire --seed 42
+fs-transform --dataset "BowFire" --format yolo --classes smoke,fire --seed 42
 ```
 
-产出 `data/processed/D-Fire/train/`：`images/{train,val,test}`、`labels/{train,val,test}`、`data.yaml`。
+产出 `data/processed/BowFire/`：`images/{train,val,test}`、`labels/{train,val,test}`、`data.yaml`。
 
-> `--dataset` 定位 `data/raw/` 下的**原始数据**（`D-Fire/train` 表示原始数据集已自行切分），
-> 产物目录名默认与它相同。想让产物换个名字用 `--name`，例如 `--name D-Fire_train` ——
+> `--dataset` 定位 `data/raw/` 下的**原始数据**，产物目录名默认与它相同。
+> 想让产物换个名字用 `--name`，例如 `--name BowFire_80` ——
 > 这样不必为了改产物路径去动 `--dataset`。命令结束时会打印后续该用的名字。
 >
 > `--classes` 的顺序即 `class_id`，**必须**是 `smoke,fire`。传其它顺序会被直接拒绝并说明原因，
 > 因为错序会让明火与烟雾整体互换（详见上方「类别约定」）。
+>
+> **已经切好划分的数据集跳过这一步。** 像仓库内的 D-Fire（布局 A），
+> 它的 train/val/test 是提供方给定的、可直接训练，用 `D-Fire/raw` 这个标签即可；
+> 强跑一遍转换只会得到一份「新旧内容相同、划分却不同」的产物，
+> 反而制造两个都能自称 D-Fire 的真相。
 
 ### 3. 数据体检
 
 ```bash
-fs-validate --dataset "D-Fire/train"
+fs-validate --dataset "D-Fire/raw"        # 提供方划分的布局
+fs-validate --dataset "BowFire"           # pipeline 产物的布局
 ```
 
-浏览器打开 `data/processed/D-Fire/train/reports/quality_report.html`。
+报告在 `data/processed/<数据集>/reports/quality_report.html`；体检 raw 那份时落在
+`.runtime/quality/`——raw 是提供方的只读数据，报告是本项目的派生物，不写进去。
+两种布局都支持：`<split>/labels/`（提供方切分）与 `<root>/labels/<split>/`（产物）。
 
 ### 4. 训练
 
@@ -199,10 +215,10 @@ fs-validate --dataset "D-Fire/train"
 fs-gen-config --kind train
 
 # 快速试跑：取 40% 子集 + 缓存，几分钟能看出方向
-fs-train --dataset "D-Fire/train" --model yolo11n.pt --epochs 10 --batch 16 --fraction 0.4 --cache --device 0
+fs-train --dataset "D-Fire/raw" --model yolo11n.pt --epochs 10 --batch 16 --fraction 0.4 --cache --device 0
 
 # 完整训练（推荐默认）
-fs-train --dataset "D-Fire/train" --model yolo11n.pt --epochs 50 --batch 16 --imgsz 640 --device 0
+fs-train --dataset "D-Fire/raw" --model yolo11n.pt --epochs 50 --batch 16 --imgsz 640 --device 0
 ```
 
 训练结束后自动归档到 `models/trained/<run_id>/`（`best.pt` + 配置 + 指标）。
@@ -210,10 +226,10 @@ fs-train --dataset "D-Fire/train" --model yolo11n.pt --epochs 50 --batch 16 --im
 ### 5. 评估与对照
 
 ```bash
-fs-val --dataset "D-Fire/train" --weights models/trained/<run_id>/best.pt
+fs-val --dataset "D-Fire/raw" --weights models/trained/<run_id>/best.pt
 
 # 两个权重横向对照
-fs-val --dataset "D-Fire/train" \
+fs-val --dataset "D-Fire/raw" \
   --weights models/trained/<run_a>/best.pt models/trained/<run_b>/best.pt
 ```
 
@@ -267,7 +283,7 @@ FireSight/
 ├── frame_source/          # 顶层能力包：可插拔帧输入
 ├── visualization/         # 顶层能力包：检测框绘制、中文标签
 ├── scripts/               # 一键启动/关闭（firesight.ps1，含整棵进程树）
-├── data/                  # raw 只读原始 / processed 冻结划分 / events 事件库 / reports 报告归档
+├── data/                  # raw 只读原始（可直接训练）/ processed 转换产物 / events 事件库 / reports 报告归档
 ├── models/                # pretrained 输入 / trained 归档产物
 ├── runs/                  # 每次训练的完整现场
 ├── docs/                  # 项目文档（含 architecture / tech / api / devlog / superpowers）
@@ -323,8 +339,27 @@ seed=42, patience=10, fraction=1.0`，RTX 4060 Laptop 8GB）：
 > 模型可以靠记住背景拿到不属于泛化的分数。要评估真实泛化，需按**机位/视频来源**
 > 分组划分，或另找一批未见过的场景做终评。
 
-> 旧数据（`data/processed/D-Fire`）训出的归档在模型库里标着**「旧数据不可比」**：
-> 新旧划分有 17,221 张交集，在旧 val 上评估会虚高，指标不可与新数据直接比。
+> 旧数据（`data/processed/D-Fire/train`，17221 张 / 本项目随机 8:1:1 切分）训出的归档
+> 在模型库里标着**「旧数据不可比」**：新旧划分有 17,221 张交集，在旧 val 上评估会虚高
+> （旧 0.7897 vs 新 0.8626 mAP@50，虚高 0.0729），指标不可与新数据直接比。
+> 那份 processed 产物已于 2026-10-06 删除（可由 raw 用 seed 42 精确重建），
+> 因此这 4 个旧归档**已无法重新评估**，模型库仍按标记如实展示它们的历史指标。
+
+### 数据集自带的质量问题
+
+`fs-validate --dataset "D-Fire/raw"` 在提供方的原始标注上实测：
+
+| 检查项 | 结果 |
+|---|---|
+| 图-标配对 | PASS（缺失 0/21,527） |
+| 类别分布 | PASS（失衡比 1.2） |
+| 跨 split 泄漏 | PASS |
+| **标签行格式** | **ERROR：26,557 行中 26 行非法（0.098%）** |
+
+26 行分两类：**18 行宽高为 0**（退化框；`is_degenerate()` 在转换时会丢弃这类，
+raw 那份直接训练则不会被过滤），**8 行坐标越界**（如 `w=1.0296875` > 1）。
+涉 26 个文件。占比极小、对指标影响可忽略，但它确实是这份数据自带的标注瑕疵，
+如需彻底干净可用 `fs-transform` 产出一份过滤后的副本。
 
 ---
 
@@ -344,12 +379,24 @@ seed=42, patience=10, fraction=1.0`，RTX 4060 Laptop 8GB）：
 
 ## 常见问题
 
-**`fs-train` 报「找不到数据集 yaml」**
-先执行 `fs-transform`。`fs-train` 与 `fs-val` 的 `--dataset` 接受**已处理数据集名**
-（如 `"D-Fire/train"`，对应 `data/processed/D-Fire/train/data.yaml`），也可以直接给 `data.yaml` 路径。
+**`fs-train` / `fs-val` / `fs-validate` 报「找不到数据集 yaml」**
+`--dataset` 接受三种写法：
 
-注意它与 `fs-transform` 的 `--dataset` 方向相反：`fs-transform` 用它定位 `data/raw/` 下的
-原始数据，另外两个用它定位 `data/processed/` 下的成品。**`fs-transform` 结束时会把该用的名字打印出来，照抄即可。**
+| 写法 | 指向 |
+|---|---|
+| `"D-Fire/raw"` | `data/raw/D-Fire/data.yaml`（提供方已划分，无需转换） |
+| `"BowFire"` | `data/processed/BowFire/data.yaml`（`fs-transform` 的产物） |
+| `"path/to/data.yaml"` | 直接给 yaml 路径 |
+
+前两种找不到对应文件时，才需要先跑 `fs-transform` 生成产物。注意它与 `fs-transform`
+的 `--dataset` 方向相反：`fs-transform` 用它定位 `data/raw/` 下的原始数据，
+另外三个用它定位成品。**`fs-transform` 结束时会把该用的名字打印出来，照抄即可。**
+
+**`fs-validate` 报「标签目录不存在」**
+质检认两种布局：产物的 `<root>/labels/<split>/` 与提供方划分的 `<split>/labels/`，
+且以 yaml 里的路径为准。若数据集是第三种摆法（标签目录不在这两处），
+质检会明确报「目录不存在」而不是谎报「缺失标签 100%」——
+这是刻意的：前者要改布局，后者会让人误以为要逐张补标签。
 
 **`fs-transform` 报「类别顺序必须…」**
 `--classes` 的顺序即 `class_id`，硬性要求 `smoke,fire`。这不是可以迁就的选项——
@@ -413,7 +460,7 @@ venv 是在这条入口加进 `pyproject.toml` 之前装的（`.venv\Scripts\` �
 欢迎提 Issue 与 PR。提交前请确保：
 
 ```bash
-pytest tests apps/platform/tests -q      # 后端，预期 278 passed
+pytest tests apps/platform/tests -q      # 后端，预期 283 passed
 cd apps/web && npm run typecheck         # 前端类型检查通过
 npm run test:e2e                         # 前端端到端（需先起 fs-serve），预期 40 passed / 3 skipped
 ```
