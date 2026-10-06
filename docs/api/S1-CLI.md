@@ -36,15 +36,20 @@ fs-transform --dataset demo_fire --format yolo --classes flame,smoke --seed 42
 
 ```bash
 fs-validate --dataset demo_fire
+fs-validate --dataset "D-Fire/raw"                  # 提供方已切好划分的原始数据集
 fs-validate --dataset data/processed/demo_fire/data.yaml --out-dir ./reports
 ```
 
 | 参数 | 默认 | 说明 |
 |---|---|---|
-| `--dataset` | 必填 | 数据集名或 `data.yaml` 路径 |
-| `--out-dir` | `<processed>/reports` | 报告输出目录 |
+| `--dataset` | 必填 | `processed/<dataset>`、`D-Fire/raw` 或 `data.yaml` 路径 |
+| `--out-dir` | 产物为 `<processed>/reports`，raw 为 `.runtime/quality/<name>/` | 报告输出目录 |
 
 **检查项**：`pair_existence`、`label_format`、`split_uniqueness`、`class_balance`、`split_presence`。
+
+**标签布局**：两种都认 —— 转换产物的 `<root>/labels/<split>/`，与提供方划分的
+`<split>/labels/`（与 `<split>/images/` 平级）。两个都找不到时报「标签目录不存在」，
+而不是「缺失标签 100%」——后者会让人去逐张补标签，而真正的问题是布局不对。
 
 **输出**：`quality_report.html`、`quality_report.json`。
 

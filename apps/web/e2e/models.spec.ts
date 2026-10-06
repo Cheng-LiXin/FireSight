@@ -195,7 +195,7 @@ test('对比评估：进度按模型推进，结果标出最佳值', async ({ pa
       body: JSON.stringify({
         id: 'fake-job',
         run_ids: runs.slice(0, 2),
-        dataset: 'D-Fire/train',
+        dataset: 'D-Fire/raw',
         imgsz: 640,
         split: 'val',
         status: 'running',
@@ -217,7 +217,7 @@ test('对比评估：进度按模型推进，结果标出最佳值', async ({ pa
       body: JSON.stringify({
         id: 'fake-job',
         run_ids: runs.slice(0, 2),
-        dataset: 'D-Fire/train',
+        dataset: 'D-Fire/raw',
         imgsz: 640,
         split: 'val',
         status: running ? 'running' : 'done',

@@ -86,7 +86,7 @@ FastAPI 服务，默认监听 `http://127.0.0.1:8000`。启动：`fs-serve`。
   },
   "gpu_job": { "holder": null, "waiting": [], "busy": false },
   "trained_model_count": 5,
-  "active_model": "20260926-190635-D-Fire/train-yolo11n",
+  "active_model": "20260928-165715-D-Fire-raw-yolo11s",
   "event_count": 0,
   "classes": [
     { "id": 0, "name": "smoke", "name_cn": "烟雾" },
@@ -137,15 +137,15 @@ FastAPI 服务，默认监听 `http://127.0.0.1:8000`。启动：`fs-serve`。
     { "date": "2026-08-28", "count": 0, "smoke": 0, "fire": 0, "avg_conf": 0.0 }
   ],
   "model": {
-    "run_id": "20260926-190635-D-Fire/train-yolo11n",
+    "run_id": "20260928-165715-D-Fire-raw-yolo11s",
     "exists": true,
     "metrics": {
-      "dataset": "D-Fire/train",
-      "model": "yolo11n.pt",
-      "mAP50": "0.7446186143380706",
-      "mAP50_95": "0.42897994110357224",
-      "precision": "0.7439023759573586",
-      "recall": "0.6865913701767612"
+      "dataset": "D-Fire/raw",
+      "model": "yolo11s.pt",
+      "mAP50": "0.7922587894519344",
+      "mAP50_95": "0.47068050116018567",
+      "precision": "0.7891226938992298",
+      "recall": "0.7330020811000938"
     }
   }
 }
@@ -214,11 +214,11 @@ score  = max(24 小时内最高置信度, volume)
 ```json
 [
   {
-    "run_id": "20260926-190635-D-Fire/train-yolo11n",
-    "mAP50": 0.7446186143380706,
-    "precision": 0.7439023759573586,
-    "recall": 0.6865913701767612,
-    "created": "2026-09-26T19:48:23",
+    "run_id": "20260928-165715-D-Fire-raw-yolo11s",
+    "mAP50": 0.7922587894519344,
+    "precision": 0.7891226938992298,
+    "recall": 0.7330020811000938,
+    "created": "2026-09-28T16:57:15",
     "is_active": true
   }
 ]
@@ -237,18 +237,25 @@ score  = max(24 小时内最高置信度, volume)
 ```json
 [
   {
-    "key": "D-Fire/train/val",
-    "dataset": "D-Fire/train",
+    "key": "D-Fire/raw/val",
+    "dataset": "D-Fire/raw",
     "split": "val",
-    "path": "E:\\FireSight\\data\\processed\\D-Fire\\train\\images\\val",
-    "image_count": 1722
+    "path": "E:\\FireSight\\data\\raw\\D-Fire\\val\\images",
+    "image_count": 3099
+  },
+  {
+    "key": "demo_fire/val",
+    "dataset": "demo_fire",
+    "split": "val",
+    "path": "E:\\FireSight\\data\\processed\\demo_fire\\images\\val",
+    "image_count": 8
   }
 ]
 ```
 
 以 `data.yaml` 是否存在作为数据集完整性的标志，只列完整的数据集。
-数据集名可能自带一层子路径（`--dataset "D-Fire/train"` 的产物落在
-`processed/D-Fire/train/`），故扫描最多认两层。
+数据集名可能自带一层子路径（`--dataset "BowFire/night"` 的产物落在
+`processed/BowFire/night/`），故扫描最多认两层。
 
 ---
 
@@ -276,7 +283,7 @@ score  = max(24 小时内最高置信度, volume)
   "elapsed_ms": 16.3,
   "width": 1280,
   "height": 720,
-  "weights": "20260926-190635-D-Fire/train-yolo11n",
+  "weights": "20260928-165715-D-Fire-raw-yolo11s",
   "device": "cpu",
   "annotated": "data:image/jpeg;base64,..."
 }
@@ -317,7 +324,7 @@ score  = max(24 小时内最高置信度, volume)
   "total_dets": 96,
   "avg_ms": 18.4,
   "class_totals": { "fire": 60, "smoke": 40 },
-  "weights": "20260926-190635-D-Fire/train-yolo11n",
+  "weights": "20260928-165715-D-Fire-raw-yolo11s",
   "device": "cpu"
 }
 ```
@@ -329,8 +336,9 @@ score  = max(24 小时内最高置信度, volume)
 
 ## 训练中心
 
-`run_id` 含斜杠（如 `20260926-190635-D-Fire/train-yolo11n`），走路径参数会被路由
-切碎，因此这四个接口**一律用查询参数**，并只接受已发现的 run，不做任意路径拼接。
+`run_id` 含斜杠（如 `20260926-190635-D-Fire/train-yolo11n`，早期布局遗留；新归档
+均为扁平名如 `20260928-165715-D-Fire-raw-yolo11s`），走路径参数会被路由切碎，
+因此这四个接口**一律用查询参数**，并只接受已发现的 run，不做任意路径拼接。
 
 ### GET `/api/train/runs`
 
@@ -339,15 +347,15 @@ score  = max(24 小时内最高置信度, volume)
 ```json
 [
   {
-    "run_id": "20260926-190635-D-Fire/train-yolo11n",
-    "dataset": "D-Fire/train",
-    "model": "yolo11n.pt",
-    "epochs_done": 50,
+    "run_id": "20260928-165715-D-Fire-raw-yolo11s",
+    "dataset": "D-Fire/raw",
+    "model": "yolo11s.pt",
+    "epochs_done": 82,
     "archived": true,
-    "mAP50": 0.7446186143380706,
-    "mAP50_95": 0.42897994110357224,
-    "precision": 0.7439023759573586,
-    "recall": 0.6865913701767612,
+    "mAP50": 0.7922587894519344,
+    "mAP50_95": 0.47068050116018567,
+    "precision": 0.7891226938992298,
+    "recall": 0.7330020811000938,
     "artifact_count": 20,
     "created": "2026-09-26T19:48:23"
   }
@@ -363,7 +371,7 @@ score  = max(24 小时内最高置信度, volume)
 
 ```json
 {
-  "run_id": "20260926-190635-D-Fire/train-yolo11n",
+  "run_id": "20260928-165715-D-Fire-raw-yolo11s",
   "epochs": [1, 2],
   "losses": { "train_box": [1.695, 1.695], "val_cls": [28.769, 27.156] },
   "metrics": { "mAP50": [0.3699, 0.3758], "precision": [0.465, 0.400] },
@@ -429,7 +437,7 @@ score  = max(24 小时内最高置信度, volume)
 
 | 字段 | 默认 | 说明 |
 |---|---:|---|
-| `dataset` | 必填 | 已处理数据集名，如 `D-Fire/train` |
+| `dataset` | 必填 | 数据集名。`D-Fire/raw` 指向 `data/raw/D-Fire/data.yaml`（提供方已切好划分，可直接训练）；其余按 `data/processed/<dataset>/data.yaml` 解析；也可直接给 `data.yaml` 路径 |
 | `model` | `yolo11n.pt` | |
 | `epochs` | 50 | 1–1000 |
 | `batch` | 16 | |
@@ -464,7 +472,7 @@ score  = max(24 小时内最高置信度, volume)
 #### 断点续训（`resume_run_id`）
 
 ```json
-{ "dataset": "D-Fire/train", "resume_run_id": "20260927-204643-D-Fire-train-yolo11s" }
+{ "dataset": "D-Fire/raw", "resume_run_id": "20260928-165715-D-Fire-raw-yolo11s" }
 ```
 
 **载荷就是这两个字段**（外加可选的 `device`）。几何、总轮数、学习率轨迹、优化器与
@@ -628,8 +636,8 @@ OOM。**本次训练不会归档**，但现场记录留在 `runs/` 下，曲线�
 ## 模型库
 
 归档权重在 `models/trained/<run_id>/`，每个含 `best.pt` / `metrics.txt` / `train_config.yaml`。
-`run_id` 是相对路径（早期布局带一层实验名，如 `20260926-190635-D-Fire/train-yolo11n`），
-**含斜杠，所以一律走查询参数或请求体，不走路径段**。
+`run_id` 是相对路径（早期布局带一层实验名，如 `20260926-190635-D-Fire/train-yolo11n`；
+新归档是扁平名），**含斜杠的走查询参数或请求体，不走路径段**。
 
 ### 当前权重
 
@@ -675,16 +683,29 @@ OOM。**本次训练不会归档**，但现场记录留在 `runs/` 下，曲线�
 ```json
 [
   {
-    "run_id": "20260927-112418-D-Fire-train-yolo11n",
-    "mAP50": 0.7674, "mAP50_95": 0.4436,
-    "precision": 0.7901, "recall": 0.6969,
-    "epochs": 50, "size_mb": 5.2,
+    "run_id": "20260928-165715-D-Fire-raw-yolo11s",
+    "mAP50": 0.7923, "mAP50_95": 0.4707,
+    "precision": 0.7891, "recall": 0.733,
+    "epochs": 82, "size_mb": 18.3,
+    "dataset": "D-Fire/raw",
+    "created": "2026-09-28T16:57:15",
+    "is_active": true
+  },
+  {
+    "run_id": "20260927-204643-D-Fire-train-yolo11s",
+    "mAP50": 0.7882, "mAP50_95": 0.461,
+    "precision": 0.7849, "recall": 0.7247,
+    "epochs": 50, "size_mb": 18.3,
     "dataset": "D-Fire/train",
-    "created": "2026-09-27T12:46:03",
+    "created": "2026-09-27T20:46:43",
     "is_active": false
   }
 ]
 ```
+
+第二份不是笔误：旧归档的 `dataset` 字段记的是它当时用的数据集，
+`D-Fire/train`（已于 2026-10-06 删除，可由 raw 以 seed 42 重建）。前端据此
+把它们标为 `legacy`——判据是**数据集标签**而非时间，所以换了数据集也标得出来。
 
 ### GET `/api/models/download`
 
@@ -710,13 +731,16 @@ OOM。**本次训练不会归档**，但现场记录留在 `runs/` 下，曲线�
 - `run_ids` **至少两个、最多五个**（单个权重用不到对比）
 - `dataset` 留空时取**第一个选中模型记录的数据集**——对比必须落在同一份 val 上
 - 评估固定跑 `val` split
+- 选了记录 `D-Fire/train` 的旧归档时，它的 `data.yaml` 已随数据集删除而不存在，
+  评估会返回 `找不到数据集 yaml`（那是真的找不到了，不是参数错）。要比旧归档，
+  先用 `fs-transform` 重建那份划分，或改比同一数据集下的权重。
 
 响应（任务）：
 
 ```json
 {
   "id": "c1f678a681b4", "status": "running",
-  "run_ids": ["a", "b"], "dataset": "D-Fire/train",
+  "run_ids": ["a", "b"], "dataset": "D-Fire/raw",
   "imgsz": 640, "split": "val",
   "started_at": "2026-09-27T19:21:40", "finished_at": null,
   "done": 1, "total": 2,

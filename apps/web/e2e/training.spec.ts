@@ -37,7 +37,7 @@ test('启动训练：实时曲线逐轮长出，结束后出现在训练记录�
   const launcher = page.locator('.launcher')
   await expect(launcher).toBeVisible()
 
-  // 必须显式选数据集：下拉默认取列表第一个，那是 D-Fire/train（13776 张），
+  // 必须显式选数据集：下拉默认取列表第一个，那是 D-Fire/raw（14122 张），
   // 在 CPU 上跑 0.2 的比例也要几十分钟。demo_fire 只有十几张，几十秒能完。
   await launcher.getByLabel('数据集').selectOption('demo_fire')
 
