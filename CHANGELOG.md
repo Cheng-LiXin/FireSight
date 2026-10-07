@@ -44,6 +44,11 @@
 - **操作按钮按状态条件渲染，不再是「都摆出来再禁用」**：6 个动作全部列出再灰掉 4 个，
   比只给 2 个可用动作更难读，也容易让人以为界面坏了。
 - 导出 CSV 增加 `review_status` 列。
+- **工作区根目录的本地工具残留改为由 `.gitignore` 兜底**（`.claude/`、`.superpowers/`、
+  `.acl-recovery/`、`.archify/`、`.report-work/`、`graphify-out/`，以及根目录的个人报告
+  docx/pdf）。原先这条只写在 `AGENTS.md` 第 5 节，靠人记得别 `git add`；现在工具自己
+  会拦，`git status` 不再常年挂着一串 `??`。**忽略不等于可删**——这些文件一条都没动，
+  清理仍需逐项点头。
 
 ---
 

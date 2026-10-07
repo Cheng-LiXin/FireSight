@@ -113,5 +113,16 @@ data/events/
 # 归档的分析报告（.md + .json）：与 data/events 同类的运行时产物，含真实统计数据
 data/reports/
 
-# ===== Claude Code 本地配置 =====
+# ===== 本地工具残留：只忽略、不删除 =====
+# 这些目录是开发/辅助工具在本机留下的产物，内容不唯一、也不属于本项目。
+# 忽略它们，是让「不要提交」由工具兜底，而不是每次靠人记得别 git add；
+# 与 AGENTS.md 第 5 节「不要提交、不要删除」并存——忽略不等于可删。
 .claude/
+.superpowers/
+.acl-recovery/
+.archify/
+.report-work/
+graphify-out/
+
+# 根目录的个人报告文档（docx/pdf/预览）——按前缀锚定在根，避免误伤 docs/ 下同名文件
+/*2026秋专业综合创新实训报告*
