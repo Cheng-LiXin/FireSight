@@ -83,35 +83,10 @@ kbd {
   box-shadow: var(--shadow-2);
 }
 
-/* 四角框标——全局唯一的记忆点，其余部分保持克制。
-   内收 6px 让它落在 12px 圆角的弧线之内，不被 overflow 裁掉；
-   位置仍在标题/内容的左上、右下真空区，不会撞字。 */
-.fs-viewfinder::before,
-.fs-viewfinder::after {
-  content: '';
-  position: absolute;
-  width: 14px;
-  height: 14px;
-  border-color: var(--dross);
-  border-style: solid;
-  pointer-events: none;
-  transition: border-color var(--dur-2) var(--ease);
-}
-.fs-viewfinder::before {
-  top: 6px;
-  left: 6px;
-  border-width: 2px 0 0 2px;
-}
-.fs-viewfinder::after {
-  bottom: 6px;
-  right: 6px;
-  border-width: 0 2px 2px 0;
-}
-
-.fs-viewfinder:hover::before,
-.fs-viewfinder:hover::after {
-  border-color: var(--accent);
-}
+/* 四角刻度角由 <FrameMarks /> 承担（src/components/FrameMarks.vue），
+   样式与 hover 点亮规则全在那个组件里。它从 ::before/::after 搬出来成为
+   组件，是因为补齐四角 + 边缘刻度线需要四个元素，伪元素只够两个；顺带
+   让图像区、曲线区、监控画面区能共用同一份签名。 */
 
 .fs-viewfinder__title {
   margin: 0 0 var(--sp-3);

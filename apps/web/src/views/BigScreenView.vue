@@ -10,6 +10,7 @@ import { api } from '@/api/client'
 import type { MonthlyStats } from '@/api/types'
 import { hourlyOption, monthlyTrendOption } from '@/charts/options'
 import EChart from '@/components/EChart.vue'
+import FrameMarks from '@/components/FrameMarks.vue'
 
 const stats = ref<MonthlyStats | null>(null)
 const error = ref('')
@@ -129,11 +130,13 @@ watch(month, load)
 
       <template v-if="hasData">
         <section class="fs-viewfinder">
+          <FrameMarks />
           <h2 class="fs-viewfinder__title">近 12 个月告警次数（按类别）</h2>
           <EChart v-if="stats" :option="monthlyTrendOption(stats.months)" :height="320" />
         </section>
 
         <section class="fs-viewfinder">
+          <FrameMarks />
           <h2 class="fs-viewfinder__title">本月 24 小时时段分布</h2>
           <EChart :option="hourlyOption(detail.hourly)" :height="260" />
         </section>

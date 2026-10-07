@@ -14,6 +14,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 
 import { api, ApiError } from '@/api/client'
 import type { AlertEventInfo, EventReviewStatus, EventStatusFilter } from '@/api/types'
+import FrameMarks from '@/components/FrameMarks.vue'
 
 const items = ref<AlertEventInfo[]>([])
 const total = ref(0)
@@ -182,6 +183,7 @@ onMounted(async () => {
 
     <!-- 片段回放：与识别页共用「取景窗」容器语言 -->
     <section v-if="playing" class="fs-viewfinder">
+      <FrameMarks />
       <div class="fs-block__head">
         <h2 class="fs-viewfinder__title">
           片段回放 · <span class="mono">{{ playing.event_id }}</span>

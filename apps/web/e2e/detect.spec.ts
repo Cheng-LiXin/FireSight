@@ -104,3 +104,63 @@ test('窄屏下布局不塌（回归）', async ({ page }) => {
   )
   expect(overflow).toBeLessThanOrEqual(1)
 })
+
+test('默认用前端 SVG 叠加画框，框数与账册一致', async ({ page }) => {
+  await page.goto('/detect')
+  await page.setInputFiles('input[type=file]', IMAGE)
+
+  const table = page.locator('table.fs-ledger')
+  await expect(table).toBeVisible({ timeout: 60_000 })
+
+  const rows = table.locator('tbody tr')
+  const expected = await rows.count()
+  expect(expected).toBeGreaterThan(0)
+
+  // 右栏默认是叠加层，所以 DOM 里有 svg 矩形，而不是只有后端位图
+  const rects = page.locator('.overlay__svg .overlay__box')
+  await expect(rects).toHaveCount(expected)
+
+  // 每个框都要带中文类别 + 置信度标签：只画裸矩形比后端那张位图信息更少
+  await expect(page.locator('.overlay__tag')).toHaveCount(expected)
+  await expect(page.locator('.overlay__tag').first()).toContainText(/明火|烟雾/)
+  await expect(page.locator('.overlay__tag').first()).toContainText(/0\.\d{2}/)
+
+  // 切换器能把右栏换成后端位图，且两栏对比形态不塌
+  await page.getByRole('radio', { name: '后端标注图' }).click()
+  await expect(page.locator('.overlay__svg')).toHaveCount(0)
+  await expect(page.locator('.pair__item')).toHaveCount(2)
+})
+
+test('账册行与叠加框双向联动（回归）', async ({ page }) => {
+  await page.goto('/detect')
+  await page.setInputFiles('input[type=file]', IMAGE)
+
+  const table = page.locator('table.fs-ledger')
+  await expect(table).toBeVisible({ timeout: 60_000 })
+
+  const rows = table.locator('tbody tr')
+  const expected = await rows.count()
+  expect(expected).toBeGreaterThan(0)
+
+  const boxes = page.locator('.overlay__svg .overlay__box')
+
+  // 账册 → 图像：第一行被指到时，只有第 0 个框点亮，其余退到暗态
+  await rows.first().hover()
+  await expect(rows.first()).toHaveClass(/is-hot/)
+  await expect(boxes.nth(0)).toHaveClass(/is-hot/)
+  await expect(boxes.nth(0).locator('rect')).toHaveCSS('stroke-width', '4px')
+  if (expected > 1) {
+    await expect(boxes.nth(1)).toHaveClass(/is-dim/)
+  }
+
+  // 指针移开后两边都复位，否则会一直留着一个假的选中态
+  await page.getByText('取景窗').hover()
+  await expect(rows.first()).not.toHaveClass(/is-hot/)
+
+  // 图像 → 账册：直接指第二个框，账册里对应行才亮
+  if (expected > 1) {
+    await boxes.nth(1).hover({ force: true })
+    await expect(rows.nth(1)).toHaveClass(/is-hot/)
+    await expect(rows.first()).not.toHaveClass(/is-hot/)
+  }
+})

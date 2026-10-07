@@ -8,6 +8,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { api, ApiError, type TrainJobRequest, type VramLimits } from '@/api/client'
 import { trainingLossPanels, trainingMetricOption } from '@/charts/options'
 import EChart from '@/components/EChart.vue'
+import FrameMarks from '@/components/FrameMarks.vue'
 import type {
   ArtifactInfo,
   CurveSeries,
@@ -526,12 +527,14 @@ onBeforeUnmount(disconnect)
     <template v-if="liveEpochs.length || logs.length">
       <div v-if="liveLossPanels.length" class="fs-panels">
         <section v-for="p in liveLossPanels" :key="p.title" class="fs-viewfinder">
+          <FrameMarks />
           <h2 class="fs-viewfinder__title">{{ p.title }}</h2>
           <EChart :option="p.option" :height="200" />
         </section>
       </div>
 
       <section v-if="liveMetricOption" class="fs-viewfinder">
+        <FrameMarks />
         <h2 class="fs-viewfinder__title">实时验证指标</h2>
         <EChart :option="liveMetricOption" :height="240" />
       </section>
@@ -609,6 +612,7 @@ onBeforeUnmount(disconnect)
     <template v-if="selected">
       <div v-if="lossPanels.length" class="fs-panels">
         <section v-for="p in lossPanels" :key="p.title" class="fs-viewfinder">
+          <FrameMarks />
           <h2 class="fs-viewfinder__title">{{ p.title }}</h2>
           <EChart :option="p.option" :height="200" />
         </section>
@@ -619,6 +623,7 @@ onBeforeUnmount(disconnect)
 
       <div class="work">
         <section class="fs-viewfinder">
+          <FrameMarks />
           <h2 class="fs-viewfinder__title">验证指标</h2>
           <EChart v-if="metricOption" :option="metricOption" :height="300" />
         </section>

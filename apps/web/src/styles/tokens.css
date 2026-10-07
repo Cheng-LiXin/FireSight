@@ -105,6 +105,18 @@
   --hairline: 1px solid var(--cinder);
   --shell-h: 52px;
 
+  /* --- 左侧图标轨 ----------------------------------------------------- */
+  /* 常驻宽度。折叠态不是 0，而是留一条能点回来的窄边——收成 0 的话用户
+     就找不到「怎么回去」，折叠就变成了单向操作。 */
+  --rail-w: 68px;
+  --rail-w-collapsed: 40px;
+  --rail-tip-w: 132px;   /* hover 浮出标签的宽度 */
+
+  /* --- 取景器刻度角：全站视觉签名 ------------------------------------- */
+  /* 角标线宽与刻度线长。它是刻意的直角记忆点，不参与圆角阶梯。 */
+  --frame-mark: 2px;
+  --frame-tick: 6px;
+
   /* --- 层次阴影：默认几乎不可见的浮起，hover 抬一档 ------------------- */
   --shadow-1: 0 1px 2px rgba(17, 24, 39, 0.04);
   --shadow-2: 0 4px 16px rgba(17, 24, 39, 0.07);
@@ -145,4 +157,22 @@
   --el-box-shadow-light: var(--shadow-2);
   --el-box-shadow: var(--shadow-3);
   --el-font-family: var(--font-sans);
+}
+
+/* Element Plus 表格去边框化：**备而不用**。
+   下面的令牌已接好，页面里暂时没有一处启用 el-table——原计划的
+   「四张密集表改用 el-table」评估后撤回：/api/events 等接口都没有 sort
+   参数（alerting/store.py:196 写死 ORDER BY ts DESC），列排序只会重排当前
+   一页却长得像全局排序；且 el-table 的 <tr> 由组件内部生成，只吃 rowClassName
+   / rowStyle，挂不上 events.spec 依赖的 data-event-id。
+   真要用时按这套接：不开 :border、竖线全无、只留发丝横线、表头透明、
+   悬停与选中底色接 --highlight。挂 :root 而非 scoped，多页共用同一套。 */
+:root {
+  --el-table-border-color: transparent;
+  --el-table-header-bg-color: var(--ash);
+  --el-table-header-text-color: var(--dross);
+  --el-table-row-hover-bg-color: var(--highlight);
+  --el-table-bg-color: transparent;
+  --el-table-tr-bg-color: transparent;
+  --el-table-current-row-bg-color: var(--highlight);
 }

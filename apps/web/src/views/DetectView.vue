@@ -9,6 +9,9 @@ import { api, ApiError, type InferParams } from '@/api/client'
 import { CLASS_CN } from '@/api/types'
 import type { BatchResult, InferResult, ModelInfo, SourceOption } from '@/api/types'
 
+import DetectionOverlay from '@/components/DetectionOverlay.vue'
+import FrameMarks from '@/components/FrameMarks.vue'
+
 const models = ref<ModelInfo[]>([])
 const sources = ref<SourceOption[]>([])
 
@@ -29,6 +32,17 @@ const mode = ref<'single' | 'batch'>('single')
 const file = ref<File | null>(null)
 const previewUrl = ref('')
 const result = ref<InferResult | null>(null)
+
+/** 右栏在两种渲染之间切换：默认是前端自己画的 SVG 叠加层（可联动、
+ *  标签是中文），另一种是后端烧好像素的 annotated 位图（可与前端
+ *  的画法逐像素对照，也保留 ultralytics 原始输出的样子）。
+ *  值是 'overlay' | 'backend'。 */
+const renderMode = ref<'overlay' | 'backend'>('overlay')
+
+/** 当前被指到的框序号。账册行与叠加框共用它：指针在任一侧，
+ *  另一侧就点亮同一个框。它是全局的一份状态而不是组件内的，
+ *  因为「联动」这件事本身就跨了两个 DOM 子树。 */
+const hotBox = ref<number | null>(null)
 
 const sourceKey = ref('')
 const limit = ref(20)
@@ -82,6 +96,8 @@ function pickFile(f: File): void {
   file.value = f
   previewUrl.value = URL.createObjectURL(f)
   result.value = null
+  // 换图必须清掉高亮：旧的框序号已经指向另一张图上的另一批框
+  hotBox.value = null
   if (modelsLoading.value) {
     // 权重还没到，先挂起；下面 watch 会在就绪后补跑
     pendingRun.value = true
@@ -237,6 +253,7 @@ function fix(v: number | null | undefined, digits = 3): string {
     <template v-if="mode === 'single'">
       <div class="work">
         <section class="fs-viewfinder viewfinder">
+          <FrameMarks />
           <h2 class="fs-viewfinder__title">取景窗</h2>
 
           <div
@@ -260,8 +277,51 @@ function fix(v: number | null | undefined, digits = 3): string {
               <img :src="previewUrl" alt="上传的原图" />
             </figure>
             <figure class="pair__item">
-              <figcaption>检测结果</figcaption>
-              <img v-if="result" :src="result.annotated ?? ''" alt="标注后的检测结果" />
+              <!-- 切换器放在结果格的标题行里，不另起一行：
+                   它只作用于这一格，摆在图上方会让人以为是全局开关。 -->
+              <figcaption class="pair__cap">
+                检测结果
+                <span class="pair__switch" role="radiogroup" aria-label="结果渲染方式">
+                  <button
+                    type="button"
+                    class="modes__btn"
+                    :class="{ 'is-on': renderMode === 'overlay' }"
+                    role="radio"
+                    :aria-checked="renderMode === 'overlay'"
+                    @click="renderMode = 'overlay'"
+                  >
+                    叠加图
+                  </button>
+                  <button
+                    type="button"
+                    class="modes__btn"
+                    :class="{ 'is-on': renderMode === 'backend' }"
+                    role="radio"
+                    :aria-checked="renderMode === 'backend'"
+                    @click="renderMode = 'backend'"
+                  >
+                    后端标注图
+                  </button>
+                </span>
+              </figcaption>
+
+              <template v-if="result && renderMode === 'overlay'">
+                <!-- 有检出就画叠加层，哪怕一个框都没有也画：
+                     空图与「还没推理」是两回事，后者才有占位文案。 -->
+                <DetectionOverlay
+                  :image-src="previewUrl"
+                  :width="result.width"
+                  :height="result.height"
+                  :detections="result.detections"
+                  :hot="hotBox"
+                  @hover="hotBox = $event"
+                />
+              </template>
+              <img
+                v-else-if="result"
+                :src="result.annotated ?? ''"
+                alt="标注后的检测结果"
+              />
               <div v-else class="pair__pending">{{ busy ? '推理中…' : '未检出或尚未推理' }}</div>
             </figure>
           </div>
@@ -320,7 +380,13 @@ function fix(v: number | null | undefined, digits = 3): string {
             </tr>
           </thead>
           <tbody>
-            <tr v-for="(d, i) in result.detections" :key="i">
+            <tr
+              v-for="(d, i) in result.detections"
+              :key="i"
+              :class="{ 'is-hot': hotBox === i }"
+              @mouseenter="hotBox = i"
+              @mouseleave="hotBox = null"
+            >
               <td>
                 <i class="dot" :class="`dot--${d.name}`" />{{ d.name_cn }}
               </td>
@@ -494,7 +560,7 @@ function fix(v: number | null | undefined, digits = 3): string {
   min-height: 320px;
 }
 
-/* 取景窗自带四角框标，拖放区若再描一圈亮边就有两套边框语言了。
+/* 取景窗自带四角刻度角，拖放区若再描一圈亮边就有两套边框语言了。
    静止时安静，只在悬停/拖入时响应。 */
 .dropzone {
   border: 1px dashed var(--ink-4);
@@ -558,6 +624,31 @@ function fix(v: number | null | undefined, digits = 3): string {
   margin: 0;
 }
 
+/* 结果格的标题行同时是切换器的容器：标题在左、切换器靠右贴齐，
+   两者共用一行，不额外占高度。 */
+.pair__cap {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-2);
+  font-size: var(--fs-xs);
+  color: var(--dross);
+}
+
+.pair__switch {
+  display: flex;
+}
+
+/* 切换器与参数栏那组单选钮共用同一套样式，所以直接复用 .modes__btn。
+   但在这里要把按钮压小一档：它是辅助开关，不该和「单张图像 / 目录批量」
+   一样抢注意力。 */
+.pair__switch .modes__btn {
+  height: 22px;
+  padding: 0 var(--sp-2);
+  font-size: var(--fs-xs);
+}
+
 .pair__item figcaption {
   margin-bottom: var(--sp-2);
   font-size: var(--fs-xs);
@@ -571,6 +662,15 @@ function fix(v: number | null | undefined, digits = 3): string {
   background: var(--soot);
   border: var(--hairline);
   border-radius: var(--radius-sm);
+}
+
+/* 账册行被指到时点亮：与图像上的框共用同一个 hotBox 状态。
+   .fs-ledger 已有 hover 底色，这里用 --highlight 加一档左边框，
+   让人在账册这一侧也能一眼看出「我现在看的是哪一个框」——
+   只靠底色会和普通的 hover 行混在一起。 */
+.fs-ledger tbody tr.is-hot td {
+  background: var(--highlight);
+  box-shadow: inset 2px 0 0 var(--alarm);
 }
 
 .pair__pending {
@@ -724,6 +824,14 @@ function fix(v: number | null | undefined, digits = 3): string {
 
   .pair {
     grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* 窄屏下双栏折成单列，两张图上下排。此时「原图 / 检测结果」的对照
+   价值下降，而横向空间反而紧张，于是把渲染切换器收到标题行下方独占一行。 */
+@media (max-width: 700px) {
+  .pair__cap {
+    flex-wrap: wrap;
   }
 }
 </style>

@@ -48,7 +48,10 @@ test('月份可以回看，到当月后「下一月」停住', async ({ page }) 
 
 test('从控制台能进大屏，大屏能回控制台', async ({ page }) => {
   await page.goto('/')
-  await page.getByRole('link', { name: '月度大屏' }).click()
+  // 顶部状态区那个「大屏」入口。月度大屏在图标轨底部也有一份，
+  // 两处都指 /bigscreen；这里固定挑状态区那份，测试不对「入口有几个」
+  // 作假设，所以只认自己点的那一个。
+  await page.getByRole('banner').getByRole('link', { name: '月度大屏' }).click()
   await expect(page).toHaveURL(/\/bigscreen/)
   await expect(page.getByText('月度火情统计')).toBeVisible()
 

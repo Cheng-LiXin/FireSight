@@ -1,6 +1,11 @@
 <script setup lang="ts">
 /** KPI 读数。数值用比例字形——等宽只用在需要纵向对齐的地方，
- *  大号独立数字用等宽会让它显得松散。 */
+ *  大号独立数字用等宽会让它显得松散。
+ *
+ *  形状语言取「读数条」而不是卡片：一行 KPI 曾经做成四张带边框、
+ *  圆角、悬停上浮的小卡片，四个一模一样的盒子并排会把四个数字的权重
+ *  拉平——而这四个数里只有一个（待复核）真的需要被看见。改成一组共用
+ *  顶部分隔线的读数条之后，数字之间靠基线和留白分节奏，不必靠盒子。 */
 withDefaults(
   defineProps<{
     label: string
@@ -14,9 +19,9 @@ withDefaults(
 </script>
 
 <template>
-  <div class="tile" :class="`tile--${tone}`">
-    <div class="tile__label">{{ label }}</div>
-    <div class="tile__value">
+  <div class="tile fs-readout" :class="`tile--${tone}`">
+    <div class="tile__label fs-readout__label">{{ label }}</div>
+    <div class="tile__value fs-readout__value">
       <transition name="num" mode="out-in">
         <!-- :key 让数值变化时走一次淡入，而不是原地跳变 -->
         <span :key="String(value)" class="tile__num"
@@ -28,18 +33,14 @@ withDefaults(
 </template>
 
 <style scoped>
+/* 无边框、无圆角、无阴影：分隔交给 .fs-readout 的顶线（来自 base.css）。
+   刻度角同理不挂——它属于被观察对象（图像/曲线/画面），KPI 不是被观察的东西。 */
 .tile {
-  padding: var(--sp-3) var(--sp-4);
-  background: var(--ash);
-  border: var(--hairline);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow-1);
-  transition: box-shadow var(--dur-2) var(--ease), transform var(--dur-2) var(--ease);
+  transition: opacity var(--dur-2) var(--ease);
 }
 
 .tile:hover {
-  box-shadow: var(--shadow-2);
-  transform: translateY(-2px);
+  opacity: 0.72;
 }
 
 .tile__label {

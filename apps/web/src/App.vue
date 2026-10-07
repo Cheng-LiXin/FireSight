@@ -1,5 +1,5 @@
 <script setup lang="ts">
-/** 应用外壳：顶栏 + 风险尺 + 内容区。
+/** 应用外壳：左侧图标轨 + 顶部状态区 + 风险尺 + 内容区。
  *
  * 风险尺放在 shell 而不是仪表盘页，因为它是全站的状态读数——
  * 无论切到哪个模块，值班人都应该看得到当前风险。
@@ -7,21 +7,12 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 
+import AppRail from '@/components/AppRail.vue'
 import RiskRuler from '@/components/RiskRuler.vue'
 import { useConsoleStore } from '@/stores/console'
 
 const store = useConsoleStore()
 const route = useRoute()
-
-const NAV = [
-  { to: '/', label: '仪表盘' },
-  { to: '/detect', label: '识别检测' },
-  { to: '/monitor', label: '实时监控' },
-  { to: '/training', label: '训练中心' },
-  { to: '/reports', label: '分析报告' },
-  { to: '/events', label: '告警事件' },
-  { to: '/models', label: '模型库' },
-]
 
 const clock = ref('')
 let timer: number | undefined
@@ -66,103 +57,82 @@ const isFullscreen = computed(() => route.meta.fullscreen === true)
   </RouterView>
 
   <div v-else class="shell">
-    <header class="topbar">
-      <RouterLink to="/" class="brand">
-        <span class="brand__mark">Fire</span><span class="brand__rest">Sight</span>
-      </RouterLink>
+    <AppRail />
 
-      <nav class="nav">
-        <RouterLink v-for="item in NAV" :key="item.to" :to="item.to" class="nav__link">
-          {{ item.label }}
-        </RouterLink>
-      </nav>
+    <div class="shell__main">
+      <header class="topbar">
+        <!-- 模块名是「我在哪」的定位标签，不是文档标题：各页自己已经有一个
+             <h1>，这里再用 <h1> 会让一页有两个主标题（读屏软件与
+             getByRole('heading') 都会撞车）。所以是 p，读屏仍会念出来。 -->
+        <p class="topbar__where">{{ route.meta.title ?? 'FireSight' }}</p>
 
-      <div class="env">
-        <RouterLink to="/bigscreen" class="env__link">月度大屏</RouterLink>
-        <span v-if="jobText" class="env__job">{{ jobText }}</span>
-        <span v-if="gpuText" class="env__gpu">{{ gpuText }}</span>
-        <span class="env__clock fs-num">{{ clock }}</span>
-      </div>
-    </header>
+        <div class="env">
+          <RouterLink to="/bigscreen" class="env__link">月度大屏</RouterLink>
+          <span v-if="jobText" class="env__job">{{ jobText }}</span>
+          <span v-if="gpuText" class="env__gpu">{{ gpuText }}</span>
+          <span class="env__clock fs-num">{{ clock }}</span>
+        </div>
+      </header>
 
-    <RiskRuler :risk="store.overview?.risk ?? null" />
+      <RiskRuler :risk="store.overview?.risk ?? null" />
 
-    <main class="content">
-      <div v-if="store.error" class="alert" role="alert">
-        <span>{{ store.error }}</span>
-        <button type="button" class="alert__retry" @click="store.load()">重试</button>
-      </div>
-      <RouterView v-slot="{ Component }">
-        <transition name="page" mode="out-in">
-          <component :is="Component" />
-        </transition>
-      </RouterView>
-    </main>
+      <main class="content">
+        <div v-if="store.error" class="alert" role="alert">
+          <span>{{ store.error }}</span>
+          <button type="button" class="alert__retry" @click="store.load()">重试</button>
+        </div>
+        <RouterView v-slot="{ Component }">
+          <transition name="page" mode="out-in">
+            <component :is="Component" />
+          </transition>
+        </RouterView>
+      </main>
+    </div>
   </div>
 </template>
 
 <style scoped>
+/* 壳是「轨 + 主区」两列：轨道宽度由 AppRail 自己声明，这里只负责留位。
+   主区是一个纵向 flex 容器，撑满剩余高度，所以风险尺和状态区各自 stick
+   的时候下面滚动的是内容而不是彼此。 */
 .shell {
-  min-height: 100%;
   display: flex;
-  flex-direction: column;
+  min-height: 100%;
 }
 
-/* --- 顶栏 ------------------------------------------------------------- */
+.shell__main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
 
+/* --- 顶部状态区 --------------------------------------------------------- */
+
+/* 顶栏现在只回答两个问题：我在哪个模块、机器此刻什么状态。
+   模块名从 route.meta.title 取，省掉一份要在导航和路由两处同步的常量。
+   它不是标题元素——各页自己已经有一个 <h1>，这里再用一个 <h1> 会让一页
+   有两个主标题。用 <p> 则读屏软件仍会把它当普通文本念出来，不丢信息。 */
 .topbar {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: var(--sp-6);
   height: var(--shell-h);
   padding: 0 var(--sp-5);
   background: var(--ash);
   border-bottom: var(--hairline);
-  box-shadow: var(--shadow-1);
   position: sticky;
   top: 0;
   z-index: 10;
 }
 
-.brand {
-  font-size: var(--fs-md);
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  color: var(--bone);
-  text-decoration: none;
-  white-space: nowrap;
-}
-
-/* 品牌色点：单色主题下用近黑，与正文同族、只靠粗细区分 */
-.brand__mark {
-  color: var(--accent);
-}
-
-.nav {
-  display: flex;
-  gap: var(--sp-1);
-}
-
-/* 胶囊导航：激活态是圆角背景而不是下划线，靠底色与位移表达「当前在这」 */
-.nav__link {
-  padding: var(--sp-2) var(--sp-3);
-  font-size: var(--fs-base);
-  color: var(--dross);
-  text-decoration: none;
-  border-radius: var(--radius-pill);
-  transition: color var(--dur-1) var(--ease),
-    background-color var(--dur-2) var(--ease);
-}
-
-.nav__link:hover {
-  color: var(--bone);
-  background: var(--highlight);
-}
-
-.nav__link.router-link-exact-active {
-  color: var(--bone);
+.topbar__where {
+  margin: 0;
+  font-size: var(--fs-sm);
   font-weight: 500;
-  background: var(--highlight);
+  color: var(--dross);
+  letter-spacing: 0.04em;
 }
 
 .env {
@@ -259,7 +229,7 @@ const isFullscreen = computed(() => route.meta.fullscreen === true)
   transform: translateY(-4px);
 }
 
-/* --- 窄屏：导航换行，顶栏让高 ------------------------------------------ */
+/* --- 窄屏：状态区换行，让高 ---------------------------------------------- */
 
 @media (max-width: 860px) {
   .topbar {

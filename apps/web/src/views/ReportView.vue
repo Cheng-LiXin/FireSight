@@ -10,6 +10,7 @@ import { marked } from 'marked'
 
 import { api } from '@/api/client'
 import type { ReportDetail, ReportJob, ReportListItem } from '@/api/types'
+import FrameMarks from '@/components/FrameMarks.vue'
 
 function thisMonthRange(): { start: string; end: string } {
   const d = new Date()
@@ -145,6 +146,7 @@ onUnmounted(() => {
     </div>
 
     <section class="fs-viewfinder panel">
+      <FrameMarks />
       <h2 class="fs-viewfinder__title">生成</h2>
       <div class="form">
         <div class="field field--narrow">
@@ -172,6 +174,7 @@ onUnmounted(() => {
     </section>
 
     <section v-if="detail" class="fs-viewfinder panel">
+      <FrameMarks />
       <h2 class="fs-viewfinder__title">{{ String(detail.meta.title || '报告') }}</h2>
       <!-- eslint-disable-next-line vue/no-v-html —— 模型输出按不可信内容处理：
            marked 会原样放行原始 HTML，进 v-html 前先过 DOMPurify 消毒 -->
@@ -183,6 +186,7 @@ onUnmounted(() => {
     </section>
 
     <section class="fs-viewfinder panel">
+      <FrameMarks />
       <h2 class="fs-viewfinder__title">历史报告</h2>
       <ul class="history">
         <li v-for="r in history" :key="r.id" class="history__item">

@@ -8,6 +8,7 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 
 import { api } from '@/api/client'
 import type { MonitorStatus } from '@/api/types'
+import FrameMarks from '@/components/FrameMarks.vue'
 
 const status = ref<MonitorStatus | null>(null)
 const error = ref('')
@@ -162,6 +163,7 @@ onUnmounted(() => {
 
     <!-- 启动表单 -->
     <section class="fs-viewfinder panel">
+      <FrameMarks />
       <h2 class="fs-viewfinder__title">启动参数</h2>
       <div class="form">
         <div class="field field--wide">
@@ -253,6 +255,7 @@ onUnmounted(() => {
 
     <!-- 画面 -->
     <section class="fs-viewfinder panel">
+      <FrameMarks />
       <h2 class="fs-viewfinder__title">画面</h2>
       <div class="stage">
         <img v-if="streamUrl && hasFrames" class="stage__img" :src="streamUrl" alt="监控画面" />

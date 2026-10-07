@@ -321,7 +321,8 @@ test('状态流转：已确认行的动作换掉（打桩，不动真实事件�
   await awaitData(page)
 
   const row = page.locator(`[data-event-id="${EVENT_ID}"]`)
-  await expect(row.locator('td .tag')).toHaveText('已确认')
+  // 一行里有两类 .tag（类别 / 状态），不加区分会命中两个元素触发严格模式报错
+  await expect(row.locator('td .tag').filter({ hasText: '已确认' })).toHaveText('已确认')
   // 已确认行：给「标记已处置」，不再给「确认」
   await expect(row.getByRole('button', { name: '标记已处置' })).toBeVisible()
   await expect(row.getByRole('button', { name: '确认' })).toHaveCount(0)

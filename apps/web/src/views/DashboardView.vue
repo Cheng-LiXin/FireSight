@@ -7,6 +7,7 @@ import { computed } from 'vue'
 
 import { alertTrendOption, confidenceOption } from '@/charts/options'
 import EChart from '@/components/EChart.vue'
+import FrameMarks from '@/components/FrameMarks.vue'
 import StatTile from '@/components/StatTile.vue'
 import { useConsoleStore } from '@/stores/console'
 
@@ -69,11 +70,13 @@ const metricRows = computed(() => [
 
     <template v-if="hasData">
       <section class="fs-viewfinder">
+        <FrameMarks />
         <h2 class="fs-viewfinder__title">近 30 日告警次数（按类别）</h2>
         <EChart :option="trendOption" :height="280" />
       </section>
 
       <section class="fs-viewfinder">
+        <FrameMarks />
         <h2 class="fs-viewfinder__title">近 30 日平均置信度</h2>
         <EChart :option="confOption" :height="220" />
       </section>
@@ -87,6 +90,7 @@ const metricRows = computed(() => [
     <div class="dash__cols">
       <!-- 两个类别不画环形图：两段饼图读不出比例差，数字本身就是答案 -->
       <section class="fs-viewfinder">
+        <FrameMarks />
         <h2 class="fs-viewfinder__title">告警类别构成</h2>
 
         <div v-if="classTotal > 0" class="ratio">
@@ -120,6 +124,7 @@ const metricRows = computed(() => [
       </section>
 
       <section class="fs-viewfinder">
+        <FrameMarks />
         <h2 class="fs-viewfinder__title">当前模型</h2>
 
         <template v-if="ov?.model.exists">
@@ -148,10 +153,19 @@ const metricRows = computed(() => [
   gap: var(--sp-5);
 }
 
+/* 四条读数共用一条顶线，像仪表盘上的一排刻度：
+   盒子之间的界线由这一条线给出，不必各画一个边框。 */
 .tiles {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: var(--sp-4);
+  gap: var(--sp-5);
+}
+
+/* .fs-readout 原本是纵向读数条，靠「相邻的再往下挪一截」分开；
+   这里横排，间距交给 grid 的 gap——否则每条都比它的邻居低 8px，
+   四条顶线就错开了，「一排刻度」也没了。 */
+.tiles > .tile {
+  margin-top: 0;
 }
 
 .dash__cols {
