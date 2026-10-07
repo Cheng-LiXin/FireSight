@@ -97,26 +97,66 @@ test('按类别筛选后每一行都匹配', async ({ page }) => {
     .toBe(total)
 })
 
-test('状态筛选：待复核与已标误报互斥', async ({ page }) => {
+test('状态筛选：四个状态各自只显示该状态的行', async ({ page }) => {
   await openEvents(page)
   test.skip((await totalRows(page)) === 0, '事件库为空，跳过')
 
   const statusSelect = page.locator('.bar select').nth(1)
 
-  await statusSelect.selectOption('false_positive')
+  // 每个状态筛下去，行里那个状态标签必须唯一且正确。
+  // .filter({ hasText }) 是子串匹配，所以「误报」不会误吃到「已标误报」这种旧文案，
+  // 「待处置」也不会吃到别的——四个文案互不为子串。
+  for (const [value, label] of [
+    ['pending', '待处置'],
+    ['confirmed', '已确认'],
+    ['false_positive', '误报'],
+    ['resolved', '已处置'],
+  ] as const) {
+    await statusSelect.selectOption(value)
+    await page.waitForTimeout(600)
+    const rows = page.locator('table.fs-ledger tbody tr')
+    const n = await rows.count()
+    for (let i = 0; i < n; i++) {
+      await expect(rows.nth(i).locator('td .tag').filter({ hasText: label })).toHaveCount(1)
+    }
+  }
+})
+
+test('状态筛选：误报行只给撤销、不再给标误报', async ({ page }) => {
+  await openEvents(page)
+  test.skip((await totalRows(page)) === 0, '事件库为空，跳过')
+
+  await page.locator('.bar select').nth(1).selectOption('false_positive')
   await page.waitForTimeout(600)
   const fpRows = page.locator('table.fs-ledger tbody tr')
-  for (let i = 0; i < (await fpRows.count()); i++) {
-    await expect(fpRows.nth(i).locator('.tag', { hasText: '已标误报' })).toHaveCount(1)
-    // 已复核的行不该再给「标为误报」的可点按钮
-    await expect(fpRows.nth(i).getByRole('button', { name: '标为误报' })).toBeDisabled()
-  }
+  const n = await fpRows.count()
+  test.skip(n === 0, '还没有标过误报的事件，跳过')
 
-  await statusSelect.selectOption('pending')
+  for (let i = 0; i < n; i++) {
+    const row = fpRows.nth(i)
+    // 已定性的行不该再给「标为误报」——按钮按状态条件渲染，不是摆出来再禁用
+    await expect(row.getByRole('button', { name: '标为误报' })).toHaveCount(0)
+    await expect(row.getByRole('button', { name: '撤销误报' })).toBeVisible()
+  }
+})
+
+test('待处置行给确认与标误报，不给撤销', async ({ page }) => {
+  await openEvents(page)
+  test.skip((await totalRows(page)) === 0, '事件库为空，跳过')
+
+  await page.locator('.bar select').nth(1).selectOption('pending')
   await page.waitForTimeout(600)
-  const pRows = page.locator('table.fs-ledger tbody tr')
-  for (let i = 0; i < Math.min(await pRows.count(), 5); i++) {
-    await expect(pRows.nth(i).locator('.tag', { hasText: '待复核' })).toHaveCount(1)
+  const rows = page.locator('table.fs-ledger tbody tr')
+  const n = await rows.count()
+  test.skip(n === 0, '没有待处置事件，跳过')
+
+  for (let i = 0; i < n; i++) {
+    const row = rows.nth(i)
+    await expect(row.getByRole('button', { name: '确认' })).toBeVisible()
+    await expect(row.getByRole('button', { name: '标为误报' })).toBeVisible()
+    await expect(row.getByRole('button', { name: '撤销误报' })).toHaveCount(0)
+    // 「标记已处置」只在已确认时出现——没确认就宣布处理完是不成立的
+    await expect(row.getByRole('button', { name: '标记已处置' })).toHaveCount(0)
   }
 })
 
@@ -206,6 +246,89 @@ test('导出链接跟随当前筛选', async ({ page }) => {
   expect(href).toContain('keyword=')
   // 空条件不该出现在 URL 里
   expect(href).not.toContain('start=')
+})
+
+test('下载片段：地址带 download 参数', async ({ page }) => {
+  await openEvents(page)
+  test.skip((await totalRows(page)) === 0, '事件库为空，跳过')
+
+  const dl = page.locator('[data-testid^="clip-dl-"]')
+  test.skip((await dl.count()) === 0, '没有任何事件留存片段，跳过')
+
+  const href = await dl.first().getAttribute('href')
+  expect(href).toContain('/clip')
+  expect(href).toContain('download=true')
+
+  // 后端要真的当附件回——否则浏览器会在当前页直接播放
+  const res = await page.request.get(href as string)
+  expect(res.status()).toBe(200)
+  expect(res.headers()['content-disposition']).toContain('attachment')
+})
+
+test('状态流转：已确认行的动作换掉（打桩，不动真实事件库）', async ({ page }) => {
+  await openEvents(page)
+  test.skip((await totalRows(page)) === 0, '事件库为空，跳过')
+
+  // 状态变更会写库。E2E 去改真实事件库，每跑一次就少一条待处置，测试不可重复——
+  // 后端测试已经用临时库覆盖了写入语义，这里只验证界面：点了确认之后，
+  // 这一行的动作是不是换成了「标记已处置」。
+  const EVENT_ID = 'evt-stub-1'
+  await page.route('**/api/events**', async (route) => {
+    const url = route.request().url()
+    const method = route.request().method()
+    if (method === 'POST' && url.includes('/confirm')) {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          event_id: EVENT_ID,
+          review_status: 'confirmed',
+          is_false_positive: false,
+        }),
+      })
+      return
+    }
+    if (method === 'GET' && url.includes('/api/events?')) {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          items: [
+            {
+              event_id: EVENT_ID,
+              ts: '2026-09-27T15:03:07',
+              frame_index: 12,
+              labels: ['fire'],
+              conf: 0.912,
+              location: '仓库',
+              message: '检测到明火，位置：仓库',
+              has_clip: false,
+              is_false_positive: false,
+              review_status: 'confirmed',
+            },
+          ],
+          total: 1,
+          limit: 20,
+          offset: 0,
+        }),
+      })
+      return
+    }
+    await route.fallback()
+  })
+
+  await page.reload()
+  await awaitData(page)
+
+  const row = page.locator(`[data-event-id="${EVENT_ID}"]`)
+  await expect(row.locator('td .tag')).toHaveText('已确认')
+  // 已确认行：给「标记已处置」，不再给「确认」
+  await expect(row.getByRole('button', { name: '标记已处置' })).toBeVisible()
+  await expect(row.getByRole('button', { name: '确认' })).toHaveCount(0)
+  await expect(row.getByRole('button', { name: '撤销误报' })).toHaveCount(0)
+
+  await row.getByRole('button', { name: '标记已处置' }).click()
+  await page.waitForTimeout(500)
 })
 
 test('写错的筛选值不会安静地返回空——后端 400 会显示出来', async ({ page }) => {

@@ -293,3 +293,193 @@ def test_has_clip_reflects_disk_not_the_column(client):
     Path(deps.EVENTS_DB).parent.joinpath("clips", "evt-clip.mp4").unlink()
     items = {r["event_id"]: r for r in client.get("/api/events").json()["items"]}
     assert items["evt-a"]["has_clip"] is False
+
+
+# --------------------------------------------------------------------------
+# 处置状态：pending / confirmed / false_positive / resolved
+#
+# 四个状态回答四个不同的问题：「刚响没看」「看过了是真的」「看过了是误报」
+# 「看过了而且处理完了」。原来的待复核/已标误报两态只答得上前两个里的半个。
+# --------------------------------------------------------------------------
+
+
+def test_list_exposes_review_status_and_defaults_to_pending(client):
+    items = {r["event_id"]: r for r in client.get("/api/events").json()["items"]}
+    assert items["evt-a"]["review_status"] == "pending"
+    assert items["evt-g"]["review_status"] == "false_positive", (
+        "标过误报的行，状态列必须跟着是误报；两列漂了就筛不出来"
+    )
+
+
+def test_marking_false_positive_also_sets_review_status(client):
+    body = client.post("/api/events/evt-a/false-positive").json()
+    assert body["review_status"] == "false_positive"
+    assert body["is_false_positive"] is True
+    items = {r["event_id"]: r for r in client.get("/api/events").json()["items"]}
+    assert items["evt-a"]["review_status"] == "false_positive"
+    assert items["evt-a"]["is_false_positive"] is True
+
+
+def test_confirm_and_resolve_are_separate_states(client):
+    """确认 ≠ 已处置：确认说的是「是真的」，处置说的是「已经处理完了」。"""
+    c = client.post("/api/events/evt-b/confirm").json()
+    assert c["review_status"] == "confirmed" and c["is_false_positive"] is False
+    assert client.get("/api/events", params={"status": "confirmed"}).json()["total"] == 1
+
+    r = client.post("/api/events/evt-b/resolve").json()
+    assert r["review_status"] == "resolved"
+    assert client.get("/api/events", params={"status": "confirmed"}).json()["total"] == 0
+    assert client.get("/api/events", params={"status": "resolved"}).json()["total"] == 1
+
+
+def test_unmark_false_positive_returns_to_pending(client):
+    """撤销误报回到「待处置」而不是「已处置」——撤销只说明上次判断错了。"""
+    body = client.post("/api/events/evt-g/unmark-false-positive").json()
+    assert body["review_status"] == "pending"
+    assert body["is_false_positive"] is False, "误报位必须一起清，否则误报率统计偏高"
+    assert client.get("/api/events", params={"status": "false_positive"}).json()["total"] == 0
+    assert client.get("/api/events", params={"status": "pending"}).json()["total"] == 7
+
+
+def test_confirm_then_mark_false_positive_clears_the_flag(client):
+    """状态互斥：改成误报后不能再是已确认。"""
+    client.post("/api/events/evt-b/confirm")
+    body = client.post("/api/events/evt-b/false-positive").json()
+    assert body["review_status"] == "false_positive"
+    assert client.get("/api/events", params={"status": "confirmed"}).json()["total"] == 0
+
+
+def test_four_states_partition_the_library(client):
+    """四个状态互斥且合起来等于全库——不能有第五种去处。"""
+    counts = {
+        s: client.get("/api/events", params={"status": s}).json()["total"]
+        for s in ("pending", "confirmed", "false_positive", "resolved")
+    }
+    assert sum(counts.values()) == 7
+    assert counts == {"pending": 6, "confirmed": 0, "false_positive": 1, "resolved": 0}
+
+
+def test_false_positive_flag_still_agrees_with_review_status(client):
+    """两列必须一致：统计读误报位，界面读状态列，任一漂了都会说谎。"""
+    for r in client.get("/api/events").json()["items"]:
+        assert r["is_false_positive"] is (r["review_status"] == "false_positive")
+
+
+def test_status_change_on_missing_event_is_404(client):
+    """"不存在即 404"：无条件 UPDATE 会回 200，界面上的按钮却不会消失。"""
+    for suffix in ("confirm", "resolve", "unmark-false-positive"):
+        r = client.post(f"/api/events/没有这个/{suffix}")
+        assert r.status_code == 404, suffix
+        assert "没有这个" in r.json()["detail"]
+
+
+def test_status_change_is_idempotent(client):
+    """界面可能重放请求。重复标记不该报错，状态也不该漂。"""
+    assert client.post("/api/events/evt-a/confirm").status_code == 200
+    assert client.post("/api/events/evt-a/confirm").json()["review_status"] == "confirmed"
+    assert client.get("/api/events", params={"status": "confirmed"}).json()["total"] == 1
+
+
+def test_unknown_status_is_still_rejected(client):
+    r = client.get("/api/events", params={"status": "done"})
+    assert r.status_code == 400
+    for s in ("confirmed", "resolved"):
+        assert client.get("/api/events", params={"status": s}).status_code == 200
+
+
+def test_false_positive_flag_follows_status_changes(client):
+    """误报位必须跟着状态走，否则误报率统计会与界面显示对不上。"""
+    assert client.post("/api/events/evt-a/false-positive").status_code == 200
+    items = {r["event_id"]: r for r in client.get("/api/events").json()["items"]}
+    assert items["evt-a"]["is_false_positive"] is True
+    client.post("/api/events/evt-a/unmark-false-positive")
+    items = {r["event_id"]: r for r in client.get("/api/events").json()["items"]}
+    assert items["evt-a"]["is_false_positive"] is False
+
+
+def test_export_includes_review_status_column(client):
+    text = client.get("/api/events/export").content.decode("utf-8")
+    header = text.lstrip("\ufeff").splitlines()[0]
+    assert "review_status" in header
+
+
+def test_download_clip_sets_attachment_filename(client):
+    """下载出去的片段要能对上是哪次告警。"""
+    r = client.get("/api/events/evt-a/clip", params={"download": "true"})
+    assert r.status_code == 200
+    assert 'attachment; filename="evt-a.mp4"' in r.headers["content-disposition"]
+
+
+def test_playback_request_has_no_content_disposition(client):
+    """回放不能变成下载——同一路径两个用途，区别只在参数。"""
+    r = client.get("/api/events/evt-a/clip")
+    assert r.status_code == 200
+    assert "content-disposition" not in r.headers
+
+
+# --------------------------------------------------------------------------
+# 老库迁移
+# --------------------------------------------------------------------------
+
+
+def test_legacy_db_without_review_status_is_migrated_and_backfilled(tmp_path):
+    """老库里没有 review_status 列，且已标误报的行要能补出状态。
+
+    这正是升级现场：`CREATE TABLE IF NOT EXISTS` 对已存在的表是空操作，
+    老库不会因为改了建表语句就多出这一列。
+    """
+    from fire_sight.alerting import EventStore
+
+    db = tmp_path / "old.db"
+    con = sqlite3.connect(str(db))
+    con.execute(
+        "CREATE TABLE alerts (event_id TEXT PRIMARY KEY, ts TEXT NOT NULL, "
+        "frame_index INTEGER, labels TEXT, conf REAL, location TEXT, message TEXT, "
+        "clip_path TEXT, is_false_positive INTEGER DEFAULT 0)"
+    )
+    con.execute(
+        "INSERT INTO alerts (event_id, ts, labels, conf, is_false_positive) "
+        "VALUES ('e1','2026-09-01T10:00:00','fire',0.9,1)"
+    )
+    con.execute(
+        "INSERT INTO alerts (event_id, ts, labels, conf) "
+        "VALUES ('e2','2026-09-01T11:00:00','smoke',0.4)"
+    )
+    con.commit()
+    con.close()
+
+    with EventStore(db) as store:
+        assert "review_status" in {
+            str(r["name"])
+            for r in store._conn.execute("PRAGMA table_info(alerts)").fetchall()
+        }
+        rows = {r["event_id"]: r for r in store.list_events()}
+        assert rows["e1"]["review_status"] == "false_positive", "误报位必须回填成状态"
+        assert rows["e2"]["review_status"] == "pending"
+
+
+def test_migration_is_idempotent_across_repeated_opens(tmp_path):
+    """EventStore 每次请求都新建实例，迁移必须能反复跑。
+
+    补列不是 `IF NOT EXISTS` 能覆盖的（SQLite 没有这种 ALTER），
+    靠本项目的幂等检查，所以这里连开三次，确认既不重复报错也不丢数据。
+    """
+    from fire_sight.alerting import EventStore
+    from fire_sight.scene.types import AlertEvent
+
+    db = tmp_path / "twice.db"
+    with EventStore(db) as store:
+        store.insert(
+            AlertEvent(
+                event_id="x1",
+                frame_index=1,
+                labels=["fire"],
+                conf=0.5,
+                location="东门",
+                message="检测到明火",
+            )
+        )
+    for _ in range(3):
+        with EventStore(db) as store:
+            assert store.get_event("x1")["review_status"] == "pending"
+            assert store.count() == 1

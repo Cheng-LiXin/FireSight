@@ -8,11 +8,12 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import FileResponse, Response
 
+from fire_sight.alerting import DEFAULT_REVIEW_STATUS, REVIEW_STATUSES
 from fire_sight.api import deps
 from fire_sight.api.schemas import AlertEventInfo, EventPage
 from fire_sight.scene.class_map import CLASS_NAMES
@@ -21,7 +22,7 @@ from fire_sight.services.event_service import rows_to_csv
 
 router = APIRouter(prefix="/api/events", tags=["events"])
 
-_STATUSES = ("all", "pending", "false_positive")
+_STATUSES = ("all",) + REVIEW_STATUSES
 _MEDIA_TYPES = {
     ".mp4": "video/mp4",
     ".webm": "video/webm",
@@ -56,7 +57,7 @@ def _sql_status(status: str) -> str:
     return "" if status in ("", "all") else status
 
 
-def _to_info(row: Dict[str, Any]) -> AlertEventInfo:
+def _to_info(row: dict[str, Any]) -> AlertEventInfo:
     labels = [s.strip() for s in (row.get("labels") or "").split(",") if s.strip()]
     clip = row.get("clip_path") or ""
     return AlertEventInfo(
@@ -70,6 +71,9 @@ def _to_info(row: Dict[str, Any]) -> AlertEventInfo:
         # 库里可能留着已删除片段的路径，以磁盘为准而不是以字段为准
         has_clip=bool(clip) and Path(clip).is_file(),
         is_false_positive=bool(int(row.get("is_false_positive") or 0)),
+        # 老库里可能没有这一列的值（迁移补不上时留空），对外统一成默认状态，
+        # 不能让前端拿到 '' 然后显示成一个空白标签。
+        review_status=row.get("review_status") or DEFAULT_REVIEW_STATUS,
     )
 
 
@@ -91,7 +95,7 @@ def _query(
 def list_events(
     keyword: str = Query("", max_length=100, description="匹配消息 / 位置 / 事件号"),
     label: str = Query("", description="类别，空表示不限"),
-    status: str = Query("all", description="all / pending / false_positive"),
+    status: str = Query("all", description="all / pending / confirmed / false_positive / resolved"),
     start: str = Query("", description="起始日期 YYYY-MM-DD"),
     end: str = Query("", description="结束日期 YYYY-MM-DD"),
     limit: int = Query(50, ge=1, le=200),
@@ -136,15 +140,55 @@ def export_events(
 
 
 @router.post("/{event_id}/false-positive")
-def mark_false_positive(event_id: str) -> Dict[str, Any]:
+def mark_false_positive(event_id: str) -> dict[str, Any]:
     """标记误报。事件不存在时 404——原实现无条件 UPDATE，前端会以为标上了。"""
     if not _service().mark_false_positive(event_id):
         raise HTTPException(status_code=404, detail=f"未找到事件: {event_id}")
-    return {"event_id": event_id, "is_false_positive": True}
+    return {"event_id": event_id, **_status_of(event_id)}
+
+
+@router.post("/{event_id}/confirm")
+def confirm_event(event_id: str) -> dict[str, Any]:
+    """确认告警为真：有人看过、现场确实有事。"""
+    return _set_status(event_id, "confirmed")
+
+
+@router.post("/{event_id}/resolve")
+def resolve_event(event_id: str) -> dict[str, Any]:
+    """标记已处置：确认过，并且事情已经处理完了。"""
+    return _set_status(event_id, "resolved")
+
+
+@router.post("/{event_id}/unmark-false-positive")
+def unmark_false_positive(event_id: str) -> dict[str, Any]:
+    """撤销误报。回到「待处置」而不是「已处置」——撤销只说明之前的判断错了，
+    没人重新看过，所以不能替值班的人宣布它已经处理完。"""
+    return _set_status(event_id, "pending")
+
+
+def _set_status(event_id: str, status: str) -> dict[str, Any]:
+    if not _service().set_review_status(event_id, status):
+        raise HTTPException(status_code=404, detail=f"未找到事件: {event_id}")
+    return {"event_id": event_id, **_status_of(event_id)}
+
+
+def _status_of(event_id: str) -> dict[str, Any]:
+    """回读刚写完的状态。
+
+    回读而不是把入参原样返回：状态列与误报位是两列，本次写操作要保证它们
+    同步。若不校验，两列漂了就没人知道，下一次读列表时才暴露成「筛不出」。
+    """
+    row = _service().get_event(event_id)
+    return {
+        "review_status": (row or {}).get("review_status") or DEFAULT_REVIEW_STATUS,
+        "is_false_positive": bool(int((row or {}).get("is_false_positive") or 0)),
+    }
 
 
 @router.get("/{event_id}/clip")
-def get_clip(event_id: str) -> FileResponse:
+def get_clip(
+    event_id: str, download: bool = Query(False, description="真值则作为附件下载")
+) -> FileResponse:
     """取事件片段（告警前后若干帧）。"""
     row = _service().get_event(event_id)
     if row is None:
@@ -171,4 +215,9 @@ def get_clip(event_id: str) -> FileResponse:
         raise HTTPException(
             status_code=400, detail=f"不支持的片段格式: {resolved.suffix}"
         )
-    return FileResponse(resolved, media_type=media)
+    headers = {}
+    if download:
+        # 文件名带事件号：值班的人下到桌面后要能对上是哪次告警。
+        # 只取后缀、不改主体，主体仍由磁盘路径决定。
+        headers["Content-Disposition"] = f'attachment; filename="{event_id}{resolved.suffix}"'
+    return FileResponse(resolved, media_type=media, headers=headers)

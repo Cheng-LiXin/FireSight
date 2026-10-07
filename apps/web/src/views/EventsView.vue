@@ -1,15 +1,19 @@
 <script setup lang="ts">
-/** 告警事件：筛选分页、片段回放、标记误报、导出 CSV。
+/** 告警事件：筛选分页、片段回放与下载、四态处置、导出 CSV。
  *
  * 筛选在**后端**做（SQL）。服务层曾经是「取前 N 条再在 Python 里过滤」，那样第 2 页
  * 会重复或漏记录、总数也算不出来，筛稀有类别时还可能明明有匹配却返回空。
  *
  * 类别中文名从 `/api/system/status` 取，不在前端再抄一份契约。
+ *
+ * 处置状态是四态（待处置 / 已确认 / 误报 / 已处置）。原来是「待复核 / 已标误报」
+ * 两态，只答得「是不是误报」；值班的人还要能区分「刚响还没看」和「确认过了但
+ * 现场还没处理完」。状态与误报位由后端保证同步，这里不自己推导。
  */
 import { computed, onMounted, ref, watch } from 'vue'
 
 import { api, ApiError } from '@/api/client'
-import type { AlertEventInfo, EventStatusFilter } from '@/api/types'
+import type { AlertEventInfo, EventReviewStatus, EventStatusFilter } from '@/api/types'
 
 const items = ref<AlertEventInfo[]>([])
 const total = ref(0)
@@ -46,6 +50,34 @@ const filtered = computed(
       filters.value.end || filters.value.status !== 'all'),
 )
 
+// --------------------------------------------------------------------------
+// 处置状态
+// --------------------------------------------------------------------------
+
+/** 四个状态的文案与配色。
+ *
+ * 配色是刻意的，不是装饰：
+ * - 待处置 深墨（--ink-1）：醒目，因为它是**唯一还要人动手的**状态；
+ * - 已确认 告警红（--alarm）：全站唯一彩色额度，给「确实有事、已认定」的那一条；
+ * - 误报 浅灰（--ink-3）：已处理完，不该再抢注意力；
+ * - 已处置 中灰（--ink-2）：看过、且收尾了。
+ * 红只给「confirmed」而不是给所有非误报状态，否则误报和已处置也会染红，
+ * 彩色额度就废了。 */
+const STATUS_META: Record<EventReviewStatus, { label: string; cls: string }> = {
+  pending: { label: '待处置', cls: 'tag--todo' },
+  confirmed: { label: '已确认', cls: 'tag--alarm' },
+  false_positive: { label: '误报', cls: 'tag--done' },
+  resolved: { label: '已处置', cls: 'tag--done' },
+}
+
+const STATUS_ORDER: EventReviewStatus[] = ['pending', 'confirmed', 'false_positive', 'resolved']
+
+function statusMeta(s: string): { label: string; cls: string } {
+  // 后端保证是合法值；这里的兜底让「意外的空串」显示成可读的待处置，
+  // 而不是渲染出一个空白标签。
+  return STATUS_META[s as EventReviewStatus] ?? STATUS_META.pending
+}
+
 function describe(e: unknown): string {
   return e instanceof ApiError ? e.message : '加载失败'
 }
@@ -65,7 +97,7 @@ async function load(): Promise<void> {
   try {
     const base = { ...filters.value, limit: pageSize.value }
     let page = await api.events({ ...base, offset: offset.value })
-    // 标记误报会让「待复核」的总数变小，当前 offset 可能因此越界。
+    // 处置状态变化会让当前筛选下的「总数」变小，当前 offset 可能因此越界。
     // 夹回最后一页重取一次——否则用户看到一张空表，会以为数据没了。
     if (page.items.length === 0 && page.total > 0 && offset.value > 0) {
       offset.value = Math.max(0, (Math.ceil(page.total / pageSize.value) - 1) * pageSize.value)
@@ -93,15 +125,26 @@ function resetFilters(): void {
   filters.value = { keyword: '', label: '', status: 'all', start: '', end: '' }
 }
 
+/** 正在改状态的事件号。用来只给这一行按钮上锁——
+ *  全表 busy 会让 20 行一起变灰，点第二个也看不出自己点的是哪条。 */
+const savingId = ref('')
+
 async function markFalsePositive(row: AlertEventInfo): Promise<void> {
-  if (row.is_false_positive) return
+  await setStatus(row, 'false_positive')
+}
+
+async function setStatus(row: AlertEventInfo, next: EventReviewStatus): Promise<void> {
+  if (savingId.value) return
+  savingId.value = row.event_id
   try {
-    await api.markEventFalsePositive(row.event_id)
-    // 整表重载而不是就地改：误报身份变化会影响它在「待复核 / 已标误报」下的归属，
-    // 就地改会让当前筛选下的列表与状态自相矛盾。
+    await api.eventSetStatus(row.event_id, next)
+    // 整表重载而不是就地改：处置状态决定这条记录在四个状态筛选下的归属，
+    // 就地改会让当前列表与状态自相矛盾——筛「待处置」时刚标完的那条还留在页上。
     await load()
   } catch (e) {
     error.value = describe(e)
+  } finally {
+    savingId.value = ''
   }
 }
 
@@ -156,7 +199,7 @@ onMounted(async () => {
       ></video>
       <p v-if="clipFailed" class="clip__note clip__note--bad">
         这个片段浏览器解不开（历史片段里有 mp4v 编码，浏览器只认 H.264 / VP8 / VP9 / AV1）。
-        <a :href="api.eventClipUrl(playing.event_id)" download>下载后用本地播放器打开</a>。
+        <a :href="api.eventClipDownloadUrl(playing.event_id)" download>下载后用本地播放器打开</a>。
         新写出的片段已改用可播放编码。
       </p>
       <p v-else class="clip__note">
@@ -193,8 +236,9 @@ onMounted(async () => {
           <span class="field__label">状态</span>
           <select v-model="filters.status" class="field__control">
             <option value="all">全部</option>
-            <option value="pending">待复核</option>
-            <option value="false_positive">已标误报</option>
+            <option v-for="s in STATUS_ORDER" :key="s" :value="s">
+              {{ statusMeta(s).label }}
+            </option>
           </select>
         </label>
         <label class="field field--narrow">
@@ -236,7 +280,10 @@ onMounted(async () => {
         </span>
       </div>
 
-      <table v-if="items.length" class="fs-ledger">
+      <!-- fs-ledger--lg：事件表字号 16px，比检测页的账册大一档。
+           这张表是值班的人盯着最久的一屏，13px 看久了费眼；
+           做成修饰类而不是改全局 .fs-ledger，是为了不连带放大检测框账册。 -->
+      <table v-if="items.length" class="fs-ledger fs-ledger--lg">
         <thead>
           <tr>
             <th>时间</th>
@@ -267,29 +314,76 @@ onMounted(async () => {
             <td class="is-num">{{ r.conf.toFixed(3) }}</td>
             <td class="msg">{{ r.message }}</td>
             <td>
-              <button
-                v-if="r.has_clip"
-                type="button"
-                class="fs-btn-ghost fs-btn-ghost--tiny"
-                @click="toggleClip(r)"
-              >
-                {{ playing?.event_id === r.event_id ? '收起' : '回放' }}
-              </button>
+              <div v-if="r.has_clip" class="acts">
+                <button
+                  type="button"
+                  class="fs-btn-ghost fs-btn-ghost--tiny"
+                  :data-testid="`clip-${r.event_id}`"
+                  @click="toggleClip(r)"
+                >
+                  {{ playing?.event_id === r.event_id ? '收起' : '回放' }}
+                </button>
+                <!-- 下载走浏览器原生下载，不走 JS 搬几十 MB 视频 -->
+                <a
+                  class="fs-btn-ghost fs-btn-ghost--tiny"
+                  :href="api.eventClipDownloadUrl(r.event_id)"
+                  :data-testid="`clip-dl-${r.event_id}`"
+                  >下载</a
+                >
+              </div>
               <span v-else class="muted">未留存</span>
             </td>
             <td>
-              <span v-if="r.is_false_positive" class="tag">已标误报</span>
-              <span v-else class="tag tag--ok">待复核</span>
+              <span class="tag" :class="statusMeta(r.review_status).cls">{{
+                statusMeta(r.review_status).label
+              }}</span>
             </td>
             <td>
-              <button
-                type="button"
-                class="fs-btn-ghost fs-btn-ghost--tiny"
-                :disabled="r.is_false_positive"
-                @click="markFalsePositive(r)"
-              >
-                标为误报
-              </button>
+              <div class="acts">
+                <!-- 按当前状态条件渲染，而不是把动作都摆出来再 disable：
+                     6 个按钮全列着再灰掉 4 个，比只给 2 个可用动作更难读，
+                     也更容易让人以为界面坏了。 -->
+                <button
+                  v-if="r.review_status !== 'confirmed' && r.review_status !== 'resolved'"
+                  type="button"
+                  class="fs-btn-ghost fs-btn-ghost--tiny"
+                  :data-testid="`confirm-${r.event_id}`"
+                  :disabled="savingId === r.event_id"
+                  @click="setStatus(r, 'confirmed')"
+                >
+                  确认
+                </button>
+                <button
+                  v-if="r.review_status === 'confirmed'"
+                  type="button"
+                  class="fs-btn-ghost fs-btn-ghost--tiny"
+                  :data-testid="`resolve-${r.event_id}`"
+                  :disabled="savingId === r.event_id"
+                  @click="setStatus(r, 'resolved')"
+                >
+                  标记已处置
+                </button>
+                <button
+                  v-if="r.review_status !== 'false_positive'"
+                  type="button"
+                  class="fs-btn-ghost fs-btn-ghost--tiny"
+                  :data-testid="`fp-${r.event_id}`"
+                  :disabled="savingId === r.event_id"
+                  @click="markFalsePositive(r)"
+                >
+                  标为误报
+                </button>
+                <button
+                  v-if="r.review_status === 'false_positive'"
+                  type="button"
+                  class="fs-btn-ghost fs-btn-ghost--tiny"
+                  :data-testid="`unfp-${r.event_id}`"
+                  :disabled="savingId === r.event_id"
+                  @click="setStatus(r, 'pending')"
+                >
+                  撤销误报
+                </button>
+              </div>
             </td>
           </tr>
         </tbody>
@@ -360,8 +454,37 @@ onMounted(async () => {
 
 /* --- 列表 ------------------------------------------------------------- */
 
+/* 事件表放大一档：13px -> 16px。只给这张表加，不动全局 .fs-ledger，
+   否则检测页的检测框账册会一起被放大——那张表列多，一放大就横向溢出。 */
+.fs-ledger--lg {
+  font-size: var(--fs-md);
+}
+
+.fs-ledger--lg th,
+.fs-ledger--lg td {
+  padding: var(--sp-3) var(--sp-4);
+}
+
+/* 表头跟不上正文放大：14px 表头配 16px 正文会显得表头更弱 */
+.fs-ledger--lg th {
+  font-size: var(--fs-sm);
+}
+
 .msg {
   max-width: 380px;
+}
+
+/* 操作列的按钮组。换行而不是挤成一行：动作多了以后挤在一起，
+   值班的人要在几个 4px 宽的按钮里找对那个。 */
+.acts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-1);
+  align-items: center;
+}
+
+.acts a.fs-btn-ghost {
+  text-decoration: none;
 }
 
 .mono {
@@ -394,13 +517,28 @@ onMounted(async () => {
   color: var(--bone);
 }
 
-.tag--ok {
-  color: var(--bone);
+/* 待处置：还没人动手，所以要醒目（深墨边框 + 深墨字）。 */
+.tag--todo {
+  color: var(--ink-0);
+  border-color: var(--ink-1);
+  font-weight: 500;
+}
+
+/* 误报 / 已处置：都已经被处理过，压成灰色，不该再抢值班人的注意力。 */
+.tag--done {
+  color: var(--ink-3);
+  border-color: var(--cinder);
 }
 
 /* 已标误报的行压暗：它已经复核过了，不该和待办的抢注意力 */
 .fs-ledger tbody tr.is-fp td {
   color: var(--dross);
+}
+
+/* 放大后的按钮也跟着长一档，24px 在 16px 字号下显得挤 */
+.fs-ledger--lg .fs-btn-ghost--tiny {
+  height: 28px;
+  font-size: var(--fs-sm);
 }
 
 .fs-ledger tbody tr.is-playing td {

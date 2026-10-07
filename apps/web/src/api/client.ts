@@ -10,6 +10,8 @@ import type {
   EvalRequest,
   EventPage,
   EventQuery,
+  EventReviewStatus,
+  EventStatusResult,
   InferResult,
   ModelInfo,
   ModelOption,
@@ -106,6 +108,17 @@ export interface InferParams {
   device: string
 }
 
+/** 四个状态对应四个接口路径。写在一处，避免调用点各拼各的、写错一个字母。
+ *
+ *  后端刻意没有做成 `POST /events/{id}/status {status}` 单接口：那样非法值
+ *  会走到路由里再判断，而这里的前端映射表能让非法状态在**编译期**就进不来。 */
+const STATUS_PATHS: Record<EventReviewStatus, string> = {
+  pending: 'unmark-false-positive',
+  confirmed: 'confirm',
+  false_positive: 'false-positive',
+  resolved: 'resolve',
+}
+
 export const api = {
   health: () => request<{ status: string; spa_built: boolean }>('/health'),
   systemStatus: () => request<SystemStatus>('/system/status'),
@@ -178,14 +191,25 @@ export const api = {
 
   events: (query: EventQuery = {}) => request<EventPage>(`/events${qs(query)}`),
 
-  markEventFalsePositive: (id: string) =>
-    request<{ event_id: string; is_false_positive: boolean }>(
-      `/events/${encodeURIComponent(id)}/false-positive`,
+  /** 状态变更统一走这一个函数：四个接口的差别只是目标状态值。
+   *
+   *  后端会在写完后回读，把 review_status 和 is_false_positive 一起返回——
+   *  界面用返回值而不是本地猜出来的状态渲染，两列万一漂了当场就能看出来。 */
+  eventSetStatus: (id: string, status: EventReviewStatus) =>
+    request<EventStatusResult>(
+      `/events/${encodeURIComponent(id)}/${STATUS_PATHS[status]}`,
       { method: 'POST' },
     ),
 
+  markEventFalsePositive: (id: string) => api.eventSetStatus(id, 'false_positive'),
+
   /** 片段直接给 URL 让 <video> 去取，不必把几十 MB 视频走一遍 JS。 */
   eventClipUrl: (id: string) => `${BASE}/events/${encodeURIComponent(id)}/clip`,
+
+  /** 下载同一段片子。走 query 而不是第二个路径——片段地址是对外契约，多一处
+   *  多一条要同步的东西；download 只影响响应的 Content-Disposition。 */
+  eventClipDownloadUrl: (id: string) =>
+    `${BASE}/events/${encodeURIComponent(id)}/clip?download=true`,
 
   /** 导出交给浏览器原生下载（带 Content-Disposition），前端不解析 CSV。 */
   eventsExportUrl: (query: EventQuery = {}) => `${BASE}/events/export${qs(query)}`,

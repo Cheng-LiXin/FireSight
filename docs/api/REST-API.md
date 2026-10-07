@@ -573,7 +573,7 @@ OOM。**本次训练不会归档**，但现场记录留在 `runs/` 下，曲线�
 |---|---|---|
 | `keyword` | 空 | 匹配 消息 / 位置 / 事件号，不区分大小写 |
 | `label` | 空 | `smoke` 或 `fire`；空表示不限 |
-| `status` | `all` | `all` / `pending`（待复核）/ `false_positive`（已标误报） |
+| `status` | `all` | `all` / `pending`（待处置）/ `confirmed`（已确认）/ `false_positive`（误报）/ `resolved`（已处置） |
 | `start` / `end` | 空 | 日期范围 `YYYY-MM-DD`，含端点 |
 | `limit` | 50 | 1–200 |
 | `offset` | 0 | |
@@ -585,7 +585,7 @@ OOM。**本次训练不会归档**，但现场记录留在 `runs/` 下，曲线�
       "event_id": "20260927-150317-evt-40", "ts": "2026-09-27T15:03:17",
       "frame_index": 44, "labels": ["fire"], "conf": 0.871,
       "location": "D-Fire test 机位", "message": "检测到明火，位置：D-Fire test 机位",
-      "has_clip": true, "is_false_positive": false
+      "has_clip": true, "is_false_positive": false, "review_status": "pending"
     }
   ],
   "total": 80, "limit": 50, "offset": 0
@@ -595,6 +595,26 @@ OOM。**本次训练不会归档**，但现场记录留在 `runs/` 下，曲线�
 - **`total` 是当前筛选下的总数**，不是全库总数——前端据此算页码
 - `labels` 已拆成数组；`message` 用中文类别名（`labels` 仍是契约名）
 - **不外泄 `clip_path`**：只给 `has_clip`，且以磁盘为准（库里可能留着已失效的路径）
+
+#### 处置状态
+
+`review_status` 是处置状态，四个值互斥且合起来等于全库：
+
+| 值 | 中文 | 含义 |
+|---|---|---|
+| `pending` | 待处置 | 刚响，还没人看过 |
+| `confirmed` | 已确认 | 有人看过，现场确实有事 |
+| `false_positive` | 误报 | 看过，是误报 |
+| `resolved` | 已处置 | 看过，而且事情已经处理完了 |
+
+- **`review_status` 与 `is_false_positive` 并存，不是替代关系**。前者是界面口径，
+  后者是统计口径：月度图表、误报率、报告都读 `is_false_positive`。
+  服务端保证两者永远同步（`review_status == "false_positive"` ⟺
+  `is_false_positive == true`），调用方不要自己推导，也不要只写其中一列。
+- `pending` 表示「尚未定性」，所以确认与误报都可以从它出发；
+  `confirmed` / `resolved` 只说明事实，不表示现场已无风险。
+- 老库升级时自动补列并回填：此前标过误报的行补成 `false_positive`，其余为 `pending`。
+  迁移幂等，每次新建 `EventStore` 都会检查一次，不会重复执行。
 - 排序为 `ts DESC, event_id DESC`。ts 只到秒，同一秒的多条必须靠第二个键定序，
   否则分页会漂
 
@@ -603,13 +623,34 @@ OOM。**本次训练不会归档**，但现场记录留在 `runs/` 下，曲线�
 > `label` 与 `status` 会**显式拒绝**未知取值。不校验的话 `label=flame` 会安静地返回
 > 0 条——用户看到的是「这段时间没有告警」，而事实是参数写错了。
 
-### POST `/api/events/{event_id}/false-positive`
+### 处置状态变更
 
-标记误报。返回 `{"event_id": "...", "is_false_positive": true}`。
-重复标记同一事件是幂等的（界面可能重放请求）。
+四个接口，形态一致：把事件置成某个处置状态，同时写 `is_false_positive`，
+**写完回读**并把两列一起返回。
 
-**错误**：404 事件不存在——原实现无条件 UPDATE，影响行数为 0 也当成功，
-前端会以为标上了。
+| 接口 | 置为 | 说明 |
+|---|---|---|
+| `POST /api/events/{event_id}/confirm` | `confirmed` | 确认告警为真 |
+| `POST /api/events/{event_id}/resolve` | `resolved` | 标记已处置 |
+| `POST /api/events/{event_id}/false-positive` | `false_positive` | 标记误报 |
+| `POST /api/events/{event_id}/unmark-false-positive` | `pending` | 撤销误报 |
+
+```json
+{ "event_id": "...", "review_status": "confirmed", "is_false_positive": false }
+```
+
+- **重复调用同一接口是幂等的**（界面可能重放请求），换着调用则按状态流转：
+  确认后再标误报，误报位会被一起置上。
+- **撤销误报回到 `pending` 而不是 `resolved`**：撤销只说明上次的判断错了，
+  没人重新看过，不能替值班的人宣布这件事已经处理完。
+- **回读而不是把入参原样返回**：两列是一次写入、两次读取，中途若出现漂移
+  （例如并发改了同一条）会在响应里当场暴露，而不是等到下次列表刷新时
+  才变成「按状态筛不出这条」。
+- 没有做成 `POST /events/{id}/status` 单一接口：那样非法值要等运行时才被拒。
+  四个固定路径让调用的意图直接体现在 URL 上。
+
+**错误**：404 事件不存在。写之前先确认事件存在——无条件 UPDATE 影响 0 行却回 200，
+界面上的按钮却不会消失，用户会以为系统卡了。
 
 ### GET `/api/events/export`
 
@@ -618,9 +659,16 @@ OOM。**本次训练不会归档**，但现场记录留在 `runs/` 下，曲线�
 响应带 `Content-Disposition: attachment`，交给浏览器原生下载。**带 UTF-8 BOM**，
 否则 Excel 打开中文列是乱码。
 
+导出列：`event_id, ts, frame_index, labels, conf, location, message, clip_path,
+is_false_positive, review_status`。后两列并存，与列表接口同一套口径。
+
 ### GET `/api/events/{event_id}/clip`
 
 事件片段（告警前后各若干帧）。
+
+| 参数 | 默认 | 说明 |
+|---|---|---|
+| `download` | `false` | 真值则作为附件下载（`Content-Disposition: attachment`），回放时不要带 |
 
 只提供事件目录（`data/events/`）内的文件：`clip_path` 是库里的绝对路径，
 不做归属校验这个接口就是任意文件读取。支持 `.webm` / `.mp4` / `.mkv` / `.avi`。

@@ -7,7 +7,7 @@ import io
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fire_sight.alerting import EventStore
+from fire_sight.alerting import REVIEW_STATUSES, EventStore
 
 # 导出列。顺序即表格列顺序，改动要同步 REST-API 文档。
 _EXPORT_FIELDS = [
@@ -20,6 +20,7 @@ _EXPORT_FIELDS = [
     "message",
     "clip_path",
     "is_false_positive",
+    "review_status",
 ]
 
 
@@ -91,6 +92,21 @@ class EventService:
             if store.get_event(event_id) is None:
                 return False
             store.mark_false_positive(event_id)
+            return True
+
+    def set_review_status(self, event_id: str, status: str) -> bool:
+        """改处置状态。返回是否命中——不存在时返回 False，由路由转成 404。
+
+        与 mark_false_positive 同一条纪律：先确认事件存在再写。否则
+        UPDATE 影响 0 行、接口回 200，界面上的按钮却不会消失——
+        用户会以为点不动是系统卡了，而事实是这条记录早被清理。
+        """
+        if status not in REVIEW_STATUSES:
+            raise ValueError(f"未知处置状态: {status}")
+        with self._store() as store:
+            if store.get_event(event_id) is None:
+                return False
+            store.set_review_status(event_id, status)
             return True
 
     def count(self) -> int:

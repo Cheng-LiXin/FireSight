@@ -377,6 +377,25 @@ export interface AlertEventInfo {
   message: string
   has_clip: boolean
   is_false_positive: boolean
+  /** 处置状态。后端保证是下面四个值之一，不会是空串。 */
+  review_status: EventReviewStatus
+}
+
+/** 处置状态。四态互斥，合起来等于全库。
+ *
+ *  为什么不是原来的两态：is_false_positive 只回答「是不是误报」，回答不了
+ *  「看没看过、处理了没」。值班的人要能区分「刚响还没看」和「确认过了但
+ *  现场还没处理完」。
+ *
+ *  is_false_positive 与它并存而非替代：前者是统计口径（误报率、月度图表），
+ *  后者是界面口径。后端保证两者永远同步，这里不要自己推导。 */
+export type EventReviewStatus = 'pending' | 'confirmed' | 'false_positive' | 'resolved'
+
+/** 状态变更接口的返回值。后端写完后回读，两列一起给。 */
+export interface EventStatusResult {
+  event_id: string
+  review_status: EventReviewStatus
+  is_false_positive: boolean
 }
 
 /** 分页结果。total 是**当前筛选下**的总数，不是全库总数。 */
@@ -387,7 +406,7 @@ export interface EventPage {
   offset: number
 }
 
-export type EventStatusFilter = 'all' | 'pending' | 'false_positive'
+export type EventStatusFilter = 'all' | EventReviewStatus
 
 /** 用 type 而不是 interface：interface 没有隐式索引签名，
  *  不能赋给 client.ts 里 qs() 的 Record<string, ...> 形参。 */

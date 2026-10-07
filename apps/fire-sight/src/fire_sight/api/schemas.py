@@ -6,6 +6,8 @@ from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
+from fire_sight.alerting.store import DEFAULT_REVIEW_STATUS
+
 
 class GpuStatus(BaseModel):
     available: bool = False
@@ -137,6 +139,9 @@ class AlertEventInfo(BaseModel):
 
     clip_path 不外泄：只给 has_clip，取片段走 `/api/events/{id}/clip`，
     否则这个字段就是一个能读出任意路径的窗口。
+
+    review_status 是处置状态（pending / confirmed / false_positive / resolved），
+    与 is_false_positive 并存：后者是统计口径，前者是界面口径。
     """
 
     event_id: str
@@ -148,6 +153,7 @@ class AlertEventInfo(BaseModel):
     message: str = ""
     has_clip: bool = False
     is_false_positive: bool = False
+    review_status: str = DEFAULT_REVIEW_STATUS
 
 
 class EventPage(BaseModel):
