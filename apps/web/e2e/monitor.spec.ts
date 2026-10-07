@@ -20,6 +20,40 @@ test('视频源为空时不能启动', async ({ page }) => {
   await expect(page.getByRole('button', { name: '开始监控' })).toBeEnabled()
 })
 
+test('监控跑起来时能人工暂停/恢复语音播报', async ({ page }) => {
+  await page.route('**/api/monitor/status', async (route) => {
+    await route.fulfill({
+      json: {
+        status: 'running',
+        source: 'rtsp://127.0.0.1:554/stream',
+        camera_name: '东门',
+        started_at: '12:00:00',
+        finished_at: null,
+        frames: 120,
+        alerts: 2,
+        reconnects: 0,
+        error: null,
+        tts_paused: false,
+      },
+    })
+  })
+
+  let requested: unknown = null
+  await page.route('**/api/monitor/tts/pause', async (route) => {
+    requested = route.request().postDataJSON()
+    await route.fulfill({ json: { paused: true, tts_paused: true, status: 'running' } })
+  })
+
+  await page.goto('/monitor')
+
+  await expect(page.getByTestId('mon-tts-state')).toHaveText('播报中')
+  await page.getByTestId('mon-tts-pause').click()
+
+  expect(requested).toEqual({ paused: true })
+  await expect(page.getByTestId('mon-tts-state')).toHaveText('已暂停')
+  await expect(page.getByTestId('mon-tts-resume')).toBeVisible()
+})
+
 test('本地源读不了时把失败说清楚，而不是一直转圈', async ({ page }) => {
   await page.goto('/monitor')
 

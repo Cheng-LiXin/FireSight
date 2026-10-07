@@ -71,7 +71,12 @@ class MonitorManager:
 
     def status(self) -> Dict[str, Any]:
         with self._lock:
-            return dict(self._state)
+            state = dict(self._state)
+        # 播报暂停状态不存进 _state：它真正的家在进程级 TTS 单例上，存一份
+        # 副本必然会出现两边不一致（暂停后监控重启，副本还是旧值）。
+        # 这里每次现读，status 与 set_tts_paused 永远同源。
+        state["tts_paused"] = self.tts_paused()
+        return state
 
     def is_active(self) -> bool:
         return self.status()["status"] in ACTIVE
@@ -205,6 +210,35 @@ class MonitorManager:
         落终态），所以 timeout 只是「尽快给准信」的耐心值，不是停止的硬期限。
         """
         return self.wait_until(lambda s: s["status"] != "stopping", timeout=timeout)
+
+    # ------------------------------------------------------------------
+    # 语音播报：人工暂停 / 恢复
+    # ------------------------------------------------------------------
+    def tts_paused(self) -> bool:
+        """当前是否处于人工暂停播报。
+
+        暂停状态挂在进程级 TTS 单例上（那儿才是真正发声的地方），所以这里
+        只是读回来给界面显示——暂停不该影响告警入库和片段留存。
+        """
+        from fire_sight.alerting import get_tts
+
+        return bool(get_tts(enabled=True).paused)
+
+    def set_tts_paused(self, paused: bool) -> bool:
+        """暂停/恢复播报。返回暂停后的状态。
+
+        为什么要有这个开关：告警冷却 30 秒一条，火一直没灭就会一直播。
+        值班的人需要「我现在去现场确认，别再喊了」的办法——冷却是机器决定的，
+        不该由人反复去调参数。
+        """
+        from fire_sight.alerting import get_tts
+
+        tts = get_tts(enabled=True)
+        if paused:
+            tts.pause()
+        else:
+            tts.resume()
+        return bool(tts.paused)
 
     def stop_for_training(self, timeout: float = 10.0) -> bool:
         """训练优先：停掉监控并等它把**锁**真正还回来。

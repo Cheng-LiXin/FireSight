@@ -170,6 +170,49 @@ def test_event_store_set_clip(tmp_path):
         assert store.get_event("evt-9")["clip_path"].endswith("c.webm")
 
 
+def test_event_store_set_clip_from_another_thread(tmp_path):
+    """片段回填发生在后台收尾线程里，EventStore 必须能被跨线程使用。
+
+    现场症状：几十 MB 的 webm 实实在在写到了磁盘，事件列表却永远显示
+    「未留存片段」。根因是收尾线程调 store.set_clip 时抛
+    `ProgrammingError: SQLite objects created in a thread can only be used
+    in that same thread`，异常被 except 吞掉只剩一行 warning——静默丢数据。
+    """
+    import threading
+
+    from fire_sight.alerting import EventStore
+    from fire_sight.scene.types import AlertEvent
+
+    db = tmp_path / "events.db"
+    ev = AlertEvent(
+        event_id="evt-thread",
+        frame_index=3,
+        labels=["fire"],
+        conf=0.9,
+        location="东门",
+        message="检测到明火，位置：东门",
+    )
+    clip = str(tmp_path / "evt-thread.webm")
+    errors: list[BaseException] = []
+
+    with EventStore(db) as store:
+        store.insert(ev, clip_path="")
+
+        def _finalize() -> None:
+            try:
+                store.set_clip("evt-thread", clip)
+            except BaseException as exc:  # noqa: BLE001 — 原样传给主线程断言
+                errors.append(exc)
+
+        t = threading.Thread(target=_finalize, name="clip-finalize-test")
+        t.start()
+        t.join(timeout=5)
+
+    assert not errors, f"跨线程回填不应报错：{errors!r}"
+    with EventStore(db) as reader:
+        assert reader.get_event("evt-thread")["clip_path"] == clip
+
+
 def test_write_clip_rejects_empty_frames(tmp_path):
     from fire_sight.alerting.clip_buffer import write_clip
 

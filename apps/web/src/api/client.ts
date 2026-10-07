@@ -242,6 +242,13 @@ export const api = {
     }),
   monitorStop: () => request<MonitorStatus & { stopped: boolean }>('/monitor/stop', { method: 'POST' }),
 
+  /** 暂停 / 恢复语音播报。只掐声音，告警与片段照常。 */
+  monitorSetTtsPaused: (paused: boolean) =>
+    request<MonitorStatus & { paused: boolean }>('/monitor/tts/pause', {
+      method: 'POST',
+      body: JSON.stringify({ paused }),
+    }),
+
   /** MJPEG 地址。浏览器 <img src> 直接吃，不需要 fetch。 */
   monitorStreamUrl: () => `${BASE}/monitor/stream`,
 

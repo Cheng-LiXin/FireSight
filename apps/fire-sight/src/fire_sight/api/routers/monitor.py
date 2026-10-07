@@ -79,6 +79,20 @@ def monitor_status() -> dict:
     return MONITOR.status()
 
 
+class MonitorTtsPause(BaseModel):
+    paused: bool = Field(True, description="true=暂停播报，false=恢复播报")
+
+
+@router.post("/tts/pause")
+def pause_tts(req: MonitorTtsPause) -> dict:
+    """暂停 / 恢复语音播报。
+
+    只掐掉声音，告警照常入库、片段照常留存——暂停的是喇叭，不是眼睛。
+    """
+    paused = MONITOR.set_tts_paused(req.paused)
+    return {"paused": paused, **MONITOR.status()}
+
+
 def _mjpeg() -> Iterator[bytes]:
     """多段 JPEG 流。浏览器 <img src> 直接消费，零依赖、低延迟。"""
     last: Optional[bytes] = None

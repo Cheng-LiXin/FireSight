@@ -13,6 +13,24 @@
 
 ### 修复
 
+- **明火/烟雾告警的片段「未留存」**。片段其实实实在在写到了磁盘（现场有的单个 webm
+  有 54 MB），但事件表里的 `clip_path` 始终为空，界面上永远显示未留存。根因是
+  监控收尾时把片段回填写进了 `clip-finalize` 后台线程，而 `EventStore` 的
+  `sqlite3.connect` 默认 `check_same_thread=True`，跨线程调用抛
+  `ProgrammingError: SQLite objects created in a thread can only be used in that same thread.`，
+  异常又被 `except` 吞掉只剩一行 warning——几十 MB 的编码成果静默丢失，
+  现场根本无从察觉。现在 `EventStore` 显式 `check_same_thread=False` 并用一把
+  `threading.Lock` 串起所有读写访问。**注意：本次修复只保证今后不回填失败，
+  此前已丢路径的告警不会自愈**（文件在盘上、数据库没记录）。
+- **明火播报只播第一次，之后再也不出声**。`speak()` 逐条
+  `say()` + `runAndWait()`：`runAndWait()` 会先往队列里塞一个 `endLoop`，
+  它在下一条的开头被 pump 出去，于是 `SAPI5Driver.stop()` 执行
+  `Speak("", 3)`（`SVSFlagsAsync | SVSFPurgeBeforeSpeak`）把正在播的这一句
+  Purge 掉。实测（`.runtime/_probe_p5_tts_rootcause.py`）修复前三条播报时长
+  5.79s / 0.02s / 0.02s，后两条 `completed=False`；改为
+  `say()` + `startLoop()` + `endLoop()` 后是 5.31s / 5.30s / 5.45s，全部完整。
+  `endLoop()` 不可省：`startLoop()` 返回后 `Engine._inLoop` 仍为 True
+  （真正清它的是 driver 层），不显式复位下一条就会抛 `run loop already started`。
 - **实时监控只调起一次语音引擎，播报不再卡住推理主线程**。此前 RTSP 掉线走退避重连，
   每轮重连都在 `run_inference` 里新建一个 `pyttsx3` 引擎（`pyttsx3.init()` 一次不释放），
   于是开着监控跑上几小时会攒出一串 SAPI 引擎；而 `speak()` 里的 `runAndWait()` 是同步阻塞的，
@@ -41,6 +59,16 @@
 - **`eval` 的数据集兜底值**从已删除的 `D-Fire/train` 改为 `D-Fire/raw`。fallback 指向一个
   不存在的路径，只会把「归档里没记数据集」伪装成一次评估请求。
 
+### 新增
+
+- **人工暂停/恢复语音播报**（`POST /api/monitor/tts/pause`，监控页「暂停播报 / 恢复播报」按钮）。
+  告警冷却 30 秒一条，火一直没灭就会一直喊，值班的人需要一个「我现在去现场确认，别再喊了」
+  的手段——冷却是机器决定的，不该靠人反复去改启动参数。暂停只掐喇叭：告警照常入库、
+  片段照常留存。暂停期间的新告警**不入队**、已排队的**立即排空**，否则恢复瞬间会
+  把积压的告警一次性倾泻出来。暂停状态挂在 TTS 单例上而不是 `MonitorManager._state`，
+  所以监控重启后仍是暂停的，不会偷偷自己出声。播报队列另设 32 条上限并丢最旧的：
+  持续明火时无上限队列会让播报永远落后于现场。
+
 ### 变更
 
 - **数据集换代**：`data/processed/D-Fire/`（2395.6 MB / 51669 文件）已删除，训练与质检
@@ -52,11 +80,15 @@
   8 行坐标越界），全部为提供方原始数据自带，与本次改动无关。
 - **帧源接口新增可选的停止信号**：`create_frame_source(..., stop_event=None)`、
   `FrameSource.with_stop_event()` / `stopped()`，均可选、不传时行为不变。
-- **测试**：`pytest tests apps/platform/tests -q` 从 283 增至 **296 passed**（新增 13 条
-  回归测试：TTS 单例/非阻塞/幂等关闭、帧源停止信号与读超时与抖动容忍、
-  停止接口返回终态且等待有上限、停止后 GPU 锁及时归还）。原有「停止接口返回状态」
+- **测试**：`pytest tests apps/platform/tests -q` 从 283 增至 **304 passed**（新增 21 条
+  回归测试：TTS 单例/非阻塞/幂等关闭、连续播报每条都完整、单条播报异常线程不死、
+  暂停/恢复语义与队列排空、队列上限、帧源停止信号与读超时与抖动容忍、
+  停止接口返回终态且等待有上限、停止后 GPU 锁及时归还、`EventStore` 跨线程回填、
+  播报暂停接口与状态可见性）。原有「停止接口返回状态」
   的行为变化由 `test_monitor_stop_is_not_undone_by_late_frames` 继续守住——
   晚到帧不许把状态改回「监控中」。
+  TTS 的回归测试用假引擎替掉 `pyttsx3`（`tests/test_09b_tts.py`）：真实 SAPI 的行为由
+  探针实测数据背书，测试只断言调用序列，跨机器稳定。
 
 ---
 

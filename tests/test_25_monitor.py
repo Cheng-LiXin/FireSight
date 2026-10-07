@@ -355,6 +355,7 @@ def test_monitor_routes_registered():
         "/api/monitor/stop",
         "/api/monitor/status",
         "/api/monitor/stream",
+        "/api/monitor/tts/pause",
     } <= paths
 
 
@@ -384,3 +385,61 @@ def test_monitor_http_start_stop_and_409(monitor, fake_pipeline):
         assert "train" in resp.json()["detail"]
     finally:
         deps.GPU_LOCK.release()
+
+
+def test_tts_pause_is_human_controlled_and_visible_in_status(monitor, fake_pipeline):
+    """人工暂停播报：接口能切，status 能看见，恢复后声音回来。
+
+    现场要求是「持续实时播报 + 由人工决定是否暂停」——所以暂停必须是一个
+    独立的、可来回切的开关，而不是启动参数里那个 enable_tts（改了要重启监控）。
+    """
+    pytest.importorskip("fastapi")
+    from fastapi.testclient import TestClient
+
+    from fire_sight.alerting import get_tts
+    from fire_sight.api.app import app
+
+    client = TestClient(app)
+    tts = get_tts(enabled=True)
+
+    assert client.get("/api/monitor/status").json()["tts_paused"] is False
+
+    paused = client.post("/api/monitor/tts/pause", json={"paused": True}).json()
+    assert paused["paused"] is True
+    assert paused["tts_paused"] is True
+    assert tts.paused is True, "暂停必须落到真正发声的那个单例上"
+    assert monitor.status()["tts_paused"] is True
+
+    # 暂停期间不许再往播报队列里塞东西
+    assert tts.speak("暂停期间的告警") is False
+
+    resumed = client.post("/api/monitor/tts/pause", json={"paused": False}).json()
+    assert resumed["paused"] is False
+    assert resumed["tts_paused"] is False
+    assert tts.paused is False
+
+    try:
+        client.post("/api/monitor/start", json={"source": "dir://frames", "enable_tts": True})
+        client.post("/api/monitor/tts/pause", json={"paused": True})
+        client.post("/api/monitor/stop")
+        monitor.wait(timeout=5)
+        # 暂停状态挂在单例上，监控重启后仍然是暂停的——不随重启偷偷恢复
+        assert monitor.status()["tts_paused"] is True
+    finally:
+        get_tts(enabled=True).resume()
+
+
+def test_tts_pause_defaults_to_pausing(monitor):
+    """POST /tts/pause 不带 body 时按「暂停」处理——这是按钮上的默认动作。"""
+    pytest.importorskip("fastapi")
+    from fastapi.testclient import TestClient
+
+    from fire_sight.alerting import get_tts
+    from fire_sight.api.app import app
+
+    client = TestClient(app)
+    try:
+        assert client.post("/api/monitor/tts/pause", json={}).json()["paused"] is True
+        assert get_tts(enabled=True).paused is True
+    finally:
+        get_tts(enabled=True).resume()

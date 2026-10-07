@@ -134,6 +134,8 @@ export interface MonitorStatus {
   alerts: number
   reconnects: number
   error: string | null
+  // 人工暂停播报（后端 TTS 单例上的状态，每次 status 现读）
+  tts_paused?: boolean
 }
 
 export interface MonitorStartParams {

@@ -31,6 +31,9 @@ const shownError = computed(() => error.value || status.value?.error || '')
 
 const hasFrames = computed(() => (status.value?.frames ?? 0) > 0)
 
+/** 人工暂停播报（后端 TTS 单例上的状态；status 里每次现读）。 */
+const ttsPaused = computed(() => status.value?.tts_paused === true)
+
 /** 流地址挂在 img 上；只有在跑时才挂，停了就把连接放掉。 */
 const streamUrl = computed(() => (active.value ? api.monitorStreamUrl() : ''))
 
@@ -119,6 +122,20 @@ async function stop() {
   }
 }
 
+async function toggleTtsPaused() {
+  busy.value = true
+  error.value = ''
+  try {
+    const next = !ttsPaused.value
+    // 后端回的是整份 status，直接换掉当前这份，暂停状态与监控状态天然一致
+    status.value = await api.monitorSetTtsPaused(next)
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    busy.value = false
+  }
+}
+
 onMounted(() => {
   refresh()
   timer = window.setInterval(refresh, STATUS_POLL_MS)
@@ -199,6 +216,17 @@ onUnmounted(() => {
         </div>
 
         <div class="actions">
+          <button
+            v-if="active"
+            type="button"
+            class="fs-btn-ghost"
+            :disabled="busy"
+            :data-testid="ttsPaused ? 'mon-tts-resume' : 'mon-tts-pause'"
+            :title="ttsPaused ? '恢复语音播报' : '暂停语音播报（告警与片段照常留存）'"
+            @click="toggleTtsPaused"
+          >
+            {{ ttsPaused ? '恢复播报' : '暂停播报' }}
+          </button>
           <button v-if="!active" type="button" class="fs-btn-primary" :disabled="busy || !form.source.trim()" @click="start">
             开始监控
           </button>
@@ -217,6 +245,9 @@ onUnmounted(() => {
       </span>
       <span class="status__item">已处理帧 <b class="fs-num">{{ status?.frames ?? 0 }}</b></span>
       <span class="status__item">断线重连 <b class="fs-num">{{ status?.reconnects ?? 0 }}</b></span>
+      <span v-if="active" class="status__item">
+        语音 <b :data-testid="'mon-tts-state'">{{ ttsPaused ? '已暂停' : '播报中' }}</b>
+      </span>
       <span v-if="status?.camera_name" class="status__item">位置 {{ status.camera_name }}</span>
     </section>
 
