@@ -124,6 +124,13 @@ kbd {
    容器三：账册
    ========================================================================== */
 
+/* 宽账册（模型归档 11 列）在窄视口下必须自己横向滚，而不是把整页撑宽。
+   11 列约 1200px 起步，900px 视口放不下；一旦账册把 scrollWidth 顶上去，
+   整页就跟着出现横向滚动条，图标轨和顶栏一起被拖走。 */
+.fs-scroll {
+  overflow-x: auto;
+}
+
 .fs-ledger {
   width: 100%;
   border-collapse: collapse;
@@ -195,6 +202,12 @@ kbd {
   flex-direction: column;
   gap: var(--sp-1);
   min-width: 180px;
+}
+
+/* 监控页的参数栏宽 320px，横排时 .field 的 180px 最小宽会把视频源挤到换行，
+   这里让整栏纵向排列、控件撑满。 */
+.field--stack {
+  min-width: 0;
 }
 
 .field--slider {
@@ -357,6 +370,32 @@ input[type='range']:hover::-webkit-slider-thumb {
   color: var(--ink-3);
   border-color: var(--cinder);
   cursor: default;
+}
+
+/* 表格行内的迷你按钮。与 .field 同一规矩：告警、训练、模型三页都在用，
+   放全局而不是各页 scoped——之前它住在告警事件页的 scoped 里，
+   Vue 编译成 [data-v-告警页] 限定，训练页与模型页那五枚按钮全是无效选择器，
+   高度悄悄退回 32px。同一种控件迟早长得不一样，讲的就是这个。 */
+.fs-btn-ghost--tiny {
+  height: 24px;
+  padding: 0 var(--sp-2);
+  font-size: var(--fs-xs);
+}
+
+/* 参数托盘：一排控件放在一张带边框的浅色托盘上。
+   与 .fs-viewfinder 的区别是**不挂四角刻度角**——刻度角标记的是
+   「正在被观察的东西」（图像、曲线、画面），而参数栏是要你去操作的，
+   不是被观察的对象。少了这一层签名，两者就不会混。
+
+   这份配方此前在训练中心（.launcher）与模型库（.bar）各抄了一份，
+   连 padding 带阴影逐字相同；调一次阴影要改两个文件，漏一处就出现
+   同屏两种卡片。放在这里，两页只留各自的布局属性。 */
+.fs-tray {
+  padding: var(--sp-3) var(--sp-4);
+  background: var(--ash);
+  border: var(--hairline);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-1);
 }
 
 /* ==========================================================================

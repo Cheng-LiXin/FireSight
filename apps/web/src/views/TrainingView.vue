@@ -379,7 +379,7 @@ onBeforeUnmount(disconnect)
         </button>
       </div>
 
-      <div v-if="launcherOpen" class="launcher">
+      <div v-if="launcherOpen" class="launcher fs-tray">
         <label class="field">
           <span class="field__label">数据集</span>
           <select v-model="form.dataset" class="field__control">
@@ -709,21 +709,17 @@ onBeforeUnmount(disconnect)
 
 /* --- 启动表单 --------------------------------------------------------- */
 
+/* 一行里的控件底边必须齐平。默认的 stretch 会把每个 .field 拉成整行那么高，
+   控件就落在各自 label 的顶端；而模型那一项的 hint 会折成三行，其他项只有
+   一行 label——于是每个 label 的高度都不一样，底边自然对不齐。钉死在
+   flex-end，控件就以自身高度贴底，跟 label 有几行无关。
+   托盘本身（底、边、圆角、阴影）由 .fs-tray 提供。 */
 .launcher {
   display: flex;
   flex-wrap: wrap;
-  /* 一行里的控件底边必须齐平。默认的 stretch 会把每个 .field 拉成整行那么高，
-     控件就落在各自 label 的顶端；而模型那一项的 hint 会折成三行，其他项只有
-     一行 label——于是每个 label 的高度都不一样，底边自然对不齐。钉死在
-     flex-end，控件就以自身高度贴底，跟 label 有几行无关。 */
   align-items: flex-end;
   gap: var(--sp-4);
-  padding: var(--sp-3) var(--sp-4);
   margin-bottom: var(--sp-3);
-  background: var(--ash);
-  border: var(--hairline);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow-1);
 }
 
 .actions {

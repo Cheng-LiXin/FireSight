@@ -218,7 +218,7 @@ onMounted(async () => {
         </button>
       </div>
 
-      <div class="bar">
+      <div class="bar fs-tray">
         <label class="field">
           <span class="field__label">关键词</span>
           <input
@@ -434,11 +434,6 @@ onMounted(async () => {
   flex-wrap: wrap;
   align-items: flex-end;
   gap: var(--sp-4);
-  padding: var(--sp-3) var(--sp-4);
-  background: var(--ash);
-  border: var(--hairline);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow-1);
 }
 
 .bar__actions {
@@ -545,12 +540,6 @@ onMounted(async () => {
 
 .fs-ledger tbody tr.is-playing td {
   background: var(--highlight);
-}
-
-.fs-btn-ghost--tiny {
-  height: 24px;
-  padding: 0 var(--sp-2);
-  font-size: var(--fs-xs);
 }
 
 /* --- 分页 ------------------------------------------------------------- */

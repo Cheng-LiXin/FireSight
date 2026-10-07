@@ -304,7 +304,7 @@ FireSight/
 | 深度学习 | PyTorch、Ultralytics YOLO11 |
 | 视觉 | OpenCV |
 | 后端 | FastAPI、Uvicorn、Pydantic、SQLite |
-| 前端 | Vue 3、TypeScript、Vite、ECharts、marked + DOMPurify |
+| 前端 | Vue 3、TypeScript、Vite、ECharts、marked + DOMPurify（Element Plus 已在 `main.ts` 全量注册，当前页面零 `<el-` 组件） |
 | 大模型 | `anthropic` SDK（Claude）/ OpenAI 兼容接口（DeepSeek、SiliconFlow、自定义），按环境变量切换 |
 | 语音 | pyttsx3（离线中文播报，无设备时降级为日志） |
 | 配置 | PyYAML、Pydantic 三源合并 |
@@ -444,6 +444,8 @@ set FIRESIGHT_LLM_BASE_URL=https://api.deepseek.com
 
 **改了前端代码但页面没变**
 生产模式读的是 `apps/web/dist/`，需重新 `npm run build`；或改用 `npm run dev` 开发模式。
+**`npm run test:e2e` 同样读 `dist/`**——忘了 build 就跑 e2e，测的是上一版代码，
+看起来全绿，其实什么都没验。
 
 **`fs-serve` 提示「不是内部或外部命令」**
 venv 是在这条入口加进 `pyproject.toml` 之前装的（`.venv\Scripts\` 里可能还留着
@@ -462,7 +464,7 @@ venv 是在这条入口加进 `pyproject.toml` 之前装的（`.venv\Scripts\` �
 ```bash
 pytest tests apps/platform/tests -q      # 后端，预期 327 passed
 cd apps/web && npm run typecheck         # 前端类型检查通过
-npm run test:e2e                         # 前端端到端（需先起 fs-serve），预期 37 passed / 6 skipped
+npm run test:e2e                         # 前端端到端（需先起 fs-serve），预期 44 passed / 6 skipped
 ```
 
 前端 E2E 用 Playwright 驱动系统已装的 Edge，不下载自带浏览器。

@@ -84,11 +84,16 @@ watch(month, load)
       <h1 class="bs-title">月度火情统计 · {{ monthTitle }}</h1>
 
       <div class="bs-nav">
-        <button type="button" class="bs-btn" @click="shiftMonth(-1)">上一月</button>
-        <button type="button" class="bs-btn" :disabled="canNext === false" @click="shiftMonth(1)">
+        <button type="button" class="bs-btn fs-btn-ghost" @click="shiftMonth(-1)">上一月</button>
+        <button
+          type="button"
+          class="bs-btn fs-btn-ghost"
+          :disabled="canNext === false"
+          @click="shiftMonth(1)"
+        >
           下一月
         </button>
-        <RouterLink to="/" class="bs-btn bs-btn--link">返回控制台</RouterLink>
+        <RouterLink to="/" class="bs-btn bs-btn--link fs-btn-ghost">返回控制台</RouterLink>
       </div>
     </header>
 
@@ -99,7 +104,7 @@ watch(month, load)
     <template v-if="detail">
       <!-- KPI 行：数字本身就是图，大字号独立读数用比例字形 -->
       <section class="kpis" aria-label="本月读数">
-        <div class="kpi">
+        <div class="kpi kpi--lead">
           <div class="kpi__label">告警总数</div>
           <div class="kpi__value">{{ detail.total }}</div>
           <div class="kpi__sub" :class="`is-${momText.tone}`">较上月 {{ momText.text }}</div>
@@ -194,55 +199,37 @@ watch(month, load)
   margin-left: auto;
 }
 
+/* 大屏沿用标准按钮（.fs-btn-ghost），只留两处本页特有的差异：
+   站两米外看要更大一点，以及 RouterLink 那枚需要去掉下划线。
+   此前这里自己抄了一整套按钮配方（底、边、圆角、hover、按下、禁用），
+   于是这一页成了全站唯一绕过标准按钮的地方——在控制台学会的按钮
+   高度与禁用态，进了大屏全都不成立。 */
 .bs-btn {
   height: 36px;
   padding: 0 var(--sp-4);
-  font: inherit;
-  font-size: var(--fs-sm);
-  color: var(--bone);
-  background: var(--ash);
-  border: 1px solid var(--cinder);
-  border-radius: var(--radius-sm);
   text-decoration: none;
-  cursor: pointer;
-  transition: border-color var(--dur-1) var(--ease), background-color var(--dur-1) var(--ease),
-    transform var(--dur-1) var(--ease);
 }
 
-.bs-btn:hover:not(:disabled) {
-  border-color: var(--dross);
-  background: var(--highlight);
-}
-
-.bs-btn:active:not(:disabled) {
-  transform: translateY(1px);
-}
-
-.bs-btn:disabled {
-  color: var(--ink-3);
-  cursor: default;
-}
-
-/* --- KPI 行 ------------------------------------------------------------ */
-
+/* KPI 行：大屏是站在两米外看的，五个读数要能一眼分出主次，
+   所以不做等权卡片——五个一样大的盒子会把「告警总数」和「待复核」
+   拉平成同一件事。改成一组共用顶线的读数条，数字靠字号和基线分
+   节奏，界线由这一条线给出。也不做悬停反馈：墙上的屏没人去 hover。 */
 .kpis {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: var(--sp-4);
+  gap: var(--sp-6);
 }
 
 .kpi {
-  padding: var(--sp-4) var(--sp-5);
-  background: var(--ash);
-  border: var(--hairline);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow-1);
-  transition: box-shadow var(--dur-2) var(--ease), transform var(--dur-2) var(--ease);
+  padding-top: var(--sp-2);
+  border-top: var(--hairline);
 }
 
-.kpi:hover {
-  box-shadow: var(--shadow-2);
-  transform: translateY(-2px);
+/* 领读的那个：全月唯一的总量，其余四项是它的分解。
+   让它比邻居大一档，视线第一落点才在总量上，而不是五选一。 */
+.kpi--lead .kpi__value {
+  font-size: 3.25rem;
+  color: var(--bone);
 }
 
 .kpi__label {

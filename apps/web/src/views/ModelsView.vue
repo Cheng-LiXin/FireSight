@@ -283,125 +283,125 @@ onBeforeUnmount(stopPolling)
         <span class="hint">勾选两份以上可比对（已选 <span class="fs-num">{{ picked.length }}</span>）</span>
       </div>
 
-      <table class="fs-ledger" data-table="archives">
-        <thead>
-          <tr>
-            <th class="is-pick"></th>
-            <th>归档</th>
-            <th>数据集</th>
-            <th class="is-num">轮数</th>
-            <th class="is-num">mAP@50</th>
-            <th class="is-num">mAP@50-95</th>
-            <th class="is-num">精确率</th>
-            <th class="is-num">召回率</th>
-            <th class="is-num">体积</th>
-            <th>归档时间</th>
-            <th>操作</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr
-            v-for="r in rows"
-            :key="r.run_id"
-            :data-run-id="r.run_id"
-            :class="{ 'is-active': r.is_active }"
-          >
-            <td class="is-pick">
-              <input
-                type="checkbox"
-                :checked="picked.includes(r.run_id)"
-                :aria-label="`选择 ${r.run_id}`"
-                @change="toggle(r.run_id)"
-              />
-            </td>
-            <td class="mono run">
-              {{ shortName(r.run_id) }}
-              <span v-if="r.is_active" class="tag tag--ok">当前</span>
-              <!-- 旧数据的指标不可与新数据直接比：新 val 里有一部分图当初进过
-                   旧 train。不标出来的话，用户会拿虚高的旧数去挑模型。 -->
-              <span v-if="r.legacy" class="tag" title="用旧数据训的，指标不可与新数据直接比">
-                旧数据
-              </span>
-            </td>
-            <td>{{ r.dataset ?? '—' }}</td>
-            <td class="is-num">{{ r.epochs ?? '—' }}</td>
-            <td class="is-num strong">{{ fix(r.mAP50) }}</td>
-            <td class="is-num">{{ fix(r.mAP50_95) }}</td>
-            <td class="is-num">{{ fix(r.precision, 3) }}</td>
-            <td class="is-num">{{ fix(r.recall, 3) }}</td>
-            <td class="is-num">{{ r.size_mb === null ? '—' : `${r.size_mb} MB` }}</td>
-            <td class="mono">{{ stamp(r.created) }}</td>
-            <td class="acts">
-              <button
-                type="button"
-                class="fs-btn-ghost fs-btn-ghost--tiny"
-                :disabled="r.is_active"
-                @click="setActive(r.run_id)"
-              >
-                设为当前
-              </button>
-              <a class="fs-btn-ghost fs-btn-ghost--tiny" :href="api.modelDownloadUrl(r.run_id)">
-                下载
-              </a>
-              <button
-                type="button"
-                class="fs-btn-ghost fs-btn-ghost--tiny is-danger"
-                @click="askDelete(r)"
-              >
-                删除
-              </button>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-
-      <!-- 删除确认：必须说清「删的是什么、还剩什么、能不能捞回来」。
-           权重是几十分钟到两小时的产物，误点一次的代价太大。 -->
-      <div v-if="pending" class="confirm" role="dialog" aria-label="确认删除">
-        <p class="confirm__title">
-          删除归档 <span class="mono">{{ shortName(pending.run_id) }}</span>？
-        </p>
-        <p class="confirm__body">
-          归档权重与训练现场是两份数据，可以分开处置。
-          <strong>归档</strong>是能部署的 <span class="mono">best.pt</span>，
-          <strong>训练现场</strong>是曲线、图件与检查点。
-        </p>
-        <label class="confirm__pick">
-          <input v-model="withRun" type="checkbox" />
-          连同训练现场一起删除（含曲线与检查点，删了就再也续不了训）
-        </label>
-        <p class="confirm__body">
-          两者都会<strong>移进回收目录</strong>（<span class="mono">models/.trash</span>），
-          页面上不再出现、磁盘也不会立即释放，删错了可以手工捞回来。
-        </p>
-        <p v-if="pending.is_active" class="confirm__warn">
-          这是当前权重，删除后会自动回落到最新的归档。
-        </p>
-        <div class="confirm__acts">
-          <button type="button" class="fs-btn-ghost" :disabled="removing" @click="cancelDelete">
-            取消
-          </button>
-          <button
-            type="button"
-            class="fs-btn-primary is-danger"
-            :disabled="removing"
-            @click="confirmDelete"
-          >
-            {{ removing ? '正在删除…' : '确认删除' }}
-          </button>
-        </div>
+      <div class="fs-scroll">
+        <table class="fs-ledger" data-table="archives">
+          <thead>
+            <tr>
+              <th class="is-pick"></th>
+              <th>归档</th>
+              <th>数据集</th>
+              <th class="is-num">轮数</th>
+              <th class="is-num">mAP@50</th>
+              <th class="is-num">mAP@50-95</th>
+              <th class="is-num">精确率</th>
+              <th class="is-num">召回率</th>
+              <th class="is-num">体积</th>
+              <th>归档时间</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr
+              v-for="r in rows"
+              :key="r.run_id"
+              :data-run-id="r.run_id"
+              :class="{ 'is-active': r.is_active }"
+            >
+              <td class="is-pick">
+                <input
+                  type="checkbox"
+                  :checked="picked.includes(r.run_id)"
+                  :aria-label="`选择 ${r.run_id}`"
+                  @change="toggle(r.run_id)"
+                />
+              </td>
+              <td class="mono run">
+                {{ shortName(r.run_id) }}
+                <span v-if="r.is_active" class="tag tag--ok">当前</span>
+                <!-- 旧数据的指标不可与新数据直接比：新 val 里有一部分图当初进过
+                     旧 train。不标出来的话，用户会拿虚高的旧数去挑模型。 -->
+                <span v-if="r.legacy" class="tag" title="用旧数据训的，指标不可与新数据直接比">
+                  旧数据
+                </span>
+              </td>
+              <td>{{ r.dataset ?? '—' }}</td>
+              <td class="is-num">{{ r.epochs ?? '—' }}</td>
+              <td class="is-num strong">{{ fix(r.mAP50) }}</td>
+              <td class="is-num">{{ fix(r.mAP50_95) }}</td>
+              <td class="is-num">{{ fix(r.precision, 3) }}</td>
+              <td class="is-num">{{ fix(r.recall, 3) }}</td>
+              <td class="is-num">{{ r.size_mb === null ? '—' : `${r.size_mb} MB` }}</td>
+              <td class="mono">{{ stamp(r.created) }}</td>
+              <td class="acts">
+                <button
+                  type="button"
+                  class="fs-btn-ghost fs-btn-ghost--tiny"
+                  :disabled="r.is_active"
+                  @click="setActive(r.run_id)"
+                >
+                  设为当前
+                </button>
+                <a class="fs-btn-ghost fs-btn-ghost--tiny" :href="api.modelDownloadUrl(r.run_id)">
+                  下载
+                </a>
+                <button
+                  type="button"
+                  class="fs-btn-ghost fs-btn-ghost--tiny is-danger"
+                  @click="askDelete(r)"
+                >
+                  删除
+                </button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
       </div>
+
+    <!-- 删除确认：必须说清「删的是什么、还剩什么、能不能捞回来」。
+         权重是几十分钟到两小时的产物，误点一次的代价太大。 -->
+    <div v-if="pending" class="confirm" role="dialog" aria-label="确认删除">
+      <p class="confirm__title">
+        删除归档 <span class="mono">{{ shortName(pending.run_id) }}</span>？
+      </p>
+      <p class="confirm__body">
+        归档权重与训练现场是两份数据，可以分开处置。
+        <strong>归档</strong>是能部署的 <span class="mono">best.pt</span>，
+        <strong>训练现场</strong>是曲线、图件与检查点。
+      </p>
+      <label class="confirm__pick">
+        <input v-model="withRun" type="checkbox" />
+        连同训练现场一起删除（含曲线与检查点，删了就再也续不了训）
+      </label>
+      <p class="confirm__body">
+        两者都会<strong>移进回收目录</strong>（<span class="mono">models/.trash</span>），
+        页面上不再出现、磁盘也不会立即释放，删错了可以手工捞回来。
+      </p>
+      <p v-if="pending.is_active" class="confirm__warn">
+        这是当前权重，删除后会自动回落到最新的归档。
+      </p>
+      <div class="confirm__acts">
+        <button type="button" class="fs-btn-ghost" :disabled="removing" @click="cancelDelete">
+          取消
+        </button>
+        <button
+          type="button"
+          class="fs-btn-primary is-danger"
+          :disabled="removing"
+          @click="confirmDelete"
+        >
+          {{ removing ? '正在删除…' : '确认删除' }}
+        </button>
+      </div>
+    </div>
 
       <p v-if="receipt" class="receipt" role="status">{{ receipt }}</p>
     </section>
 
     <!-- 对比评估 -->
     <section v-if="rows.length" class="fs-block">
-      <div class="fs-block__head">
-        <h2 class="fs-block__title">多权重对比评估</h2>
-      </div>
+      <h2 class="fs-block__title">多权重对比评估</h2>
 
-      <div class="bar">
+      <div class="bar fs-tray">
         <p class="bar__picked">
           <template v-if="pickedRows.length">
             <span v-for="r in pickedRows" :key="r.run_id" class="chip mono">{{ shortName(r.run_id) }}</span>
@@ -689,11 +689,6 @@ onBeforeUnmount(stopPolling)
   flex-wrap: wrap;
   align-items: flex-end;
   gap: var(--sp-4);
-  padding: var(--sp-3) var(--sp-4);
-  background: var(--ash);
-  border: var(--hairline);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow-1);
 }
 
 .bar__picked {

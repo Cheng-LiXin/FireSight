@@ -145,7 +145,7 @@ onUnmounted(() => {
       </p>
     </div>
 
-    <section class="fs-viewfinder panel">
+    <section class="fs-viewfinder gen">
       <FrameMarks />
       <h2 class="fs-viewfinder__title">生成</h2>
       <div class="form">
@@ -173,7 +173,7 @@ onUnmounted(() => {
       </div>
     </section>
 
-    <section v-if="detail" class="fs-viewfinder panel">
+    <section v-if="detail" class="fs-viewfinder doc">
       <FrameMarks />
       <h2 class="fs-viewfinder__title">{{ String(detail.meta.title || '报告') }}</h2>
       <!-- eslint-disable-next-line vue/no-v-html —— 模型输出按不可信内容处理：
@@ -181,11 +181,11 @@ onUnmounted(() => {
       <article class="md" v-html="html"></article>
     </section>
 
-    <section v-else class="fs-empty">
-      选好时间段点「生成报告」。生成的报告会归档，可在下方列表回看。
+    <section v-else class="fs-empty doc">
+      选好时间段点「生成报告」。生成的报告会归档，可在右侧列表回看。
     </section>
 
-    <section class="fs-viewfinder panel">
+    <section class="fs-viewfinder history-panel">
       <FrameMarks />
       <h2 class="fs-viewfinder__title">历史报告</h2>
       <ul class="history">
@@ -200,10 +200,42 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+/* 生成参数是低频动作（挑个区间、等它跑完），翻历史报告是高频入口。
+   所以生成参数与历史报告并排占上方一格，正文独占下一行通栏——
+   报告是要读的字，通栏才不至于每行都短得要换行。窄屏折回纵排。 */
 .report {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: minmax(0, 300px) minmax(0, 1fr);
+  grid-template-areas: 'head head' 'note note' 'gen history' 'doc doc';
+  align-content: start;
   gap: var(--sp-5);
+}
+
+.head {
+  grid-area: head;
+}
+
+.report > .fs-note-error {
+  grid-area: note;
+}
+
+.gen {
+  grid-area: gen;
+}
+
+.history-panel {
+  grid-area: history;
+}
+
+.doc {
+  grid-area: doc;
+}
+
+@media (max-width: 1100px) {
+  .report {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: 'head' 'note' 'gen' 'doc' 'history';
+  }
 }
 
 .head__title {
@@ -229,17 +261,18 @@ onUnmounted(() => {
   color: var(--dross);
 }
 
+/* 左格只有 300px，两个日期控件横排会挤在一起 */
 .form {
   display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  gap: var(--sp-5);
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--sp-4);
 }
 
 .actions {
   display: flex;
+  flex-wrap: wrap;
   gap: var(--sp-3);
-  margin-left: auto;
 }
 
 .btn-link {
@@ -267,12 +300,18 @@ onUnmounted(() => {
   list-style: none;
 }
 
+/* 归档条目按账册行读：标题与时间各占一行，时间退到 --fs-xs。
+   窄栏里挤成一行的话，标题会被时间戳顶掉尾巴。 */
 .history__item {
   display: flex;
-  align-items: baseline;
-  gap: var(--sp-4);
-  padding: var(--sp-2) 0;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--sp-3) 0;
   border-bottom: var(--hairline);
+}
+
+.history__item:last-child {
+  border-bottom: 0;
 }
 
 .history__btn {
@@ -291,7 +330,6 @@ onUnmounted(() => {
 }
 
 .history__meta {
-  margin-left: auto;
   font-size: var(--fs-xs);
   color: var(--dross);
 }

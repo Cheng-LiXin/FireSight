@@ -162,11 +162,11 @@ onUnmounted(() => {
     </div>
 
     <!-- 启动表单 -->
-    <section class="fs-viewfinder panel">
+    <section class="fs-viewfinder panel--params">
       <FrameMarks />
       <h2 class="fs-viewfinder__title">启动参数</h2>
       <div class="form">
-        <div class="field field--wide">
+        <div class="field field--stack field--wide">
           <label class="field__label" for="mon-source">视频源</label>
           <input
             id="mon-source"
@@ -176,7 +176,7 @@ onUnmounted(() => {
             :disabled="active"
           />
         </div>
-        <div class="field">
+        <div class="field field--stack">
           <label class="field__label" for="mon-loc">位置名</label>
           <input
             id="mon-loc"
@@ -187,7 +187,7 @@ onUnmounted(() => {
           />
           <p class="field__hint">进事件与语音播报：「检测到明火，位置：东门」</p>
         </div>
-        <div class="field field--narrow">
+        <div class="field field--stack field--narrow">
           <label class="field__label" for="mon-conf">
             置信度阈值 <b>{{ form.conf.toFixed(2) }}</b>
           </label>
@@ -202,14 +202,14 @@ onUnmounted(() => {
             :disabled="active"
           />
         </div>
-        <div class="field field--narrow">
+        <div class="field field--stack field--narrow">
           <label class="field__label" for="mon-device">设备</label>
           <select id="mon-device" v-model="form.device" class="field__control" :disabled="active">
             <option value="0">GPU (0)</option>
             <option value="cpu">CPU</option>
           </select>
         </div>
-        <div class="field field--narrow">
+        <div class="field field--stack field--narrow">
           <label class="field__label" for="mon-tts">语音播报</label>
           <select id="mon-tts" v-model="form.enable_tts" class="field__control" :disabled="active">
             <option :value="true">开</option>
@@ -239,38 +239,74 @@ onUnmounted(() => {
       </div>
     </section>
 
-    <!-- 状态条 -->
-    <section class="status" aria-label="监控状态">
-      <span class="status__item">
-        状态
-        <b>{{ status ? (STATUS_CN[status.status] ?? status.status) : '—' }}</b>
-      </span>
-      <span class="status__item">已处理帧 <b class="fs-num">{{ status?.frames ?? 0 }}</b></span>
-      <span class="status__item">断线重连 <b class="fs-num">{{ status?.reconnects ?? 0 }}</b></span>
-      <span v-if="active" class="status__item">
-        语音 <b :data-testid="'mon-tts-state'">{{ ttsPaused ? '已暂停' : '播报中' }}</b>
-      </span>
-      <span v-if="status?.camera_name" class="status__item">位置 {{ status.camera_name }}</span>
-    </section>
+    <!-- 状态条贴在画面正上方：这页的判断依据是「现在到底在不在看」，
+         状态和画面必须同时落在一眼里，不必先读参数再往下找画面 -->
+    <div class="live">
+      <section class="status" aria-label="监控状态">
+        <span class="status__item">
+          状态
+          <b>{{ status ? (STATUS_CN[status.status] ?? status.status) : '—' }}</b>
+        </span>
+        <span class="status__item">已处理帧 <b class="fs-num">{{ status?.frames ?? 0 }}</b></span>
+        <span class="status__item">断线重连 <b class="fs-num">{{ status?.reconnects ?? 0 }}</b></span>
+        <span v-if="active" class="status__item">
+          语音 <b :data-testid="'mon-tts-state'">{{ ttsPaused ? '已暂停' : '播报中' }}</b>
+        </span>
+        <span v-if="status?.camera_name" class="status__item">位置 {{ status.camera_name }}</span>
+      </section>
 
-    <!-- 画面 -->
-    <section class="fs-viewfinder panel">
-      <FrameMarks />
-      <h2 class="fs-viewfinder__title">画面</h2>
-      <div class="stage">
-        <img v-if="streamUrl && hasFrames" class="stage__img" :src="streamUrl" alt="监控画面" />
-        <p v-else-if="active" class="stage__hint">正在接入画面…</p>
-        <p v-else class="stage__hint">未在监控。填好视频源后点「开始监控」。</p>
-      </div>
-    </section>
+      <!-- 画面 -->
+      <section class="fs-viewfinder">
+        <FrameMarks />
+        <h2 class="fs-viewfinder__title">画面</h2>
+        <div class="stage">
+          <img v-if="streamUrl && hasFrames" class="stage__img" :src="streamUrl" alt="监控画面" />
+          <p v-else-if="active" class="stage__hint">正在接入画面…</p>
+          <p v-else class="stage__hint">未在监控。填好视频源后点「开始监控」。</p>
+        </div>
+      </section>
+    </div>
   </div>
 </template>
 
 <style scoped>
+/* 参数在左、画面在右。启动参数是低频动作——填一次就好；
+   画面是这页的高频对象，要一直占着主视区。三块全宽纵排的话，
+   看画面得先滚过整张参数表，每次看一眼都要滚一次。 */
 .monitor {
+  display: grid;
+  grid-template-columns: minmax(0, 320px) minmax(0, 1fr);
+  grid-template-areas: 'head head' 'note note' 'params live';
+  align-content: start;
+  gap: var(--sp-5);
+}
+
+.head {
+  grid-area: head;
+}
+
+.monitor > .fs-note-error {
+  grid-area: note;
+}
+
+.panel--params {
+  grid-area: params;
+}
+
+/* 窄屏折回纵排：参数表横过来会把视频源输入框挤成一条缝 */
+@media (max-width: 1100px) {
+  .monitor {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: 'head' 'note' 'params' 'live';
+  }
+}
+
+.live {
+  grid-area: live;
   display: flex;
   flex-direction: column;
-  gap: var(--sp-5);
+  gap: var(--sp-3);
+  min-width: 0;
 }
 
 .head__title {
@@ -286,22 +322,19 @@ onUnmounted(() => {
   color: var(--dross);
 }
 
+/* 左栏里的参数不再横铺：320px 宽放五个控件，横排会挤成两行错位。
+   .field--stack 负责把每个控件的 180px 最小宽也一并放开。 */
 .form {
   display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  gap: var(--sp-5);
-}
-
-.field--wide {
-  min-width: 320px;
-  flex: 1;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--sp-4);
 }
 
 .actions {
   display: flex;
+  flex-wrap: wrap;
   gap: var(--sp-3);
-  margin-left: auto;
 }
 
 .status {
