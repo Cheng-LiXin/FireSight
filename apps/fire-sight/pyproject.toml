@@ -48,3 +48,4 @@ path = "src/fire_sight/_version.py"
 
 [project.scripts]
 fs-serve = "fire_sight.cli:main"
+fs-repair-clips = "fire_sight.repair_clips:main"
