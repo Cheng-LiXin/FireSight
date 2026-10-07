@@ -27,7 +27,12 @@ class VideoFileSource(FrameSource):
     def __iter__(self) -> Iterator[Frame]:
         i = 0
         while True:
-            ok, img = self._cap.read()
+            if self.stopped():
+                return
+            cap = self._cap
+            if cap is None:  # 已 close()
+                return
+            ok, img = cap.read()
             if not ok:
                 break
             yield Frame(

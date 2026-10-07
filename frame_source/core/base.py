@@ -15,6 +15,19 @@ class FrameSource(ABC):
         self.source_id = source_id or self.__class__.__name__
         # 源的标称帧率；拿不到（如图片目录）就是 None，由调用方给兜底值
         self.fps: Optional[float] = None
+        # 可选的停止信号（threading.Event 之类，鸭子类型只要有 is_set()）。
+        # 由上层通过 with_stop_event() 挂上；为 None 时行为与从前完全一致。
+        self._stop_event = None
+
+    def with_stop_event(self, stop_event) -> "FrameSource":
+        """挂上停止信号；__iter__ 应在每轮开头调用 self.stopped() 提前收尾。"""
+        self._stop_event = stop_event
+        return self
+
+    def stopped(self) -> bool:
+        """是否已被请求停止。"""
+        ev = self._stop_event
+        return bool(ev is not None and ev.is_set())
 
     @abstractmethod
     def __iter__(self) -> Iterator[Frame]:

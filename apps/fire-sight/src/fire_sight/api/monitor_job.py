@@ -182,7 +182,12 @@ class MonitorManager:
         return self.status()
 
     def stop(self) -> bool:
-        """请求停止。立刻把状态挪出 running，避免「点了停止还显示占用」。"""
+        """请求停止。立刻把状态挪出 running，避免「点了停止还显示占用」。
+
+        这里**不**等收流结束：`stopping` 必须立刻可见，否则「停完再起」会撞上
+        ACTIVE 判定被拒（接口回 409「显存正被 monitor 占用」）。等终态这件事交给
+        调用方（接口层用 wait_stopped），stop 本身因此永远是快的。
+        """
         with self._lock:
             if self._state["status"] not in ACTIVE:
                 return False
@@ -190,6 +195,16 @@ class MonitorManager:
                 self._state["status"] = "stopping"
         self._stop.set()
         return True
+
+    def wait_stopped(self, timeout: float = 5.0) -> bool:
+        """等到离开 stopping 落进终态。
+
+        给接口层用：收流是异步结束的，但调用方需要一个「等一下就准」的答案。
+        前端轮询间隔 2s，用户要多等两个来回才看到状态变化——这里直接在请求内等，
+        通常几十毫秒就等到；等不到也不报错（后台仍在收尾，锁照常归还、状态照常
+        落终态），所以 timeout 只是「尽快给准信」的耐心值，不是停止的硬期限。
+        """
+        return self.wait_until(lambda s: s["status"] != "stopping", timeout=timeout)
 
     def stop_for_training(self, timeout: float = 10.0) -> bool:
         """训练优先：停掉监控并等它把**锁**真正还回来。

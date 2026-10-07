@@ -13,6 +13,24 @@
 
 ### 修复
 
+- **实时监控只调起一次语音引擎，播报不再卡住推理主线程**。此前 RTSP 掉线走退避重连，
+  每轮重连都在 `run_inference` 里新建一个 `pyttsx3` 引擎（`pyttsx3.init()` 一次不释放），
+  于是开着监控跑上几小时会攒出一串 SAPI 引擎；而 `speak()` 里的 `runAndWait()` 是同步阻塞的，
+  播报期间读帧、推理、推流全部停摆。现在 TTS 是进程级单例（`get_tts()`），引擎只在
+  一条 `tts-speaker` 守护线程里创建和使用，告警文本入队即返回；引擎初始化失败仍降级为日志输出。
+  之所以是「单例」而不是「引擎缓存」，是因为 `runAndWait()` 被并发重入会抛
+  `RuntimeError: run loop already started`——只有把引擎收进单线程才是安全的复用方式。
+- **关闭实时监控不再长时间停在「停止中」**。停止慢是四段延迟叠出来的：
+  ① 停止接口只置位信号就返回，前端紧接着刷新必然看到 `stopping`，之后只能等 2 秒轮询；
+  ② 推理收尾要 `_drain(wait=True)` 等所有后台 VP9 片段编码写盘（千帧，秒级到数十秒）；
+  ③ `cap.read()` 是阻塞调用，停止信号打断不了它，卡住时无限期阻塞；
+  ④ GPU 锁排在最后释放，于是起训练撞上假 409「monitor（正在停止，请稍候重试）」。
+  现在：停止接口在 `STOP_WAIT_SEC=3s` 内等到终态再返回（超时也照常回当前状态，后台继续收尾），
+  收尾不再等片段编码（改为 `clip-finalize` 守护线程写盘 + 回填 `set_clip`），
+  网络流用 FFMPEG 的 `CAP_PROP_OPEN_TIMEOUT_MSEC` / `CAP_PROP_READ_TIMEOUT_MSEC`
+  让阻塞读有上限（本地设备仍走默认后端，避免 USB 摄像头开不起来），
+  帧源新增 `stop_event` 支持并容忍偶发读失败（连续失败才判定断线）。
+  前端停止时改为用接口返回值直接更新状态，仍是 `stopping` 才启用 300ms 快轮询。
 - **`fs-validate` 能直接跑「提供方已切好划分」的数据集**（如 `D-Fire/raw`）。此前它给出
   的是一份 100% 编造的报告：`label_format 共 0 行` + `缺失标签 21527/21527 (100.0%)`。
   两处缺陷都是早就存在、只是从未被触发：CLI 只在 `data/processed/` 下找 yaml；
@@ -32,8 +50,13 @@
 - **文档**：README 按新数据集重写（真实目录树、三种 `--dataset` 写法、两种标签布局），
   并如实记录质检报出的数据质量问题——26557 行标签里 26 行非法（18 行宽高非正、
   8 行坐标越界），全部为提供方原始数据自带，与本次改动无关。
-- **测试**：`pytest tests apps/platform/tests -q` 从 278 增至 **283 passed**（新增 5 条
-  回归测试，覆盖提供方布局、缺目录的报错文案、CLI 原始数据集解析、报告不写进 raw）。
+- **帧源接口新增可选的停止信号**：`create_frame_source(..., stop_event=None)`、
+  `FrameSource.with_stop_event()` / `stopped()`，均可选、不传时行为不变。
+- **测试**：`pytest tests apps/platform/tests -q` 从 283 增至 **296 passed**（新增 13 条
+  回归测试：TTS 单例/非阻塞/幂等关闭、帧源停止信号与读超时与抖动容忍、
+  停止接口返回终态且等待有上限、停止后 GPU 锁及时归还）。原有「停止接口返回状态」
+  的行为变化由 `test_monitor_stop_is_not_undone_by_late_frames` 继续守住——
+  晚到帧不许把状态改回「监控中」。
 
 ---
 

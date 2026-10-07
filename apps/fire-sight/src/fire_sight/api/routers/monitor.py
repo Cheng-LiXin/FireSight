@@ -18,6 +18,10 @@ router = APIRouter(prefix="/api/monitor", tags=["monitor"])
 STREAM_FPS = 10
 # 没有新帧时的空转间隔，避免 while True 烧 CPU
 IDLE_SLEEP_SEC = 0.05
+# /monitor/stop 在返回前等终态的耐心值（秒）。
+# 要略大于帧源的单次读超时（CameraSource.READ_TIMEOUT_SEC = 1.0s），
+# 否则请求会先于收流结束返回，前端还是只能看到「停止中」。
+STOP_WAIT_SEC = 3.0
 
 
 class MonitorStart(BaseModel):
@@ -57,8 +61,16 @@ def start_monitor(req: MonitorStart) -> dict:
 
 @router.post("/stop")
 def stop_monitor() -> dict:
-    """请求停止；已经没在跑时返回 stopped=false，不报错。"""
+    """请求停止；已经没在跑时返回 stopped=false，不报错。
+
+    在请求内等一小会儿等到终态再返回：以前这里只置位信号就返回一份 `stopping`，
+    前端紧接着刷新拿到的必然是「停止中」，于是界面上要一直挂着这个状态直到下次
+    轮询——用户说的「状态在停止中滞留很久」就是这么来的。停止链路现在有界
+    （读帧超时 + 不再等片段编码），这里等一下就能直接给出准信。
+    """
     stopped = MONITOR.stop()
+    if stopped:
+        MONITOR.wait_stopped(timeout=STOP_WAIT_SEC)
     return {"stopped": stopped, **MONITOR.status()}
 
 

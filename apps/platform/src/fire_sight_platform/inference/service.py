@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -53,6 +54,35 @@ def _xyxy_from_ultralytics(boxes) -> List[tuple]:
     return out
 
 
+def _finalize_stopped_clips(executor, writing: List[tuple], store) -> None:
+    """停止路径的后台收尾：等片段写完再回填路径，最后关 store。
+
+    停止时主流程不等编码（否则状态要滞留几十秒），但事件早已入库，
+    回填只是补一个 clip 字段——放到后台做完，既不挡停止，也不丢回填。
+    store 必须活到这段结束，所以 close() 挪到这里而不是函数末尾。
+    """
+    try:
+        executor.shutdown(wait=True)
+        for event_id, entry, fut in list(writing):
+            try:
+                written = fut.result()
+                clip_str = str(written) if written else ""
+            except Exception as exc:  # noqa: BLE001 - 单段失败不该影响停止
+                logger.warning(f"片段写出失败，本次不记片段: {exc}")
+                clip_str = ""
+            if clip_str:
+                try:
+                    store.set_clip(event_id, clip_str)
+                    entry["clip"] = clip_str
+                except Exception as exc:  # noqa: BLE001 - 关库竞态也不该抛到线程外
+                    logger.warning(f"片段路径回填失败: {exc}")
+    finally:
+        try:
+            store.close()
+        except Exception:  # noqa: BLE001
+            pass
+
+
 def run_inference(
     cfg: InferConfig,
     frame_sink: Optional[Callable[[Any], None]] = None,
@@ -67,7 +97,7 @@ def run_inference(
     from frame_source import create_frame_source
     from visualization import BeautifyVisualizer, Detection
 
-    from fire_sight.alerting import ClipAssembler, EventStore, RingClipBuffer, TtsNotifier
+    from fire_sight.alerting import ClipAssembler, EventStore, RingClipBuffer, get_tts
     from fire_sight.scene import AlertPolicy, DetectionLite, FrameObservation, MultiFrameConfirm
     from fire_sight_platform.common.runtime_env import (
         apply_runtime_env,
@@ -96,7 +126,9 @@ def run_inference(
         location=cfg.camera_name,
         id_prefix=f"{run_stamp}-",
     )
-    tts = TtsNotifier(enabled=cfg.enable_tts)
+    # 语音引擎全进程只起一次：这里以前每轮 new 一个 TtsNotifier（内含 pyttsx3.init()），
+    # RTSP 掉线重连一次就泄漏一个 SAPI COM 句柄。改成进程级单例复用。
+    tts = get_tts(enabled=cfg.enable_tts)
 
     db_path = cfg.events_db or (DATA_DIR / "events" / "events.db")
     store = EventStore(db_path)
@@ -107,7 +139,13 @@ def run_inference(
 
     stats = InferStats()
 
-    with create_frame_source(cfg.source, source_id=cfg.camera_name or str(cfg.source)) as source:
+    with create_frame_source(
+        cfg.source,
+        source_id=cfg.camera_name or str(cfg.source),
+        # 把停止信号交给帧源：网络流卡在 cap.read() 上时，只有帧源自己知道
+        # 这次读什么时候能返回，停止才谈得上「快」。
+        stop_event=stop_event,
+    ) as source:
         # 秒→帧换算：优先用源自己的帧率（摄像头/视频），图片目录这类没有标称帧率的走兜底
         fps = float(getattr(source, "fps", None) or cfg.clip_fps)
         buffer = RingClipBuffer(before_sec=cfg.clip_before_sec, fps=fps)
@@ -225,15 +263,33 @@ def run_inference(
                 out_p = Path(cfg.save_annotated_dir) / f"{frame.index:06d}.jpg"
                 cv2.imwrite(str(out_p), annotated)
 
-        # 源结束（视频放完/图片目录读完/被 max_frames 打断）：没攒满的尾巴
-        # 截到现有长度照写。短片段好过没片段。
-        for p in pending:
-            _submit(p)
-        pending.clear()
-        _drain(wait=True)
-        executor.shutdown(wait=True)
-
-    store.close()
+        # 源结束（视频放完/图片目录读完/被 max_frames 打断/被停止打断）：
+        # 没攒满的尾巴截到现有长度照写。短片段好过没片段。
+        #
+        # 但「停止」时不能等：片段编码是 VP9 千帧，秒级到几十秒，而事件本身
+        # 早已入库（见上面 store.insert），等它只是为了回填 clip 路径。把这段
+        # 等待丢给后台线程，主流程立刻返回、状态立刻收敛到终态——界面不再在
+        # 「停止中」干等；回放路径晚几秒补上不影响任何事。
+        stopping = stop_event is not None and stop_event.is_set()
+        if stopping:
+            for p in pending:
+                _submit(p)
+            pending.clear()
+            executor.shutdown(wait=False)
+            # store 不能在这里关：后台线程还要用它回填 clip 路径。
+            threading.Thread(
+                target=_finalize_stopped_clips,
+                args=(executor, writing, store),
+                name="clip-finalize",
+                daemon=True,
+            ).start()
+        else:
+            for p in pending:
+                _submit(p)
+            pending.clear()
+            _drain(wait=True)
+            executor.shutdown(wait=True)
+            store.close()
     logger.info(
         f"推理结束 frames={stats.frames} raw_dets={stats.raw_dets} alerts={stats.alerts}"
     )

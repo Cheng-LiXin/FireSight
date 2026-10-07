@@ -27,6 +27,9 @@ class ImageDirSource(FrameSource):
 
     def __iter__(self) -> Iterator[Frame]:
         for i, path in enumerate(self.paths):
+            # 目录源读的是本地磁盘（毫秒级），但万张图的目录仍要能被立刻叫停。
+            if self.stopped():
+                return
             img = cv2.imread(str(path))
             if img is None:
                 continue

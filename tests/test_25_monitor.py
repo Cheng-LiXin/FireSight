@@ -17,12 +17,21 @@ for p in (ROOT, ROOT / "apps" / "fire-sight" / "src", ROOT / "apps" / "platform"
 
 @pytest.fixture()
 def monitor():
-    """每个用例一个干净的监控管理器（走生产同一个单例，推流端点读的就是它）。"""
-    from fire_sight.api import monitor_job
+    """每个用例一个干净的监控管理器（走生产同一个单例，推流端点读的就是它）。
+
+    收尾必须把 GPU 锁也等回来：上一个用例要是留下了占锁状态，后面每个
+    start() 都会撞 GpuBusy，看起来像新改坏了，其实只是脏了。
+    """
+    from fire_sight.api import deps, monitor_job
 
     mgr = monitor_job.MONITOR
     mgr.stop()
     mgr.wait(timeout=5)
+    deadline = time.time() + 5
+    while deps.GPU_LOCK.holder == "monitor" and time.time() < deadline:
+        time.sleep(0.02)
+    if deps.GPU_LOCK.holder == "monitor":
+        deps.GPU_LOCK.release("monitor")
     yield mgr
     mgr.stop()
     mgr.wait(timeout=5)
@@ -200,6 +209,114 @@ def test_monitor_local_source_failure_does_not_retry(monitor, monkeypatch):
     assert monitor.wait_until(lambda s: s["status"] == "failed", timeout=5)
     assert "不存在" in (monitor.status()["error"] or "")
     assert monitor.status()["reconnects"] == 0
+
+
+def test_monitor_stop_returns_settled_state(monitor, fake_pipeline):
+    """/monitor/stop 应直接给出终态，而不是把「停止中」丢给前端。
+
+    用户报的第二个缺陷就是「停止中滞留很久」：接口只置位信号就返回，前端紧接着
+    刷新拿到的必然是 stopping。现在接口在返回前等到收尾完成。
+    """
+    pytest.importorskip("fastapi")
+    from fastapi.testclient import TestClient
+
+    from fire_sight.api.app import app
+
+    client = TestClient(app)
+    client.post("/api/monitor/start", json={"source": "dir://frames"})
+    assert client.get("/api/monitor/status").json()["status"] in {"connecting", "running"}
+
+    body = client.post("/api/monitor/stop").json()
+    assert body["stopped"] is True
+    # 返回时状态必须已经是终态，而不是「停止中」
+    assert body["status"] not in {"stopping"}, f"停止接口仍返回中间态: {body['status']}"
+    assert body["status"] in {"stopped", "ended", "failed"}
+
+
+def test_monitor_stop_router_wait_is_bounded(monitor, monkeypatch):
+    """即使收流迟迟不结束，停止接口也必须在有限时间内返回。
+
+    卡死的另一种表现是请求本身挂住——浏览器会一直转圈。所以路由里的等待是
+    有上限的：超时后就照常回当前状态（stopping），后台继续收尾，稍后自己落终态。
+
+    假推理会在 4 秒后才认停止信号，比路由的等待上限（STOP_WAIT_SEC=3s）长，
+    所以「接口先于收尾返回」这一点是可以被断言出来的。
+    """
+    pytest.importorskip("fastapi")
+    from fastapi.testclient import TestClient
+
+    import fire_sight.api.monitor_job as mj
+    from fire_sight.api.app import app
+    from fire_sight.api.routers.monitor import STOP_WAIT_SEC
+
+    def _slow_to_obey(cfg, frame_sink=None, stop_event=None, **kwargs):
+        # 假装卡在阻塞读里：停止信号要过一会儿才生效
+        while stop_event is None or not stop_event.is_set():
+            time.sleep(0.05)
+        time.sleep(1.0)
+        from fire_sight_platform.inference.service import InferStats
+
+        return InferStats()
+
+    class _FakeRun:
+        run_id = "stub-run"
+        best_pt = Path("stub.pt")
+
+    monkeypatch.setattr(mj, "run_inference", _slow_to_obey)
+    monkeypatch.setattr(mj.deps, "resolve_run", lambda name=None: _FakeRun())
+
+    client = TestClient(app)
+    client.post("/api/monitor/start", json={"source": "rtsp://cam/1"})
+
+    t0 = time.time()
+    body = client.post("/api/monitor/stop").json()
+    elapsed = time.time() - t0
+
+    assert body["stopped"] is True
+    # 接口没有跟着收尾一起吊着：它在 STOP_WAIT_SEC 附近就放手了
+    assert elapsed < 1.0 + STOP_WAIT_SEC + 0.5, f"停止接口等了 {elapsed:.1f}s"
+    # 收尾仍在后台进行，稍后自己落终态
+    assert monitor.wait(timeout=10), "后台收尾最终应落到终态"
+    assert monitor.status()["status"] == "stopped"
+
+
+def test_monitor_stop_for_training_is_not_blocked_by_clip_flush(monitor, monkeypatch):
+    """停止后 GPU 锁必须及时归还——起训练不该撞上「monitor（正在停止）」。
+
+    这里模拟最坏情况：推理轮次收尾很慢（真实场景是等 VP9 片段编码完）。
+    修复后主流程不再等编码，锁也就不会被压在后台等待上。
+    """
+    import fire_sight.api.monitor_job as mj
+    from fire_sight.api import deps
+
+    def _slow_infer(cfg, frame_sink=None, stop_event=None, **kwargs):
+        state = {"calls": 0}
+        while stop_event is None or not stop_event.is_set():
+            time.sleep(0.01)
+        # 模拟片段编码收尾：给锁留出真实的释放窗口
+        time.sleep(0.05)
+        from fire_sight_platform.inference.service import InferStats
+
+        s = InferStats()
+        s.frames = state["calls"]
+        return s
+
+    class _FakeRun:
+        run_id = "stub-run"
+        best_pt = Path("stub.pt")
+
+    monkeypatch.setattr(mj, "run_inference", _slow_infer)
+    monkeypatch.setattr(mj.deps, "resolve_run", lambda name=None: _FakeRun())
+
+    monitor.start(source="rtsp://cam/1", device="cpu")
+    assert deps.GPU_LOCK.holder == "monitor"
+
+    t0 = time.time()
+    assert monitor.stop_for_training(timeout=5.0) is True
+    elapsed = time.time() - t0
+
+    assert elapsed < 3.0, f"让路给训练花了 {elapsed:.1f}s"
+    assert deps.GPU_LOCK.holder is None
 
 
 def test_monitor_stream_frame_contract(monitor, fake_pipeline):

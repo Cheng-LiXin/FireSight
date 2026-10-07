@@ -11,24 +11,100 @@ from frame_source.core.base import FrameSource
 from frame_source.core.registry import register_source
 from frame_source.core.types import Frame
 
+#: 网络流前缀——这些源最容易被卡死，必须走带超时的打开/读取路径。
+STREAM_SCHEMES = ("rtsp://", "rtmp://", "http://", "https://")
+
+
+def is_stream_url(device: Union[int, str]) -> bool:
+    return isinstance(device, str) and device.lower().startswith(STREAM_SCHEMES)
+
 
 class CameraSource(FrameSource):
-    """device 可为摄像头序号(int/str) 或 rtsp/http URL。"""
+    """device 可为摄像头序号(int/str) 或 rtsp/http URL。
 
-    def __init__(self, device: Union[int, str] = 0, source_id: str = "") -> None:
+    网络流与本地设备走不同的打开方式，因为它们的失败模式完全不同：
+
+    - **网络流**：拔网线、对端进程崩了、NAT 会话过期时，`cap.read()` 会一直
+      阻塞在 FFMPEG 内部，而停止信号只能置位 `threading.Event`、打断不了这次
+      调用——监控状态就会永远停在「停止中」。所以这里显式指定 FFMPEG 后端并
+      传 `CAP_PROP_OPEN_TIMEOUT_MSEC` / `CAP_PROP_READ_TIMEOUT_MSEC`，把阻塞上限
+      从「无限」压成「超时值」，让上层有机会重新拿到控制权。
+    - **本地设备序号**：保持 OpenCV 默认后端优先级（Windows 上是 MSMF/DSHOW），
+      强制 FFMPEG 会让不少 USB 摄像头开不起来。为了不引入新故障，本地路径不加
+      限制参数的 VideoCapture——它的 read() 通常以毫秒计返回。
+
+    read_timeout 要明显大于「两帧之间的正常间隔」，否则弱网会被误判成断线。
+    """
+
+    #: 网络流打开超时（秒）。对着一个没人监听的端口时，FFMPEG 会一直等
+    #: SDP/RTSP 握手；不设上限的话开流本身就可能挂死。
+    OPEN_TIMEOUT_SEC = 10.0
+    #: 网络流单次 read() 超时（秒）。这是「停止最多迟多久生效」的上界，
+    #: 取 1s 是权衡结果：明显大于正常帧间隔（弱网不会误判），
+    #: 又小到用户点完停止一两秒内就能看到状态变化。
+    READ_TIMEOUT_SEC = 1.0
+    #: 连续读失败多少次才判定「真的断了」。
+    #: 1 次就判定太脆（弱网抖一下就重连，白白丢掉缓冲），
+    #: 无限重试又会把断线检测变成死循环。这个值让断线在 ~3 秒内被认出来，
+    #: 而单次读只阻塞 1 秒 —— 停止信号最迟 1 秒就能生效。
+    MAX_READ_FAILURES = 3
+
+    def __init__(
+        self,
+        device: Union[int, str] = 0,
+        source_id: str = "",
+        open_timeout_sec: float = OPEN_TIMEOUT_SEC,
+        read_timeout_sec: float = READ_TIMEOUT_SEC,
+        max_read_failures: int = MAX_READ_FAILURES,
+    ) -> None:
         self.device = device
         super().__init__(source_id or f"camera-{device}")
-        self._cap = cv2.VideoCapture(device)
-        fps = float(self._cap.get(cv2.CAP_PROP_FPS) or 0.0)
-        if fps > 0:
-            self.fps = fps
+        self.open_timeout_sec = float(open_timeout_sec)
+        self.read_timeout_sec = float(read_timeout_sec)
+        self.max_read_failures = max(1, int(max_read_failures))
+        self.is_stream = is_stream_url(device)
+        self._cap = self._open()
+        if self._cap is not None:
+            fps = float(self._cap.get(cv2.CAP_PROP_FPS) or 0.0)
+            if fps > 0:
+                self.fps = fps
+
+    def _open(self):
+        if self.is_stream:
+            # 只有网络流才强制 FFMPEG + 超时参数。
+            return cv2.VideoCapture(
+                self.device,
+                cv2.CAP_FFMPEG,
+                [
+                    cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, int(self.open_timeout_sec * 1000),
+                    cv2.CAP_PROP_READ_TIMEOUT_MSEC, int(self.read_timeout_sec * 1000),
+                ],
+            )
+        return cv2.VideoCapture(self.device)
 
     def __iter__(self) -> Iterator[Frame]:
         i = 0
+        failures = 0
         while True:
-            ok, img = self._cap.read()
+            # 停止信号放在每轮读之前查。read() 本身是阻塞调用、打断不了，
+            # 所以这里能保证的是「上一次读返回后立刻生效」——配合 read_timeout，
+            # 停止最迟迟一个读超时。真正卡死的最后一帧已经被超时挡住了。
+            if self.stopped():
+                return
+            cap = self._cap
+            if cap is None:  # 已 close()
+                return
+            ok, img = cap.read()
             if not ok:
-                break
+                failures += 1
+                if failures >= self.max_read_failures:
+                    # 连续读不出来 = 源真的断了。结束迭代，把「断了」这件事
+                    # 交回上层去处理（网络流退避重连、本地源直接失败）。
+                    # 少量失败先当抖动放过：弱网下 read() 偶发失败很常见，
+                    # 一次就判定断线会让监控不停重连、反复丢掉已攒的片段。
+                    return
+                continue
+            failures = 0
             yield Frame(
                 image=img,
                 index=i,

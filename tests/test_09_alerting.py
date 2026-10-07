@@ -185,3 +185,55 @@ def test_tts_disabled_or_fallback():
     # enabled but may lack audio device: should not raise
     on = TtsNotifier(enabled=True)
     assert on.speak("火情确认") in (True, False)
+    on.close()
+
+
+def test_tts_speak_does_not_block_caller():
+    """speak() 必须立即返回。
+
+    它以前在调用方线程里 runAndWait()，一条告警的播报时长（数秒）里读帧、
+    推理、推流全停——监控看起来像卡死。这条守住「入队即返回」。
+    """
+    import time
+
+    from fire_sight.alerting import TtsNotifier
+
+    on = TtsNotifier(enabled=True)
+    try:
+        t0 = time.perf_counter()
+        for _ in range(5):
+            assert on.speak("火情确认") in (True, False)
+        # 5 次入队在任何机器上都该是毫秒级；播报本身在后台线程里慢慢放
+        assert time.perf_counter() - t0 < 1.0
+    finally:
+        on.close()
+
+
+def test_tts_engine_is_process_singleton():
+    """语音引擎全进程只 init 一次。
+
+    监控掉线会退避重连，而过去每轮推理都 new 一个 TtsNotifier（内含
+    pyttsx3.init()），等于每轮泄漏一个 SAPI COM 句柄。这里断言多次获取
+    拿到的是同一个对象。
+    """
+    from fire_sight.alerting import close_tts, get_tts
+
+    try:
+        a = get_tts(enabled=True)
+        b = get_tts(enabled=True)
+        assert a is b
+    finally:
+        close_tts()
+    # close 之后还能再取一个（监控重启不受影响）
+    c = get_tts(enabled=True)
+    assert c is not None
+    close_tts()
+
+
+def test_tts_close_is_idempotent_and_speak_after_close_returns_false():
+    from fire_sight.alerting import TtsNotifier
+
+    on = TtsNotifier(enabled=True)
+    on.close()
+    on.close()  # 幂等
+    assert on.speak("火情确认") is False

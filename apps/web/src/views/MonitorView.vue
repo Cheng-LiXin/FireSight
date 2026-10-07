@@ -45,12 +45,40 @@ const STATUS_CN: Record<string, string> = {
 }
 
 let timer: number | undefined
+/** 停止确认期间的快轮询定时器；平时是 undefined（用 2s 的常驻轮询）。 */
+let fastTimer: number | undefined
+let fastTicks = 0
+
+const STATUS_POLL_MS = 2000
+/** 停止确认窗口：这段时间里改成快轮询，把「停止中」的滞留压到可忽略。 */
+const STOP_FAST_POLL_MS = 300
+const STOP_FAST_TICKS = 8
 
 async function refresh() {
   try {
     status.value = await api.monitorStatus()
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e)
+  }
+}
+
+/** 停止后快轮询几轮，确认状态已离开 stopping，再交还给常驻轮询。 */
+function startFastPolling() {
+  stopFastPolling()
+  fastTicks = 0
+  fastTimer = window.setInterval(async () => {
+    fastTicks += 1
+    await refresh()
+    if (!status.value || status.value.status !== 'stopping' || fastTicks >= STOP_FAST_TICKS) {
+      stopFastPolling()
+    }
+  }, STOP_FAST_POLL_MS)
+}
+
+function stopFastPolling() {
+  if (fastTimer) {
+    window.clearInterval(fastTimer)
+    fastTimer = undefined
   }
 }
 
@@ -77,8 +105,13 @@ async function stop() {
   busy.value = true
   error.value = ''
   try {
-    await api.monitorStop()
-    await refresh()
+    // 后端现在会在返回前等到终态，但仍有「停止中」这条尾巴（例如正在等收流）。
+    // 拿到响应后直接用它刷新；万一还停在 stopping，就切成快轮询确认，
+    // 不让用户对着「停止中」等满一个 2 秒的常驻轮询周期。
+    status.value = await api.monitorStop()
+    if (status.value?.status === 'stopping') {
+      startFastPolling()
+    }
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e)
   } finally {
@@ -88,11 +121,12 @@ async function stop() {
 
 onMounted(() => {
   refresh()
-  timer = window.setInterval(refresh, 2000)
+  timer = window.setInterval(refresh, STATUS_POLL_MS)
 })
 
 onUnmounted(() => {
   if (timer) window.clearInterval(timer)
+  stopFastPolling()
 })
 </script>
 
