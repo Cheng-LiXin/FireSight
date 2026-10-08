@@ -21,8 +21,8 @@
 .el-table {
   background-color: transparent;
   border-radius: 0;
-  font-size: var(--fs-sm);
-  color: var(--bone);
+  font-size: var(--t-small);
+  color: var(--ink);
 }
 
 /* 外层滚动容器的边框：只有需要横向滚动的宽表才留，其余全无 */
@@ -34,13 +34,13 @@
 }
 
 /* 表头：透明底、无下边框之外的一切装饰。EP 默认给的是灰底 + 稍粗字重，
-   这里压回与账册一致：--dross、500。 */
+   这里压回与账册一致：--ink-mute、500。 */
 .el-table th.el-table__cell {
-  background-color: var(--ash);
-  color: var(--dross);
+  background-color: var(--surface);
+  color: var(--ink-mute);
   font-weight: 500;
-  font-size: var(--fs-xs);
-  padding: 0 var(--sp-3) var(--sp-2);
+  font-size: var(--t-micro);
+  padding: 0 var(--s3) var(--s2);
   border-bottom: var(--hairline);
   border-right: none;
 }
@@ -54,7 +54,7 @@
 
 /* 单元格：底部只有一条发丝线。左右内边距与表头对齐，否则数字列会错半个字。 */
 .el-table td.el-table__cell {
-  padding: var(--sp-3);
+  padding: var(--s3);
   border-bottom: var(--hairline);
   border-right: none;
   vertical-align: middle;
@@ -72,7 +72,7 @@
 /* 悬停与选中：只换底色，不换字色——换字色会让数字看起来变了。 */
 .el-table__body tr.hover-row > td.el-table__cell,
 .el-table__body tr:hover > td.el-table__cell {
-  background-color: var(--highlight) !important;
+  background-color: var(--surface-sunk) !important;
 }
 
 /* 空数据：EP 会渲染一行「暂无数据」，但我们有自己的 .fs-empty 虚线框，
@@ -107,62 +107,62 @@
 
 /* 内部嵌套表格不要跟着塌陷（例如单元格内嵌的对比表） */
 .el-table .el-table {
-  background-color: var(--ash);
+  background-color: var(--surface);
 }
 
 /* ==========================================================================
    分页
    --------------------------------------------------------------------------
    默认是方块按钮 + 蓝色高亮页码，与账册的细线调子不符。
-   页码做成小圆角方块、当前页用近黑底白字（沿用 --accent）。 */
+   页码做成小圆角方块、当前页用近黑底白字（沿用 --ink）。 */
 .el-pagination {
   --el-pagination-bg-color: transparent;
   --el-pagination-button-bg-color: transparent;
-  --el-pagination-hover-color: var(--accent);
-  font-size: var(--fs-sm);
-  color: var(--dross);
-  gap: var(--sp-1);
+  --el-pagination-hover-color: var(--signal);
+  font-size: var(--t-small);
+  color: var(--ink-mute);
+  gap: var(--s1);
 }
 
 .el-pagination button,
 .el-pagination .el-pager li {
-  border-radius: var(--radius-sm);
+  border-radius: var(--r-sm);
   background-color: transparent;
-  color: var(--dross);
+  color: var(--ink-mute);
   font-variant-numeric: tabular-nums;
   transition: background-color var(--dur-1) var(--ease), color var(--dur-1) var(--ease);
 }
 
 .el-pagination button:hover:not(:disabled),
 .el-pagination .el-pager li:hover:not(.is-disabled) {
-  background-color: var(--highlight);
-  color: var(--bone);
+  background-color: var(--surface-sunk);
+  color: var(--ink);
 }
 
 /* 当前页：近黑底。不是 EP 默认蓝，也不是参考项目那种淡粉底红字。 */
 .el-pagination .el-pager li.is-active {
-  background-color: var(--accent);
-  color: var(--ash);
+  background-color: var(--signal);
+  color: var(--surface);
   font-weight: 500;
 }
 
 .el-pagination .el-pager li.is-active:hover {
-  background-color: var(--accent-hover);
-  color: var(--ash);
+  background-color: var(--signal-deep);
+  color: var(--surface);
 }
 
 .el-pagination button:disabled {
-  color: var(--ink-4);
+  color: var(--ink-faint);
   cursor: not-allowed;
 }
 
 /* 跳页输入框 */
 .el-pagination .el-input__inner {
-  background-color: var(--ash);
-  border-color: var(--cinder);
-  border-radius: var(--radius-sm);
-  color: var(--bone);
-  font-size: var(--fs-sm);
+  background-color: var(--surface);
+  border-color: var(--line);
+  border-radius: var(--r-sm);
+  color: var(--ink);
+  font-size: var(--t-small);
   height: 28px;
   line-height: 28px;
 }
@@ -173,14 +173,14 @@
    加载态不给「暂无数据」也不给转圈——数据马上就来，给个占位形状更诚实。
    EP 默认骨架是灰块带微光扫过；我们要的是发丝线灰条，安静、不抢视线。 */
 .el-skeleton {
-  --el-skeleton-color: var(--soot);
-  --el-skeleton-animation-background: var(--highlight);
+  --el-skeleton-color: var(--canvas);
+  --el-skeleton-animation-background: var(--surface-sunk);
 }
 
 .el-skeleton__item {
-  background: linear-gradient(90deg, var(--soot) 25%, var(--highlight) 37%, var(--soot) 63%);
+  background: linear-gradient(90deg, var(--canvas) 25%, var(--surface-sunk) 37%, var(--canvas) 63%);
   background-size: 400% 100%;
-  border-radius: var(--radius-sm);
+  border-radius: var(--r-sm);
 }
 
 /* ==========================================================================
@@ -189,7 +189,7 @@
    默认是一个灰插图 + 一句话。我们不用它的插图（具象插画是另一套气质），
    只留文字与动作区，容器由 .fs-empty 虚线框提供。 */
 .el-empty {
-  --el-empty-padding: var(--sp-5) 0;
+  --el-empty-padding: var(--s5) 0;
 }
 
 .el-empty__image {
@@ -201,8 +201,8 @@
 }
 
 .el-empty__description p {
-  color: var(--dross);
-  font-size: var(--fs-sm);
+  color: var(--ink-mute);
+  font-size: var(--t-small);
 }
 
 /* ==========================================================================
@@ -216,35 +216,35 @@
 
 .el-message-box {
   --el-messagebox-width: 420px;
-  --el-messagebox-border-radius: var(--radius);
-  background-color: var(--ash);
+  --el-messagebox-border-radius: var(--r);
+  background-color: var(--surface);
   border: var(--hairline);
-  box-shadow: var(--shadow-3);
-  padding: var(--sp-5);
+  box-shadow: var(--lift-3);
+  padding: var(--s5);
 }
 
 .el-message-box__title {
-  font-size: var(--fs-lg);
+  font-size: var(--t-read);
   font-weight: 500;
-  color: var(--bone);
+  color: var(--ink);
 }
 
 .el-message-box__content {
-  color: var(--dross);
-  font-size: var(--fs-sm);
+  color: var(--ink-mute);
+  font-size: var(--t-small);
   line-height: 1.6;
 }
 
 .el-message-box__btns {
-  gap: var(--sp-2);
-  margin-top: var(--sp-5);
+  gap: var(--s2);
+  margin-top: var(--s5);
 }
 
 .el-message-box__btns .el-button {
   height: 32px;
-  padding: 0 var(--sp-4);
-  border-radius: var(--radius-sm);
-  font-size: var(--fs-sm);
+  padding: 0 var(--s4);
+  border-radius: var(--r-sm);
+  font-size: var(--t-small);
 }
 
 /* 危险操作的确认键：这是全站唯一允许「按钮本身带告警色」的地方，
@@ -262,29 +262,29 @@
 }
 
 .el-message-box .el-button:not(.el-button--primary) {
-  background-color: var(--ash);
-  border-color: var(--cinder);
-  color: var(--bone);
+  background-color: var(--surface);
+  border-color: var(--line);
+  color: var(--ink);
 }
 
 .el-message-box .el-button:not(.el-button--primary):hover {
-  border-color: var(--dross);
-  background-color: var(--highlight);
-  color: var(--bone);
+  border-color: var(--ink-mute);
+  background-color: var(--surface-sunk);
+  color: var(--ink);
 }
 
 /* 轻提示：贴右上角，不用居中大条 */
 .el-message {
-  background-color: var(--ash);
+  background-color: var(--surface);
   border: var(--hairline);
-  border-radius: var(--radius-sm);
-  box-shadow: var(--shadow-2);
-  padding: var(--sp-3) var(--sp-4);
+  border-radius: var(--r-sm);
+  box-shadow: var(--lift-2);
+  padding: var(--s3) var(--s4);
 }
 
 .el-message__content {
-  color: var(--bone);
-  font-size: var(--fs-sm);
+  color: var(--ink);
+  font-size: var(--t-small);
   align-items: center;
 }
 
@@ -295,7 +295,7 @@
 }
 
 .el-message--error .el-message__content {
-  color: var(--bone);
+  color: var(--ink);
 }
 
 .el-message-box__icon.el-icon,

@@ -19,25 +19,25 @@ const plan = computed(() => String(route.meta.plan ?? ''))
 <style scoped>
 .pending {
   max-width: 60ch;
-  padding: var(--sp-6) 0;
+  padding: var(--s6) 0;
 }
 
 .pending__title {
-  margin: 0 0 var(--sp-3);
-  font-size: var(--fs-xl);
+  margin: 0 0 var(--s3);
+  font-size: var(--t-title);
   font-weight: 500;
 }
 
 .pending__plan {
-  margin: 0 0 var(--sp-5);
-  color: var(--dross);
+  margin: 0 0 var(--s5);
+  color: var(--ink-mute);
 }
 
 .pending__note {
   margin: 0;
-  font-size: var(--fs-sm);
-  color: var(--dross);
-  padding-left: var(--sp-3);
-  border-left: 2px solid var(--cinder);
+  font-size: var(--t-small);
+  color: var(--ink-mute);
+  padding-left: var(--s3);
+  border-left: 2px solid var(--line);
 }
 </style>

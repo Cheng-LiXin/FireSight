@@ -14,7 +14,7 @@ import { expect, test } from '@playwright/test'
 test('切到 CPU 后显存提示消失', async ({ page }) => {
   await page.goto('/training')
 
-  const launcher = page.locator('.launcher')
+  const launcher = page.locator('.tray')
   await expect(launcher).toBeVisible()
 
   const hint = launcher.locator('.vram')

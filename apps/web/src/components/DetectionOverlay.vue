@@ -36,7 +36,7 @@ const emit = defineEmits<{ hover: [index: number | null] }>()
 /** 类别色槽位与图表图例共用同一组：烟=深石板灰、火=告警红。
  *  叠加层是 DOM，看得到 CSS 变量，所以直接引 var() 即可。 */
 function classColor(d: Detection): string {
-  return d.name === 'fire' ? 'var(--cat-fire)' : 'var(--cat-smoke)'
+  return d.name === 'fire' ? 'var(--cls-fire)' : 'var(--cls-smoke)'
 }
 
 /** 标签文字用 name_cn（后端已按映射表翻好），置信度固定 2 位。
@@ -148,9 +148,9 @@ function hover(i: number | null): void {
   display: block;
   width: 100%;
   height: auto;
-  background: var(--soot);
+  background: var(--canvas);
   border: var(--hairline);
-  border-radius: var(--radius-sm);
+  border-radius: var(--r-sm);
 }
 
 .overlay__svg {
@@ -190,16 +190,16 @@ function hover(i: number | null): void {
 }
 
 /* 类别色底 + 白字。白字压类别色在两个槽位上都 >=4.5:1，
-   实测对比度见 tokens.css --cat-smoke 处注释。 */
+   实测对比度见 tokens.css --cls-smoke 处注释。 */
 .overlay__tag {
   position: absolute;
   height: 20px;
   padding: 1px 4px 0;
-  font-family: var(--font-mono);
-  font-size: var(--fs-xs);
+  font-family: var(--font-num);
+  font-size: var(--t-micro);
   font-weight: 500;
   line-height: 18px;
-  color: var(--ash);
+  color: var(--surface);
   white-space: nowrap;
   pointer-events: auto;
   transition: opacity var(--dur-1) var(--ease);

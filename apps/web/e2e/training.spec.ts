@@ -34,7 +34,7 @@ test('启动训练：实时曲线逐轮长出，结束后出现在训练记录�
 
   await page.goto('/training')
 
-  const launcher = page.locator('.launcher')
+  const launcher = page.locator('.tray')
   await expect(launcher).toBeVisible()
 
   // 必须显式选数据集：下拉默认取列表第一个，那是 D-Fire/raw（14122 张），
@@ -98,7 +98,7 @@ test('GPU 被占用时，界面把后端的 409 说明显示出来', async ({ pa
 
   await page.goto('/training')
 
-  const launcher = page.locator('.launcher')
+  const launcher = page.locator('.tray')
   await expect(launcher).toBeVisible()
 
   const start = launcher.getByRole('button', { name: '开始训练' })

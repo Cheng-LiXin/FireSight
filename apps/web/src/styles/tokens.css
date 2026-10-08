@@ -17,9 +17,10 @@
    规则四：数值字形分两种——需要纵向对齐的（读数条/表格/坐标轴）用等宽；
            大号独立 hero 数字用比例字形，等宽会让它在大字号下显得松散。
 
-   命名沿革：新方案用 --canvas / --surface / --ink-* 这组名字，旧方案用
-   --soot / --ash / --bone。两组**同时存在**，旧名一律是别名的别名——尚未改版的
-   六页仍按旧名取值。改完那些页面后再逐步收敛旧名，不要一步砍掉。
+   命名只有这一组：--canvas / --surface / --ink-* / --signal / --t-* / --s* / --r*。
+   早期版本为了让尚未改版的页面不动而留过一套旧名（--soot / --ash / --bone
+   等）作为别名，八页改完后已全部删除——留着别名等于把「哪种才是正式名」
+   这个问题永远留在每个改代码的人面前。
 
    对比度（阈值：正文 >=4.5:1，图形/大字号 >=3:1）
      #0d1117 on #eef0f3  16.6:1   主文字
@@ -78,45 +79,6 @@
   --cls-smoke: #2f3742;
   --cls-fire: var(--alarm);
 
-  /* ==========================================================================
-     旧名的兼容别名
-     尚未改版的六页（告警事件、模型库、训练中心、实时监控、分析报告、月度大屏）
-     仍按这一组名字取值。它们不是废弃值，而是同一份设计意图的旧叫法。
-     ========================================================================== */
-  --soot: var(--canvas);      /* 页面底 */
-  --ash: var(--surface);      /* 面板 / 表头 */
-  --cinder: var(--line);      /* 边框 / 分隔线 */
-  --bone: var(--ink);         /* 主文字，近黑 */
-  --dross: var(--ink-mute);   /* 次要文字 / 标签 */
-
-  /* 灰阶阶梯：越靠后越深，用于「严重程度」而非「类别」 */
-  --ink-0: var(--ink);
-  --ink-1: #374151;
-  --ink-2: var(--ink-mute);
-  --ink-3: var(--ink-faint);
-  --ink-4: #c2c9d2;
-
-  /* 选中行底色。比 --canvas 略深，与 hover 态拉开一档 */
-  --highlight: var(--surface-sunk);
-
-  /* 原名 --fire-2 / --fire-3。单色主题下继续叫 fire 就是撒谎，故按角色重命名。 */
-  --accent: var(--signal);        /* 主按钮、焦点框、滑块、激活态 */
-  --accent-hover: var(--signal-deep);
-  --accent-soft: #9ca3af;        /* 弱化强调、禁用态 */
-
-  /* 对照锚点：无目标、正常态 */
-  --cool: var(--ink-mute);
-
-  /* 风险尺刻度：前三档单色递深，最高档才用告警橙 */
-  --risk-normal: var(--ink-mute);
-  --risk-watch: #374151;
-  --risk-warn: #1f2937;
-  --risk-alert: var(--alarm);
-
-  /* 类别色旧名，与 --cls-* 同源 */
-  --cat-smoke: var(--cls-smoke);
-  --cat-fire: var(--cls-fire);
-
   /* --- 字体 -----------------------------------------------------------------
      两族：Space Grotesk 负责标题与界面（有几何骨架，偏工程感，与仪表/读数
      气质吻合），IBM Plex Mono 负责一切数字。
@@ -126,9 +88,6 @@
     'PingFang SC', 'Microsoft YaHei', sans-serif;
   --font-num: 'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Consolas, monospace;
 
-  --font-sans: var(--font-ui);
-  --font-mono: var(--font-num);
-
   /* --- 字号：跨度故意拉大，让读数有资格当图形 -------------------------------- */
   --t-hero: 3.5rem;     /* 头号读数 */
   --t-read: 2.25rem;    /* 常规读数 */
@@ -136,14 +95,6 @@
   --t-body: 0.875rem;
   --t-small: 0.8125rem;
   --t-micro: 0.6875rem; /* 刻度、标签 */
-
-  --fs-xs: var(--t-micro);
-  --fs-sm: var(--t-small);
-  --fs-base: var(--t-body);
-  --fs-md: var(--t-title);
-  --fs-lg: var(--t-read);
-  --fs-xl: 1.375rem;
-  --fs-2xl: 3.5rem;   /* 供旧页面的 hero 数字取用 */
 
   /* 字重跨度。设计感有相当一部分来自「同一个字能有多重」的对比，
      而不是字号对比——只有字号变大时，页面会显得像放大了的模板。 */
@@ -167,14 +118,6 @@
   --s7: 48px;
   --s8: 64px;
 
-  --sp-1: var(--s1);
-  --sp-2: var(--s2);
-  --sp-3: var(--s3);
-  --sp-4: var(--s4);
-  --sp-5: var(--s5);
-  --sp-6: var(--s6);
-  --sp-7: var(--s7);
-
   /* --- 圆角：全站圆润。承载体、按钮、标签、输入槽一律带圆角 ----------------
      刻意改掉了早先「内容区一律直角、圆角只是控件属性」那条原则：圆润换来
      亲和与现代感，代价是这一页会更接近常见的 SaaS 后台。
@@ -184,27 +127,13 @@
   --r-lg: 18px;
   --r-pill: 999px;   /* 按钮与标签走胶囊 */
 
-  --radius-sm: var(--r-sm);
-  --radius: var(--r);
-  --radius-lg: var(--r-lg);
-  --radius-pill: var(--r-pill);
   --hairline: 1px solid var(--line);
   --shell-h: 56px;
-
-  /* --- 取景器刻度角：旧版视觉签名 ------------------------------------------
-     角标线宽与刻度线长。它是刻意的直角记忆点，不参与圆角阶梯。
-     新方案的两页不再挂它，其余五页仍在用。 */
-  --frame-mark: 2px;
-  --frame-tick: 6px;
 
   /* --- 层次阴影：只给浮起的东西一层极浅的影 --------------------------------- */
   --lift-1: 0 1px 2px rgba(13, 17, 23, 0.04);
   --lift-2: 0 4px 16px rgba(13, 17, 23, 0.08);
   --lift-3: 0 12px 40px rgba(13, 17, 23, 0.14);
-
-  --shadow-1: var(--lift-1);
-  --shadow-2: var(--lift-2);
-  --shadow-3: var(--lift-3);
 
   /* --- 运动：进场与反馈分两档缓动 -------------------------------------------
      --ease      状态变化（边框、底色、阴影）——快进快出，不引人注意
@@ -282,13 +211,13 @@
    参考项目 FireObserve 用的正是原装 `el-table :border="true"`——保留默认皮
    会提高同源风险，因此这里逐项拆掉，规则落在 styles/ep.css。
    表格不开 :border、竖线全无、只留发丝横线、表头透明、悬停与选中接
-   --highlight。挂 :root 而非 scoped，多页共用同一套。 */
+   --surface-sunk。挂 :root 而非 scoped，多页共用同一套。 */
 :root {
   --el-table-border-color: transparent;
   --el-table-header-bg-color: var(--surface);
   --el-table-header-text-color: var(--ink-mute);
-  --el-table-row-hover-bg-color: var(--highlight);
+  --el-table-row-hover-bg-color: var(--surface-sunk);
   --el-table-bg-color: transparent;
   --el-table-tr-bg-color: transparent;
-  --el-table-current-row-bg-color: var(--highlight);
+  --el-table-current-row-bg-color: var(--surface-sunk);
 }

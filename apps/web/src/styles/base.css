@@ -24,10 +24,10 @@ body,
 
 body {
   margin: 0;
-  background: var(--soot);
+  background: var(--canvas);
   color: var(--ink-body);
-  font-family: var(--font-sans);
-  font-size: var(--fs-base);
+  font-family: var(--font-ui);
+  font-size: var(--t-body);
   line-height: 1.55;
   -webkit-font-smoothing: antialiased;
 }
@@ -51,14 +51,14 @@ dd {
 .sheet .num,
 code,
 kbd {
-  font-family: var(--font-mono);
+  font-family: var(--font-num);
   font-variant-numeric: tabular-nums;
   font-feature-settings: 'tnum' 1;
 }
 
 /* --- 可见键盘焦点：实线是主体，外加一圈柔光晕辅助，不互相替代 --------- */
 :focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--signal);
   outline-offset: 2px;
   box-shadow: 0 0 0 4px rgba(13, 17, 23, 0.06);
 }
@@ -72,73 +72,22 @@ kbd {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  /* 滑块要能从底色里看出来。原来的 --cinder 换成浅发丝线之后就太淡了，
+  /* 滑块要能从底色里看出来。边框色换成浅发丝线之后就太淡了，
      这里直接用刻度色那一档。 */
   background: var(--ink-faint);
-  border-radius: var(--radius-pill);
+  border-radius: var(--r-pill);
 }
 ::-webkit-scrollbar-thumb:hover {
   background: var(--ink-mute);
 }
 
 /* ==========================================================================
-   容器一：取景窗
-   ========================================================================== */
-
-.fs-viewfinder {
-  position: relative;
-  padding: var(--sp-4);
-  background: var(--ash);
-  border: var(--hairline);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow-1);
-  overflow: hidden;
-  transition: box-shadow var(--dur-2) var(--ease);
-}
-
-.fs-viewfinder:hover {
-  box-shadow: var(--shadow-2);
-}
-
-/* 四角刻度角由 <FrameMarks /> 承担（src/components/FrameMarks.vue），
-   样式与 hover 点亮规则全在那个组件里。它从 ::before/::after 搬出来成为
-   组件，是因为补齐四角 + 边缘刻度线需要四个元素，伪元素只够两个；顺带
-   让图像区、曲线区、监控画面区能共用同一份签名。 */
-
-.fs-viewfinder__title {
-  margin: 0 0 var(--sp-3);
-  font-size: var(--fs-sm);
-  font-weight: 500;
-  color: var(--dross);
-}
-
-/* ==========================================================================
-   容器二：读数条
-   ========================================================================== */
-
-.fs-readout {
-  padding-top: var(--sp-2);
-  border-top: var(--hairline);
-}
-
-.fs-readout + .fs-readout {
-  margin-top: var(--sp-3);
-}
-
-.fs-readout__label {
-  font-size: var(--fs-xs);
-  color: var(--dross);
-}
-
-.fs-readout__value {
-  font-size: var(--fs-lg);
-  font-weight: 500;
-  color: var(--bone);
-  text-align: right;
-}
-
-/* ==========================================================================
-   容器三：账册
+   账册
+   --------------------------------------------------------------------------
+   保留 .fs-ledger 与 .fs-scroll 的理由：它们不是「旧版容器」而是两种
+   不可替代的能力——发丝横线密集表格（含 th/td.is-num 右对齐契约），
+   以及宽表自己横向滚而不把整页撑宽。其余四种 .fs-* 容器已随八页改版
+   退役：取景窗与读数条被 .panel / .readout 接管，参数托盘被 .tray 接管。
    ========================================================================== */
 
 /* 宽账册（模型归档 11 列）在窄视口下必须自己横向滚，而不是把整页撑宽。
@@ -151,22 +100,22 @@ kbd {
 .fs-ledger {
   width: 100%;
   border-collapse: collapse;
-  font-size: var(--fs-sm);
+  font-size: var(--t-small);
 }
 
 .fs-ledger th {
-  padding: var(--sp-2) var(--sp-3);
+  padding: var(--s2) var(--s3);
   text-align: left;
   font-weight: 500;
-  color: var(--dross);
+  color: var(--ink-mute);
   border-bottom: var(--hairline);
   white-space: nowrap;
 }
 
 .fs-ledger td {
-  padding: var(--sp-3);
+  padding: var(--s3);
   border-bottom: var(--hairline);
-  color: var(--bone);
+  color: var(--ink);
 }
 
 .fs-ledger tbody tr {
@@ -174,7 +123,7 @@ kbd {
 }
 
 .fs-ledger tbody tr:hover td {
-  background: var(--highlight);
+  background: var(--surface-sunk);
 }
 
 .fs-ledger td.is-num {
@@ -191,20 +140,17 @@ kbd {
    工具类
    ========================================================================== */
 
+/* 空态。保留 .fs-empty 这个名字而不是并进新方案的 .empty：e2e 里
+   events.spec.ts 与 models.spec.ts 直接定位它，断言「空的时候说什么、
+   不空的时候不说什么」是业务契约，不能顺手改掉。 */
 .fs-empty {
-  padding: var(--sp-6) var(--sp-4);
+  padding: var(--s6) var(--s4);
   text-align: center;
-  color: var(--dross);
-  font-size: var(--fs-sm);
-  border: 1px dashed var(--cinder);
-  border-radius: var(--radius);
-  background: var(--ash);
-}
-
-.fs-empty__action {
-  display: block;
-  margin-top: var(--sp-3);
-  color: var(--accent);
+  color: var(--ink-mute);
+  font-size: var(--t-small);
+  border: 1px dashed var(--line);
+  border-radius: var(--r);
+  background: var(--surface);
 }
 
 /* ==========================================================================
@@ -214,73 +160,38 @@ kbd {
    否则两边会各自演化，同一种控件迟早长得不一样。
    ========================================================================== */
 
-.field {
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-1);
-  min-width: 180px;
-}
-
-/* 监控页的参数栏宽 320px，横排时 .field 的 180px 最小宽会把视频源挤到换行，
-   这里让整栏纵向排列、控件撑满。 */
-.field--stack {
-  min-width: 0;
-}
-
-.field--slider {
-  min-width: 200px;
-}
-
-.field--narrow {
-  min-width: 110px;
-}
-
-.field__label {
-  font-size: var(--fs-xs);
-  color: var(--dross);
-}
-
-.field__label b {
-  color: var(--bone);
-  font-weight: 500;
-}
-
-/* 下拉与输入框都得钉死高度。只给 input 定高是不够的：<select> 的高度由
-   UA 按内容行高 + 内边距自己算，Windows 上比 input 高出几像素。同一行里
-   混着两种控件时（训练表单就是这样）底边会错开，看起来像没对齐。
-   全局已有 box-sizing: border-box，这里不必重复。 */
 .field__control {
   height: 32px;
-  padding: 0 var(--sp-2);
-  font-family: var(--font-sans);
-  font-size: var(--fs-sm);
+  padding: 0 var(--s2);
+  font-family: var(--font-ui);
+  font-size: var(--t-small);
   line-height: normal;
-  color: var(--bone);
-  background: var(--ash);
-  border: 1px solid var(--cinder);
-  border-radius: var(--radius-sm);
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
   transition: border-color var(--dur-1) var(--ease),
     box-shadow var(--dur-1) var(--ease),
     background-color var(--dur-1) var(--ease);
 }
 
 .field__control:hover {
-  border-color: var(--ink-3);
+  border-color: var(--ink-faint);
 }
 
 /* 焦点：实线 outline 之外加柔光，边框本身也提亮一档 */
 .field__control:focus {
-  background: var(--ash);
-  border-color: var(--dross);
+  background: var(--surface);
+  border-color: var(--ink-mute);
 }
 
 /* 字段下方的补充说明。比 label 再弱一档，且允许折行——像「本机已有，18.4 MB」
    这类信息不该把控件撑宽，也不该和值本身抢注意力。 */
 .field__hint {
   margin-top: 2px;
-  font-size: var(--fs-xs);
+  font-size: var(--t-micro);
   line-height: 1.5;
-  color: var(--dross);
+  color: var(--ink-mute);
 }
 
 /* 滑块：轨道分两段着色，已选区间用强调色——滑块停在哪儿一眼可见，
@@ -301,8 +212,8 @@ input[type='range']::-webkit-slider-runnable-track {
   border-radius: 2px;
   background: linear-gradient(
     to right,
-    var(--accent) var(--fill, 0%),
-    var(--cinder) var(--fill, 0%)
+    var(--signal) var(--fill, 0%),
+    var(--line) var(--fill, 0%)
   );
 }
 
@@ -312,7 +223,7 @@ input[type='range']::-webkit-slider-thumb {
   height: 14px;
   margin-top: -5px;
   border-radius: 50%;
-  background: var(--accent);
+  background: var(--signal);
   box-shadow: 0 0 0 0 rgba(17, 24, 39, 0.12);
   transition: box-shadow var(--dur-1) var(--ease), transform var(--dur-1) var(--ease);
 }
@@ -322,48 +233,15 @@ input[type='range']:hover::-webkit-slider-thumb {
   box-shadow: 0 0 0 6px rgba(17, 24, 39, 0.08);
 }
 
-.fs-btn-primary {
-  height: 32px;
-  padding: 0 var(--sp-5);
-  font: inherit;
-  font-size: var(--fs-sm);
-  font-weight: 500;
-  color: #fff;
-  background: var(--accent);
-  border: 0;
-  border-radius: var(--radius-sm);
-  white-space: nowrap;
-  cursor: pointer;
-  transition: background-color var(--dur-1) var(--ease),
-    transform var(--dur-1) var(--ease), box-shadow var(--dur-1) var(--ease);
-}
-
-.fs-btn-primary:hover:not(:disabled) {
-  background: var(--accent-hover);
-  box-shadow: var(--shadow-2);
-  transform: translateY(-1px);
-}
-
-.fs-btn-primary:active:not(:disabled) {
-  transform: translateY(0);
-  box-shadow: var(--shadow-1);
-}
-
-.fs-btn-primary:disabled {
-  color: var(--dross);
-  background: var(--cinder);
-  cursor: default;
-}
-
 .fs-btn-ghost {
   height: 32px;
-  padding: 0 var(--sp-3);
+  padding: 0 var(--s3);
   font: inherit;
-  font-size: var(--fs-sm);
-  color: var(--bone);
+  font-size: var(--t-small);
+  color: var(--ink);
   background: transparent;
-  border: 1px solid var(--cinder);
-  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
   white-space: nowrap;
   cursor: pointer;
   transition: border-color var(--dur-1) var(--ease),
@@ -371,8 +249,8 @@ input[type='range']:hover::-webkit-slider-thumb {
 }
 
 .fs-btn-ghost:hover:not(:disabled) {
-  border-color: var(--dross);
-  background: var(--highlight);
+  border-color: var(--ink-mute);
+  background: var(--surface-sunk);
 }
 
 .fs-btn-ghost:active:not(:disabled) {
@@ -384,77 +262,31 @@ input[type='range']:hover::-webkit-slider-thumb {
    都受此影响，自动化断言 toBeDisabled() 通过，人眼却分不出。 */
 .fs-btn-ghost:disabled,
 .fs-btn-ghost:disabled:hover {
-  color: var(--ink-3);
-  border-color: var(--cinder);
+  color: var(--ink-faint);
+  border-color: var(--line);
   cursor: default;
 }
 
-/* 表格行内的迷你按钮。与 .field 同一规矩：告警、训练、模型三页都在用，
+/* 表格行内的迷你按钮。三页（告警事件 / 训练中心 / 模型库）都在用同一枚，
    放全局而不是各页 scoped——之前它住在告警事件页的 scoped 里，
    Vue 编译成 [data-v-告警页] 限定，训练页与模型页那五枚按钮全是无效选择器，
    高度悄悄退回 32px。同一种控件迟早长得不一样，讲的就是这个。 */
 .fs-btn-ghost--tiny {
   height: 24px;
-  padding: 0 var(--sp-2);
-  font-size: var(--fs-xs);
-}
-
-/* 参数托盘：一排控件放在一张带边框的浅色托盘上。
-   与 .fs-viewfinder 的区别是**不挂四角刻度角**——刻度角标记的是
-   「正在被观察的东西」（图像、曲线、画面），而参数栏是要你去操作的，
-   不是被观察的对象。少了这一层签名，两者就不会混。
-
-   这份配方此前在训练中心（.launcher）与模型库（.bar）各抄了一份，
-   连 padding 带阴影逐字相同；调一次阴影要改两个文件，漏一处就出现
-   同屏两种卡片。放在这里，两页只留各自的布局属性。 */
-.fs-tray {
-  padding: var(--sp-3) var(--sp-4);
-  background: var(--ash);
-  border: var(--hairline);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow-1);
-}
-
-/* ==========================================================================
-   区块与提示
-   ========================================================================== */
-
-.fs-block {
-  display: flex;
-  flex-direction: column;
-}
-
-.fs-block__title {
-  margin: 0 0 var(--sp-3);
-  font-size: var(--fs-sm);
-  font-weight: 500;
-  color: var(--dross);
-}
-
-.fs-block__head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--sp-4);
-}
-
-/* 小倍数图容器的排布 */
-.fs-panels {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: var(--sp-4);
+  padding: 0 var(--s2);
+  font-size: var(--t-micro);
 }
 
 /* 错误提示是 --alarm 的合法用武之地之一：它确实需要人去看一眼 */
 .fs-note-error {
   margin: 0;
-  padding: var(--sp-3) var(--sp-4);
-  font-size: var(--fs-sm);
-  color: var(--bone);
+  padding: var(--s3) var(--s4);
+  font-size: var(--t-small);
+  color: var(--ink);
   background: var(--alarm-soft);
   border: var(--hairline);
   border-left: 3px solid var(--alarm);
-  border-radius: var(--radius-sm);
+  border-radius: var(--r-sm);
 }
 
 /* ==========================================================================
@@ -568,6 +400,81 @@ input[type='range']:hover::-webkit-slider-thumb {
 
 .panel__body {
   padding: var(--s5);
+}
+
+/* 导出 / 下载是**链接**，语义上是导航而不是提交动作：交给浏览器原生下载，
+   前端不解析 CSV 也不读 blob。所以只补一个去下划线与去默认配色的补丁，
+   形状继续由 .btn 家族提供。 */
+.btn-link {
+  text-decoration: none;
+}
+
+/* --- 参数托盘 + 旋钮 ---------------------------------------------------
+   识别页的推理参数、告警事件页的筛选条件、训练中心与监控页的启动参数，
+   都是同一个角色：**用户要操作的输入控件**，不是被观察的对象。
+   所以它们共用一套配方，并明确不挂取景框的刻度角——
+   刻度角标记「正在被观察的东西」，挂到输入框上会把这套语言的意义稀释掉。 */
+.tray {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--lift-1);
+  padding: var(--s4) var(--s5) var(--s5);
+}
+
+/* 控件排布。各页自己定列宽与顺序，这里只保证「窄了不会撑破托盘」。 */
+.tray__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: var(--s4);
+  align-items: end;
+}
+
+/* 托盘底部的动作条。与控件之间用一条发丝线分开——
+   一排六个控件后面跟着两个按钮，靠间距分不开是操作还是筛选。 */
+.tray__actions {
+  display: flex;
+  gap: var(--s2);
+  margin-top: var(--s4);
+  padding-top: var(--s4);
+  border-top: 1px solid var(--line-faint);
+}
+
+.knob {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+}
+
+/* 旋钮的标签与取值常常并排（「置信度  0.25」），所以给一个两端的排布；
+   没有取值的旋钮（关键词、类别下拉）就只是一行标签，align-items 让它不跑偏。 */
+.knob__label {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s2);
+  font-size: var(--t-small);
+  color: var(--ink-body);
+}
+
+/* 取值用冷色：它是「可调的量」而不是「已经发生的事」，
+   冷色是交互额度；告警橙仍只留给确实有火的那一侧。 */
+.knob__label b {
+  font-family: var(--font-num);
+  font-variant-numeric: tabular-nums;
+  color: var(--signal-deep);
+}
+
+/* 读数表在表格页收窄：等宽自动填充那档是给总览页四条 KPI 用的，
+   放到一屏表格前面会把表格挤到需要横向滚动。 */
+.readouts--tight {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+/* --- 承载体面板的变体 --------------------------------------------------- */
+.panel__body--flush {
+  padding: 0;
 }
 
 /* --- 表格：发丝横线，无竖线无外框 ---------------------------------------- */
@@ -803,6 +710,42 @@ input[type='range']:hover::-webkit-slider-thumb {
   color: var(--ink-faint);
   font-size: var(--t-small);
   line-height: 1.7;
+}
+
+/* 空态放在已经撑好外框的容器里面时不该再自带一圈上下留白：
+   那会让面板里出现一段没有归属的空白，看起来像漏了一行。 */
+.empty--inset {
+  padding: var(--s6) var(--s4);
+}
+
+/* --- 图表栅格 -------------------------------------------------------------
+   曲线、环形构成这类「同一组数据的不同看法」，并排比上下堆更容易比较。
+   训练页的 box / cls / dfi 三张损失各占一列，宽屏一次看完三种量程。 */
+.charts {
+  display: grid;
+  gap: var(--s5);
+  align-items: start;
+}
+
+.charts--3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.charts--2 {
+  grid-template-columns: minmax(0, 2.4fr) minmax(0, 1fr);
+}
+
+/* 图表容器不留 padding：ECharts 画布自己有外边距需求，
+   再套一层内边距会把三张并排的图挤到宽度不等、基线不齐。 */
+.panel__body--chart {
+  padding: var(--s2) var(--s3) var(--s3);
+}
+
+@media (max-width: 1100px) {
+  .charts--3,
+  .charts--2 {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 /* 动效：尊重系统偏好，全局一刀切。

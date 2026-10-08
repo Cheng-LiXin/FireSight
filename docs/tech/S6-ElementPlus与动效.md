@@ -82,8 +82,8 @@ emit `settled`。rAF + `1-(1-t)^3` 三次缓出。三条让它不至于变成炫
 **滚动起点取「当前显示值」而非上次原始值**：连点切换月份时，动画从屏幕上看得
 到的位置接着走，而不是从两个月前跳回来。
 
-接入 `StatTile.vue`（只有真数字才滚，上游已格式化的字符串原样显示）与
-`BigScreenView.vue` 五个 KPI。
+接入 `DashboardView` 的四条读数（只有真数字才滚，上游已格式化的字符串原样显示）
+与 `BigScreenView.vue` 五个 KPI。
 
 ### 4.2 图表绘制 `charts/motion.ts`
 

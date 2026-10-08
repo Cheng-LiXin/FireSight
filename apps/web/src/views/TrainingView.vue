@@ -9,7 +9,6 @@ import { ElMessageBox } from 'element-plus'
 import { api, ApiError, type TrainJobRequest, type VramLimits } from '@/api/client'
 import { trainingLossPanels, trainingMetricOption } from '@/charts/options'
 import EChart from '@/components/EChart.vue'
-import FrameMarks from '@/components/FrameMarks.vue'
 import type {
   ArtifactInfo,
   CurveSeries,
@@ -380,25 +379,33 @@ onBeforeUnmount(disconnect)
   <div class="train">
     <p v-if="error" class="fs-note-error" role="alert">{{ error }}</p>
 
-    <!-- 启动 -->
-    <section class="fs-block">
-      <div class="fs-block__head">
-        <h2 class="fs-block__title">启动训练</h2>
-        <button type="button" class="fs-btn-ghost" @click="launcherOpen = !launcherOpen">
-          {{ launcherOpen ? '收起' : '展开' }}
+    <div class="head">
+      <div>
+        <h1 class="head__title">训练中心</h1>
+        <p class="head__sub">
+          启动参数、实时曲线、现场图件与训练记录在这一页。批量和 imgsz 定不下来就先别开训——
+          下面那条显存提示是按 batch × imgsz² 推出来的上限，超了后端会直接拒。
+        </p>
+      </div>
+      <div class="head__actions">
+        <button type="button" class="btn btn--ghost" @click="launcherOpen = !launcherOpen">
+          {{ launcherOpen ? '收起启动参数' : '展开启动参数' }}
         </button>
       </div>
+    </div>
 
-      <div v-if="launcherOpen" class="launcher fs-tray">
-        <label class="field">
-          <span class="field__label">数据集</span>
+    <!-- 启动 -->
+    <section v-if="launcherOpen" class="tray" aria-label="启动参数">
+      <div class="tray__grid tray__grid--seven">
+        <label class="knob">
+          <span class="knob__label">数据集</span>
           <select v-model="form.dataset" class="field__control">
             <option v-if="!datasets.length" value="">无可训练的数据集</option>
             <option v-for="d in datasets" :key="d" :value="d">{{ d }}</option>
           </select>
         </label>
-        <label class="field">
-          <span class="field__label">模型</span>
+        <label class="knob">
+          <span class="knob__label">模型</span>
           <select v-model="form.model" class="field__control">
             <option v-for="m in modelOptions" :key="m.stem" :value="m.name">
               {{ m.name }}{{ m.present ? '' : '（需下载）' }}
@@ -407,12 +414,12 @@ onBeforeUnmount(disconnect)
             <option v-if="!modelOptions.length" :value="form.model">{{ form.model }}</option>
           </select>
         </label>
-        <label class="field field--narrow">
-          <span class="field__label">轮数</span>
+        <label class="knob">
+          <span class="knob__label">轮数</span>
           <input v-model.number="form.epochs" class="field__control" type="number" min="1" />
         </label>
-        <label class="field field--narrow">
-          <span class="field__label">批量</span>
+        <label class="knob">
+          <span class="knob__label">批量</span>
           <input
             v-model.number="form.batch"
             class="field__control"
@@ -422,12 +429,12 @@ onBeforeUnmount(disconnect)
             :aria-invalid="overBudget"
           />
         </label>
-        <label class="field field--narrow">
-          <span class="field__label">imgsz</span>
+        <label class="knob">
+          <span class="knob__label">imgsz</span>
           <input v-model.number="form.imgsz" class="field__control" type="number" min="32" />
         </label>
-        <label class="field field--narrow">
-          <span class="field__label">子集比例</span>
+        <label class="knob">
+          <span class="knob__label">子集比例</span>
           <input
             v-model.number="form.fraction"
             class="field__control"
@@ -437,78 +444,77 @@ onBeforeUnmount(disconnect)
             step="0.05"
           />
         </label>
-        <label class="field field--narrow">
-          <span class="field__label">设备</span>
+        <label class="knob">
+          <span class="knob__label">设备</span>
           <select v-model="form.device" class="field__control">
             <option value="0">GPU (0)</option>
             <option value="cpu">CPU</option>
           </select>
         </label>
+      </div>
 
-        <div class="actions">
-          <button
-            type="button"
-            class="fs-btn-primary"
-            :disabled="active || !form.dataset || overBudget"
-            @click="startTraining"
+      <!-- 模型说明与显存上限各占一整行，不塞进「模型」格子里。
+           模型说明在这个宽度下要折三行（规模特点 + 本机有无 + 估算依据），
+           塞进格子会把那一项顶得比同排高一截，顶边底边怎么调都齐不了。
+           这是量出来的结论，不是估的：视口 1244px 时该段文字高 72px。 -->
+      <p v-if="chosenModel" class="model-note">
+        {{ chosenModel.note }}
+        <template v-if="!chosenModel.present">
+          本机没有这个权重，选中后第一次训练会联网下载。
+        </template>
+        <template v-else-if="chosenModel.size_mb != null">
+          本机已有，{{ chosenModel.size_mb.toFixed(1) }} MB。
+        </template>
+        <template v-if="!chosenModel.measured">
+          显存开销无实测数据，按 yolo11m 估算，见下方上限提示。
+        </template>
+      </p>
+
+      <!-- 显存上限。等 ultralytics 自己报 CUDA OOM，模型已经加载、时间已经烧掉 -->
+      <p
+        v-if="limits?.checked && limits.max_batch != null"
+        class="vram"
+        :class="{ 'vram--over': overBudget }"
+        :title="`按 batch × imgsz² × 模型规模因子(${limits.factor}) 推算，标定自 ${limits.reference}`"
+        role="status"
+      >
+        <template v-if="overBudget">
+          本机 <span class="fs-num">{{ limits.total_mb }}</span> MB 显存，
+          {{ limits.model }} 在 imgsz=<span class="fs-num">{{ form.imgsz }}</span> 时批量最多
+          <span class="fs-num">{{ limits.max_batch }}</span>；当前
+          <span class="fs-num">{{ form.batch }}</span> 会超预算，后端会拒绝。
+        </template>
+        <template v-else>
+          本机 <span class="fs-num">{{ limits.total_mb }}</span> MB 显存，
+          {{ limits.model }} 在 imgsz=<span class="fs-num">{{ form.imgsz }}</span> 时批量上限
+          <span class="fs-num">{{ limits.max_batch }}</span>。
+        </template>
+        <!-- 估出来的上限要说出来，否则用户会以为它也实测过 -->
+        <template v-if="limits.model_measured === false">
+          <br /><span class="vram__caveat"
+            >该模型规模没有实测数据，上限按 yolo11m 估算——参数更多时请再留余量。</span
           >
-            {{ stopping ? '正在停止…' : running ? '训练进行中…' : '开始训练' }}
-          </button>
-          <button
-            v-if="active"
-            type="button"
-            class="fs-btn-ghost"
-            :disabled="stopping"
-            @click="stopTraining"
-          >
-            {{ stopping ? '停止中…' : '停止' }}
-          </button>
-        </div>
+        </template>
+      </p>
 
-        <!-- 模型说明放在整行下方单独一条，不塞进「模型」格子里。
-             它在这个宽度下要折三行（规模特点 + 本机有无 + 估算依据），塞进格子会
-             把那一项顶得比同排高一截，顶边底边怎么调都齐不了。挪出来之后每个
-             控件都是「一行 label + 一个 32px 控件」，一行天然对齐。
-             这是量出来的结论，不是估的：视口 1244px 时该段文字高 72px。 -->
-        <p v-if="chosenModel" class="model-note">
-          {{ chosenModel.note }}
-          <template v-if="!chosenModel.present">
-            本机没有这个权重，选中后第一次训练会联网下载。
-          </template>
-          <template v-else-if="chosenModel.size_mb != null">
-            本机已有，{{ chosenModel.size_mb.toFixed(1) }} MB。
-          </template>
-          <template v-if="!chosenModel.measured">
-            显存开销无实测数据，按 yolo11m 估算，见下方上限提示。
-          </template>
-        </p>
-
-        <!-- 显存上限。等 ultralytics 自己报 CUDA OOM，模型已经加载、时间已经烧掉 -->
-        <p
-          v-if="limits?.checked && limits.max_batch != null"
-          class="vram"
-          :class="{ 'vram--over': overBudget }"
-          :title="`按 batch × imgsz² × 模型规模因子(${limits.factor}) 推算，标定自 ${limits.reference}`"
-          role="status"
+      <div class="tray__actions">
+        <button
+          type="button"
+          class="btn btn--primary"
+          :disabled="active || !form.dataset || overBudget"
+          @click="startTraining"
         >
-          <template v-if="overBudget">
-            本机 <span class="fs-num">{{ limits.total_mb }}</span> MB 显存，
-            {{ limits.model }} 在 imgsz=<span class="fs-num">{{ form.imgsz }}</span> 时批量最多
-            <span class="fs-num">{{ limits.max_batch }}</span>；当前
-            <span class="fs-num">{{ form.batch }}</span> 会超预算，后端会拒绝。
-          </template>
-          <template v-else>
-            本机 <span class="fs-num">{{ limits.total_mb }}</span> MB 显存，
-            {{ limits.model }} 在 imgsz=<span class="fs-num">{{ form.imgsz }}</span> 时批量上限
-            <span class="fs-num">{{ limits.max_batch }}</span>。
-          </template>
-          <!-- 估出来的上限要说出来，否则用户会以为它也实测过 -->
-          <template v-if="limits.model_measured === false">
-            <br /><span class="vram__caveat"
-              >该模型规模没有实测数据，上限按 yolo11m 估算——参数更多时请再留余量。</span
-            >
-          </template>
-        </p>
+          {{ stopping ? '正在停止…' : running ? '训练进行中…' : '开始训练' }}
+        </button>
+        <button
+          v-if="active"
+          type="button"
+          class="btn btn--ghost"
+          :disabled="stopping"
+          @click="stopTraining"
+        >
+          {{ stopping ? '停止中…' : '停止' }}
+        </button>
       </div>
 
       <p v-if="job" class="status" :class="`status--${job.status}`">
@@ -535,113 +541,132 @@ onBeforeUnmount(disconnect)
 
     <!-- 实时曲线与日志 -->
     <template v-if="liveEpochs.length || logs.length">
-      <div v-if="liveLossPanels.length" class="fs-panels">
-        <section v-for="p in liveLossPanels" :key="p.title" class="fs-viewfinder">
-          <FrameMarks />
-          <h2 class="fs-viewfinder__title">{{ p.title }}</h2>
-          <EChart :option="p.option" :height="200" />
+      <div v-if="liveLossPanels.length" class="charts charts--3">
+        <section v-for="p in liveLossPanels" :key="p.title" class="panel">
+          <div class="panel__head">
+            <h2 class="panel__title">{{ p.title }}</h2>
+          </div>
+          <div class="panel__body panel__body--chart">
+            <EChart :option="p.option" :height="200" />
+          </div>
         </section>
       </div>
 
-      <section v-if="liveMetricOption" class="fs-viewfinder">
-        <FrameMarks />
-        <h2 class="fs-viewfinder__title">实时验证指标</h2>
-        <EChart :option="liveMetricOption" :height="240" />
+      <section v-if="liveMetricOption" class="panel">
+        <div class="panel__head">
+          <h2 class="panel__title">实时验证指标</h2>
+        </div>
+        <div class="panel__body panel__body--chart">
+          <EChart :option="liveMetricOption" :height="240" />
+        </div>
       </section>
 
-      <section class="fs-block">
-        <div class="fs-block__head">
-          <h2 class="fs-block__title">训练日志（最近 {{ logs.length }} 行）</h2>
-          <button type="button" class="fs-btn-ghost" @click="logsOpen = !logsOpen">
+      <section class="panel">
+        <div class="panel__head">
+          <h2 class="panel__title">训练日志（最近 {{ logs.length }} 行）</h2>
+          <button type="button" class="btn btn--ghost" @click="logsOpen = !logsOpen">
             {{ logsOpen ? '收起' : '展开' }}
           </button>
         </div>
-        <pre v-if="logsOpen" class="logs">{{ logs.join('\n') }}</pre>
+        <div v-if="logsOpen" class="panel__body">
+          <pre class="logs">{{ logs.join('\n') }}</pre>
+        </div>
       </section>
     </template>
 
-    <section class="fs-block">
-      <h2 class="fs-block__title">训练记录</h2>
-      <table v-if="runs.length" class="fs-ledger">
-        <thead>
-          <tr>
-            <th>运行</th>
-            <th>数据集</th>
-            <th class="is-num">轮数</th>
-            <th class="is-num">batch</th>
-            <th class="is-num">imgsz</th>
-            <th class="is-num">mAP@50</th>
-            <th>归档</th>
-            <th>操作</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr
-            v-for="r in runs"
-            :key="r.run_id"
-            :data-run-id="r.run_id"
-            :class="{ 'is-selected': r.run_id === selectedId }"
-          >
-            <td>
-              <!-- 用真的 button 而不是给 tr 挂 click：键盘可达 -->
-              <button type="button" class="runlink" @click="selectedId = r.run_id">
-                <span class="mono">{{ r.run_id }}</span>
-              </button>
-            </td>
-            <td>{{ r.dataset ?? '—' }}</td>
-            <td class="is-num">{{ r.epochs_done }}</td>
-            <td class="is-num">{{ r.batch ?? '—' }}</td>
-            <td class="is-num">{{ r.imgsz ?? '—' }}</td>
-            <td class="is-num">{{ fix(r.mAP50) }}</td>
-            <td>
-              <span v-if="r.archived" class="tag tag--ok">已归档</span>
-              <span v-else class="tag">现场</span>
-            </td>
-            <td>
-              <button
-                v-if="r.resumable"
-                type="button"
-                class="fs-btn-ghost fs-btn-ghost--tiny"
-                :disabled="active || resuming === r.run_id"
-                :title="`已完成 ${r.resume_done}/${r.resume_total} 轮，从第 ${(r.resume_done ?? 0) + 1} 轮继续`"
-                @click="resumeRun(r)"
-              >
-                {{ resuming === r.run_id ? '发起中…' : '继续训练' }}
-              </button>
-              <!-- 说不清为什么不能续，用户就会以为是按钮坏了 -->
-              <span v-else class="why" :title="r.resume_note">不可续训</span>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-      <p v-else class="none">
-        尚无训练记录。命令行执行 fs-train 后，曲线会出现在这里。
-      </p>
+    <section class="panel">
+      <div class="panel__head">
+        <h2 class="panel__title">训练记录 <span class="num">{{ runs.length }}</span> 条</h2>
+        <span class="panel__hint">点运行号看那一次的曲线与图件</span>
+      </div>
+      <div class="panel__body panel__body--flush">
+        <table v-if="runs.length" class="fs-ledger">
+          <thead>
+            <tr>
+              <th>运行</th>
+              <th>数据集</th>
+              <th class="is-num">轮数</th>
+              <th class="is-num">batch</th>
+              <th class="is-num">imgsz</th>
+              <th class="is-num">mAP@50</th>
+              <th>归档</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr
+              v-for="r in runs"
+              :key="r.run_id"
+              :data-run-id="r.run_id"
+              :class="{ 'is-selected': r.run_id === selectedId }"
+            >
+              <td>
+                <!-- 用真的 button 而不是给 tr 挂 click：键盘可达 -->
+                <button type="button" class="runlink" @click="selectedId = r.run_id">
+                  <span class="mono">{{ r.run_id }}</span>
+                </button>
+              </td>
+              <td>{{ r.dataset ?? '—' }}</td>
+              <td class="is-num">{{ r.epochs_done }}</td>
+              <td class="is-num">{{ r.batch ?? '—' }}</td>
+              <td class="is-num">{{ r.imgsz ?? '—' }}</td>
+              <td class="is-num">{{ fix(r.mAP50) }}</td>
+              <td>
+                <span v-if="r.archived" class="tag tag--ok">已归档</span>
+                <span v-else class="tag">现场</span>
+              </td>
+              <td>
+                <button
+                  v-if="r.resumable"
+                  type="button"
+                  class="fs-btn-ghost fs-btn-ghost--tiny"
+                  :disabled="active || resuming === r.run_id"
+                  :title="`已完成 ${r.resume_done}/${r.resume_total} 轮，从第 ${(r.resume_done ?? 0) + 1} 轮继续`"
+                  @click="resumeRun(r)"
+                >
+                  {{ resuming === r.run_id ? '发起中…' : '继续训练' }}
+                </button>
+                <!-- 说不清为什么不能续，用户就会以为是按钮坏了 -->
+                <span v-else class="why" :title="r.resume_note">不可续训</span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        <p v-else class="empty empty--inset">
+          尚无训练记录。命令行执行 fs-train 后，曲线会出现在这里。
+        </p>
+      </div>
     </section>
 
     <template v-if="selected">
-      <div v-if="lossPanels.length" class="fs-panels">
-        <section v-for="p in lossPanels" :key="p.title" class="fs-viewfinder">
-          <FrameMarks />
-          <h2 class="fs-viewfinder__title">{{ p.title }}</h2>
-          <EChart :option="p.option" :height="200" />
+      <div v-if="lossPanels.length" class="charts charts--3">
+        <section v-for="p in lossPanels" :key="p.title" class="panel">
+          <div class="panel__head">
+            <h2 class="panel__title">{{ p.title }}</h2>
+          </div>
+          <div class="panel__body panel__body--chart">
+            <EChart :option="p.option" :height="200" />
+          </div>
         </section>
       </div>
-      <p v-else class="none">
+      <p v-else class="empty empty--inset">
         该次训练没有可用的 results.csv，或其中不含损失列。
       </p>
 
       <div class="work">
-        <section class="fs-viewfinder">
-          <FrameMarks />
-          <h2 class="fs-viewfinder__title">验证指标</h2>
-          <EChart v-if="metricOption" :option="metricOption" :height="300" />
+        <section class="panel">
+          <div class="panel__head">
+            <h2 class="panel__title">验证指标</h2>
+          </div>
+          <div class="panel__body panel__body--chart">
+            <EChart v-if="metricOption" :option="metricOption" :height="300" />
+          </div>
         </section>
 
         <aside class="side">
-          <div v-for="row in readouts" :key="row.label" class="fs-readout">
-            <div class="fs-readout__label">{{ row.label }}</div>
-            <div class="fs-readout__value">{{ row.value }}</div>
+          <div v-for="row in readouts" :key="row.label" class="readout">
+            <div class="readout__label">{{ row.label }}</div>
+            <div class="readout__value">{{ row.value }}</div>
           </div>
           <p v-if="selected && !selected.archived" class="side__note">
             该次训练未归档，因此没有可比的最终指标——曲线仍来自现场记录。
@@ -649,15 +674,19 @@ onBeforeUnmount(disconnect)
         </aside>
       </div>
 
-      <section v-for="group in grouped" :key="group.label" class="fs-block">
-        <h2 class="fs-block__title">{{ group.label }}</h2>
-        <div class="gallery">
-          <figure v-for="a in group.items" :key="a.name" class="shot">
-            <a :href="api.trainArtifactUrl(selectedId, a.name)" target="_blank" rel="noopener">
-              <img :src="api.trainArtifactUrl(selectedId, a.name)" :alt="a.name" loading="lazy" />
-            </a>
-            <figcaption>{{ a.name }}</figcaption>
-          </figure>
+      <section v-for="group in grouped" :key="group.label" class="panel">
+        <div class="panel__head">
+          <h2 class="panel__title">{{ group.label }}</h2>
+        </div>
+        <div class="panel__body">
+          <div class="gallery">
+            <figure v-for="a in group.items" :key="a.name" class="shot">
+              <a :href="api.trainArtifactUrl(selectedId, a.name)" target="_blank" rel="noopener">
+                <img :src="api.trainArtifactUrl(selectedId, a.name)" :alt="a.name" loading="lazy" />
+              </a>
+              <figcaption>{{ a.name }}</figcaption>
+            </figure>
+          </div>
         </div>
       </section>
     </template>
@@ -668,12 +697,30 @@ onBeforeUnmount(disconnect)
 .train {
   display: flex;
   flex-direction: column;
-  gap: var(--sp-5);
+  gap: var(--s5);
 }
+
+/* 七个启动控件一行放得下，且顺序固定：数据集→模型→三个几何量→子集→设备。
+   设备必须留在最后，因为它是「换一个硬件」而不是「调一个数字」，
+   放在中间会让人以为它和 imgsz 是同一类。 */
+.tray__grid--seven {
+  grid-template-columns:
+    minmax(190px, 1.3fr) minmax(210px, 1.5fr) repeat(3, minmax(96px, 0.7fr))
+    minmax(110px, 0.8fr) minmax(120px, 0.8fr);
+}
+
+@media (max-width: 1240px) {
+  .tray__grid--seven {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+/* 验证指标独占主区，右栏是四条读数。给读数 200px：它的内容都是
+   「标签 + 一个数」，再宽就只是把白摊开，不会更好读。 */
 .work {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 200px;
-  gap: var(--sp-5);
+  gap: var(--s5);
   align-items: start;
 }
 
@@ -681,16 +728,16 @@ onBeforeUnmount(disconnect)
 .side {
   display: flex;
   flex-direction: column;
-  gap: var(--sp-3);
+  gap: var(--s3);
 }
 
 .side__note {
-  margin: var(--sp-2) 0 0;
-  padding-left: var(--sp-3);
-  border-left: 2px solid var(--cinder);
-  font-size: var(--fs-xs);
+  margin: 0;
+  padding-left: var(--s3);
+  border-left: 2px solid var(--line);
+  font-size: var(--t-small);
   line-height: 1.6;
-  color: var(--dross);
+  color: var(--ink-mute);
 }
 
 /* --- 运行列表 --------------------------------------------------------- */
@@ -701,7 +748,7 @@ onBeforeUnmount(disconnect)
 .runlink {
   padding: 0;
   font: inherit;
-  color: var(--bone);
+  color: var(--ink);
   background: none;
   border: 0;
   cursor: pointer;
@@ -709,150 +756,145 @@ onBeforeUnmount(disconnect)
 }
 
 .runlink:hover {
-  color: var(--accent);
+  color: var(--signal-deep);
 }
 
 /* 「不可续训」：把鼠标放上去能看到原因（例如优化器状态已被剥离）。
    不给它按钮样式——它不是操作，是一句说明。 */
 .why {
-  font-size: var(--fs-xs);
-  color: var(--dross);
+  font-size: var(--t-micro);
+  color: var(--ink-faint);
   cursor: help;
 }
 
-/* --- 启动表单 --------------------------------------------------------- */
-
-/* 一行里的控件底边必须齐平。默认的 stretch 会把每个 .field 拉成整行那么高，
-   控件就落在各自 label 的顶端；而模型那一项的 hint 会折成三行，其他项只有
-   一行 label——于是每个 label 的高度都不一样，底边自然对不齐。钉死在
-   flex-end，控件就以自身高度贴底，跟 label 有几行无关。
-   托盘本身（底、边、圆角、阴影）由 .fs-tray 提供。 */
-.launcher {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  gap: var(--sp-4);
-  margin-bottom: var(--sp-3);
-}
-
-.actions {
-  display: flex;
-  gap: var(--sp-3);
-  margin-left: auto;
-}
+/* --- 启动托盘内的说明条 ------------------------------------------------- */
 
 /* 显存提示：常态安静，超预算才转明火色——那时它需要人改一个数字。
-   flex-basis:100% 让它独占一行，不挤在输入框之间。 */
+   独占一行，不挤在输入框之间。 */
 .vram {
-  flex-basis: 100%;
-  margin: 0;
-  padding-left: var(--sp-3);
-  font-size: var(--fs-xs);
+  margin: var(--s4) 0 0;
+  padding-left: var(--s3);
+  font-size: var(--t-small);
   line-height: 1.6;
-  color: var(--dross);
-  border-left: 2px solid var(--cinder);
+  color: var(--ink-mute);
+  border-left: 2px solid var(--line-strong);
 }
 
 .vram--over {
-  color: var(--accent);
-  border-left-color: var(--accent);
+  color: var(--alarm);
+  border-left-color: var(--alarm);
 }
 
 /* 「这个上限是估的」——压低一档，不跟主句抢，但必须看得见 */
 .vram__caveat {
-  color: var(--dross);
+  color: var(--ink-faint);
 }
 
+/* 超预算的输入框描边用告警色，和左边那条竖线是同一个信号：
+   要改的正是 batch 这个数字，边框得先让人看见哪里不对。 */
 .field__control.is-over {
-  border-color: var(--accent);
+  border-color: var(--alarm);
 }
 
 /* 模型说明条：整行下方单独一条，宽度按整行算，所以三行文字在这里只占两行左右，
-   不再把某个格子顶高。左对齐到表单的左内边距，与控件左边缘拉齐。 */
+   不再把某个格子顶高。 */
 .model-note {
-  flex-basis: 100%;
-  margin: 0;
-  font-size: var(--fs-xs);
-  line-height: 1.5;
-  color: var(--dross);
+  margin: var(--s4) 0 0;
+  font-size: var(--t-small);
+  line-height: 1.55;
+  color: var(--ink-mute);
 }
 
-/* 状态条：左侧一道色条表示状态。failed 用明火色——它确实需要人去看一眼；
-   done 用冷色（完成、无需动作）；stopped 压暗。 */
+/* 状态条：一块浅底的小条，四种状态靠左边一道竖线区分。
+   failed 用明火色——它确实需要人去看一眼。 */
 .status {
-  margin: 0;
-  padding: var(--sp-2) var(--sp-3);
-  font-size: var(--fs-sm);
-  color: var(--dross);
-  border-left: 2px solid var(--cinder);
+  margin: var(--s4) 0 0;
+  padding: var(--s2) var(--s3);
+  font-size: var(--t-body);
+  color: var(--ink-body);
+  background: var(--surface-sunk);
+  border-radius: var(--r-sm);
 }
 
 .status--running {
-  color: var(--bone);
-  border-left-color: var(--accent);
+  color: var(--ink);
+  border-left: 2px solid var(--signal);
+  padding-left: calc(var(--s3) - 2px);
 }
 
+/* 已完成：中性。绿色在这个界面里留给「已被人工判定无误报」这类事实，
+   训练完成既不是火情也不是判定结论，用冷色竖线即可。 */
 .status--done {
-  color: var(--bone);
-  border-left-color: var(--cool);
+  color: var(--ink);
+  border-left: 2px solid var(--line-strong);
+  padding-left: calc(var(--s3) - 2px);
 }
 
 .status--failed {
-  color: var(--bone);
-  border-left-color: var(--accent);
+  color: var(--ink);
+  border-left: 2px solid var(--alarm);
+  padding-left: calc(var(--s3) - 2px);
 }
 
 /* 停止中：不是失败也不是完成，压成中性色，别让人以为出错了 */
 .status--stopping {
-  color: var(--dross);
-  border-left-color: var(--dross);
+  color: var(--ink-faint);
+  border-left: 2px solid var(--line-strong);
+  padding-left: calc(var(--s3) - 2px);
 }
 
 .logs {
   max-height: 320px;
   margin: 0;
-  padding: var(--sp-3);
+  padding: var(--s3);
   overflow: auto;
-  font-family: var(--font-mono);
-  font-size: var(--fs-xs);
+  font-family: var(--font-num);
+  font-size: var(--t-micro);
   line-height: 1.5;
-  color: var(--dross);
-  background: var(--soot);
-  border: var(--hairline);
-  border-radius: var(--radius-sm);
+  color: var(--ink-body);
+  background: var(--surface-sunk);
+  border: 1px solid var(--line-faint);
+  border-radius: var(--r-sm);
   white-space: pre-wrap;
   word-break: break-all;
 }
 
 .mono {
-  font-family: var(--font-mono);
-  font-size: var(--fs-xs);
+  font-family: var(--font-num);
+  font-size: var(--t-micro);
   word-break: break-all;
 }
 
-/* 选中行：左侧一道明火色，比整行高亮更安静 */
+/* 选中行：左侧一道冷色竖线，比整行染色安静，也不会和「待处置」那类
+   真正的状态色撞车。 */
 .fs-ledger tbody tr.is-selected td {
-  background: var(--highlight);
+  background: var(--surface-sunk);
 }
 
 .fs-ledger tbody tr.is-selected td:first-child {
-  box-shadow: inset 2px 0 0 var(--accent);
+  box-shadow: inset 2px 0 0 var(--signal);
 }
 
 .tag {
-  padding: 1px var(--sp-2);
-  font-size: var(--fs-xs);
-  color: var(--dross);
-  border: 1px solid var(--cinder);
-  border-radius: var(--radius-pill);
+  display: inline-flex;
+  align-items: center;
+  padding: 2px var(--s3);
+  font-size: var(--t-micro);
+  font-weight: var(--w-medium);
+  line-height: 1.5;
+  color: var(--ink-body);
+  background: var(--surface-sunk);
+  border-radius: var(--r-pill);
   white-space: nowrap;
 }
 
-/* 已归档是中性状态，不是火情——用亮一档的文字而不是明火色。
-   明火色在这套界面里表示风险与严重度，不该被状态标签借用。 */
+/* 已归档是中性状态，不是火情——所以不染任何彩色，只用一圈内描边把它
+   和「现场」区分开。明火色在这套界面里表示风险与严重度，
+   不该被状态标签借用。 */
 .tag--ok {
-  color: var(--bone);
-  border-color: var(--dross);
+  color: var(--ink);
+  background: var(--surface-sunk);
+  box-shadow: inset 0 0 0 1px var(--line-strong);
 }
 
 /* --- 图件 ------------------------------------------------------------- */
@@ -860,7 +902,7 @@ onBeforeUnmount(disconnect)
 .gallery {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-  gap: var(--sp-4);
+  gap: var(--s4);
 }
 
 .shot {
@@ -871,25 +913,17 @@ onBeforeUnmount(disconnect)
   display: block;
   width: 100%;
   height: auto;
-  background: var(--soot);
-  border: var(--hairline);
-  border-radius: var(--radius-sm);
+  background: var(--surface-sunk);
+  border: 1px solid var(--line-faint);
+  border-radius: var(--r-sm);
 }
 
 .shot figcaption {
-  margin-top: var(--sp-2);
-  font-family: var(--font-mono);
-  font-size: var(--fs-xs);
-  color: var(--dross);
+  margin-top: var(--s2);
+  font-family: var(--font-num);
+  font-size: var(--t-micro);
+  color: var(--ink-mute);
   word-break: break-all;
-}
-
-.none {
-  margin: 0;
-  padding: var(--sp-4);
-  font-size: var(--fs-sm);
-  color: var(--dross);
-  border: 1px dashed var(--cinder);
 }
 
 @media (max-width: 1100px) {

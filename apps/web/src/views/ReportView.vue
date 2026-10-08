@@ -10,7 +10,6 @@ import { marked } from 'marked'
 
 import { api } from '@/api/client'
 import type { ReportDetail, ReportJob, ReportListItem } from '@/api/types'
-import FrameMarks from '@/components/FrameMarks.vue'
 
 function thisMonthRange(): { start: string; end: string } {
   const d = new Date()
@@ -32,9 +31,16 @@ const running = computed(() => job.value?.status === 'running')
 /** 报告正文是**模型输出**（还掺着事件的 location / message 原文），按不可信内容
  *  处理：marked 自 v4 起原样放行原始 HTML，必须过 DOMPurify 消毒再进 v-html。
  *  显式 async:false：marked 的重载在无参时返回 string | Promise<string>，
- *  直接 as string 会把 Promise 渲染成 "[object Promise]"。 */
+ *  直接 as string 会把 Promise 渲染成 "[object Promise]"。
+ *  gfm:false：开了 gfm 之后 marked 会把正文里的「mAP@0.5」「recall@0.75」
+ *  认成邮箱地址，自动包成 `<a href="mailto:...">`——报告里每一个指标名都会变成
+ *  一个点下去触发邮件客户端的链接。指标名不是邮箱。 */
 const html = computed(() =>
-  detail.value ? DOMPurify.sanitize(marked.parse(detail.value.markdown, { async: false })) : '',
+  detail.value
+    ? DOMPurify.sanitize(
+        marked.parse(detail.value.markdown, { async: false, gfm: false }),
+      )
+    : '',
 )
 
 /** 未配通道时补一段配置说明——只甩一个环境变量名，用户还是不知道从哪配起。 */
@@ -130,10 +136,12 @@ onUnmounted(() => {
 <template>
   <div class="report">
     <div class="head">
-      <h1 class="head__title">分析报告</h1>
-      <p class="head__note">
-        基于选定时间段的告警数据生成火情分析与防火建议，生成后归档可回看。
-      </p>
+      <div>
+        <h1 class="head__title">分析报告</h1>
+        <p class="head__sub">
+          基于选定时间段的告警数据生成火情分析与防火建议，生成后归档可回看。
+        </p>
+      </div>
     </div>
 
     <div v-if="error" class="fs-note-error" role="alert">
@@ -145,70 +153,79 @@ onUnmounted(() => {
       </p>
     </div>
 
-    <section class="fs-viewfinder gen">
-      <FrameMarks />
-      <h2 class="fs-viewfinder__title">生成</h2>
-      <div class="form">
-        <div class="field field--narrow">
-          <label class="field__label" for="rp-start">起始日期</label>
+    <!-- 生成参数是低频动作（挑个区间、等它跑完），翻历史报告是高频入口。
+         所以两者并排占上方一格，正文独占下一行通栏——报告是要读的字，
+         通栏才不至于每行都短得要换行。窄屏折回纵排。 -->
+    <section class="tray" aria-label="生成参数">
+      <div class="tray__grid">
+        <label class="knob" for="rp-start">
+          <span class="knob__label">起始日期</span>
           <input id="rp-start" v-model="range.start" type="date" class="field__control" :disabled="running" />
-        </div>
-        <div class="field field--narrow">
-          <label class="field__label" for="rp-end">结束日期</label>
+        </label>
+        <label class="knob" for="rp-end">
+          <span class="knob__label">结束日期</span>
           <input id="rp-end" v-model="range.end" type="date" class="field__control" :disabled="running" />
-        </div>
-        <div class="actions">
-          <button type="button" class="fs-btn-primary" :disabled="busy || running" @click="generate">
-            {{ running ? (job?.stage || '生成中…') : '生成报告' }}
-          </button>
-          <!-- 下载是导航，角色就是 link：与事件导出、权重下载的 <a> 保持一致 -->
+        </label>
+      </div>
+
+      <div class="tray__actions">
+        <button type="button" class="btn btn--primary" :disabled="busy || running" @click="generate">
+          {{ running ? (job?.stage || '生成中…') : '生成报告' }}
+        </button>
+      </div>
+    </section>
+
+    <section class="panel history-panel">
+      <div class="panel__head">
+        <h2 class="panel__title">历史报告</h2>
+        <span class="panel__hint">{{ history.length }} 份归档</span>
+      </div>
+      <div class="panel__body panel__body--flush">
+        <ul class="history">
+          <li v-for="r in history" :key="r.id" class="history__item">
+            <button type="button" class="history__btn" @click="openReport(r.id)">{{ r.title }}</button>
+            <span class="history__meta">{{ r.created_at }} · {{ r.model }}</span>
+          </li>
+          <li v-if="!history.length" class="history__empty">还没有归档报告</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- 正文面板的外壳不随有没有内容切换：有报告时是正文，
+         没报告时是同一块面板里的一句提示。换外壳会让边框和高度跳一下，
+         而用户点「生成」之后正好盯着这块地方。 -->
+    <section class="panel doc">
+      <div class="panel__head">
+        <h2 class="panel__title">{{ detail ? String(detail.meta.title || '报告') : '报告正文' }}</h2>
+        <div class="doc__acts">
           <a
             v-if="detail"
-            class="fs-btn-ghost btn-link"
+            class="btn btn--ghost btn-link"
             :href="api.reportDownloadUrl(String(detail.meta.id))"
           >
             下载 .md
           </a>
         </div>
       </div>
-    </section>
-
-    <section v-if="detail" class="fs-viewfinder doc">
-      <FrameMarks />
-      <h2 class="fs-viewfinder__title">{{ String(detail.meta.title || '报告') }}</h2>
-      <!-- eslint-disable-next-line vue/no-v-html —— 模型输出按不可信内容处理：
-           marked 会原样放行原始 HTML，进 v-html 前先过 DOMPurify 消毒 -->
-      <article class="md" v-html="html"></article>
-    </section>
-
-    <section v-else class="fs-empty doc">
-      选好时间段点「生成报告」。生成的报告会归档，可在右侧列表回看。
-    </section>
-
-    <section class="fs-viewfinder history-panel">
-      <FrameMarks />
-      <h2 class="fs-viewfinder__title">历史报告</h2>
-      <ul class="history">
-        <li v-for="r in history" :key="r.id" class="history__item">
-          <button type="button" class="history__btn" @click="openReport(r.id)">{{ r.title }}</button>
-          <span class="history__meta">{{ r.created_at }} · {{ r.model }}</span>
-        </li>
-        <li v-if="!history.length" class="history__empty">还没有归档报告</li>
-      </ul>
+      <div class="panel__body">
+        <!-- eslint-disable-next-line vue/no-v-html —— 模型输出按不可信内容处理：
+             marked 会原样放行原始 HTML，进 v-html 前先过 DOMPurify 消毒 -->
+        <article v-if="detail" class="md" v-html="html"></article>
+        <p v-else class="empty">
+          选好时间段点「生成报告」。生成的报告会归档，可在上面的列表回看。
+        </p>
+      </div>
     </section>
   </div>
 </template>
 
 <style scoped>
-/* 生成参数是低频动作（挑个区间、等它跑完），翻历史报告是高频入口。
-   所以生成参数与历史报告并排占上方一格，正文独占下一行通栏——
-   报告是要读的字，通栏才不至于每行都短得要换行。窄屏折回纵排。 */
 .report {
   display: grid;
-  grid-template-columns: minmax(0, 300px) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 320px);
   grid-template-areas: 'head head' 'note note' 'gen history' 'doc doc';
   align-content: start;
-  gap: var(--sp-5);
+  gap: var(--s5);
 }
 
 .head {
@@ -219,8 +236,12 @@ onUnmounted(() => {
   grid-area: note;
 }
 
-.gen {
+.tray {
   grid-area: gen;
+}
+
+.tray__grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .history-panel {
@@ -234,21 +255,8 @@ onUnmounted(() => {
 @media (max-width: 1100px) {
   .report {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-areas: 'head' 'note' 'gen' 'doc' 'history';
+    grid-template-areas: 'head' 'note' 'gen' 'history' 'doc';
   }
-}
-
-.head__title {
-  margin: 0;
-  font-size: var(--fs-xl);
-  font-weight: 500;
-  color: var(--bone);
-}
-
-.head__note {
-  margin: var(--sp-2) 0 0;
-  font-size: var(--fs-sm);
-  color: var(--dross);
 }
 
 .err__msg {
@@ -256,42 +264,53 @@ onUnmounted(() => {
 }
 
 .err__hint {
-  margin: var(--sp-2) 0 0;
-  font-size: var(--fs-xs);
-  color: var(--dross);
+  margin: var(--s2) 0 0;
+  font-size: var(--t-small);
+  color: var(--ink-mute);
 }
 
-/* 左格只有 300px，两个日期控件横排会挤在一起 */
-.form {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: var(--sp-4);
-}
-
-.actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--sp-3);
-}
-
-.btn-link {
-  display: inline-flex;
-  align-items: center;
-  text-decoration: none;
-}
-
+/* 正文比周边说明大一号、行距更松：这一块是拿来读的，
+   不是拿来扫的。跟同页的表单控件用同一档字号会让整页只有一种节奏。 */
 .md {
-  font-size: var(--fs-sm);
-  line-height: 1.8;
-  color: var(--bone);
+  max-width: 78ch;
+  font-size: var(--t-body);
+  line-height: 1.85;
+  color: var(--ink);
 }
 
 .md :deep(h2) {
-  margin: var(--sp-5) 0 var(--sp-2);
-  font-size: var(--fs-md);
-  font-weight: 500;
-  color: var(--bone);
+  margin: var(--s6) 0 var(--s3);
+  font-size: 1.15rem;
+  font-weight: var(--w-bold);
+  color: var(--ink);
+  letter-spacing: var(--track-tight);
+}
+
+.md :deep(h2:first-child) {
+  margin-top: 0;
+}
+
+.md :deep(p),
+.md :deep(ul),
+.md :deep(ol) {
+  margin: 0 0 var(--s3);
+}
+
+.md :deep(li) {
+  margin-bottom: var(--s1);
+}
+
+.md :deep(code) {
+  padding: 1px var(--s2);
+  font-family: var(--font-num);
+  font-size: 0.9em;
+  background: var(--surface-sunk);
+  border-radius: var(--r-sm);
+}
+
+.doc__acts {
+  display: flex;
+  gap: var(--s2);
 }
 
 .history {
@@ -300,14 +319,14 @@ onUnmounted(() => {
   list-style: none;
 }
 
-/* 归档条目按账册行读：标题与时间各占一行，时间退到 --fs-xs。
+/* 归档条目按账册行读：标题与时间各占一行，时间退到最小号。
    窄栏里挤成一行的话，标题会被时间戳顶掉尾巴。 */
 .history__item {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding: var(--sp-3) 0;
-  border-bottom: var(--hairline);
+  padding: var(--s3) var(--s4);
+  border-bottom: 1px solid var(--line-faint);
 }
 
 .history__item:last-child {
@@ -317,8 +336,9 @@ onUnmounted(() => {
 .history__btn {
   padding: 0;
   font: inherit;
-  font-size: var(--fs-sm);
-  color: var(--bone);
+  font-size: var(--t-small);
+  font-weight: var(--w-medium);
+  color: var(--ink);
   background: transparent;
   border: 0;
   cursor: pointer;
@@ -326,17 +346,17 @@ onUnmounted(() => {
 }
 
 .history__btn:hover {
-  color: var(--accent);
+  color: var(--signal-deep);
 }
 
 .history__meta {
-  font-size: var(--fs-xs);
-  color: var(--dross);
+  font-size: var(--t-micro);
+  color: var(--ink-mute);
 }
 
 .history__empty {
-  padding: var(--sp-3) 0;
-  font-size: var(--fs-sm);
-  color: var(--dross);
+  padding: var(--s4);
+  font-size: var(--t-small);
+  color: var(--ink-mute);
 }
 </style>

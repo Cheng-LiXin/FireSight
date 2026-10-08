@@ -21,7 +21,11 @@ async function awaitData(page: import('@playwright/test').Page): Promise<void> {
 
 /** 页面上的事件总数；取不到时返回 0。 */
 async function totalRows(page: import('@playwright/test').Page): Promise<number> {
-  const t = await page.locator('h2.fs-block__title .fs-num').first().innerText().catch(() => '0')
+  const t = await page
+    .locator('.panel__title .num')
+    .first()
+    .innerText()
+    .catch(() => '0')
   return Number(t.replace(/\D/g, '')) || 0
 }
 
@@ -33,13 +37,13 @@ async function openEvents(page: import('@playwright/test').Page): Promise<void> 
 test('页面结构与导出入口', async ({ page }) => {
   await openEvents(page)
 
-  await expect(page.locator('.bar')).toBeVisible()
+  await expect(page.locator('.tray')).toBeVisible()
   // 筛选控件齐全：关键词 + 类别 + 状态 + 起止日期 + 每页
-  await expect(page.locator('.bar input[type="date"]')).toHaveCount(2)
-  await expect(page.locator('.bar select')).toHaveCount(3)
+  await expect(page.locator('.tray input[type="date"]')).toHaveCount(2)
+  await expect(page.locator('.tray select')).toHaveCount(3)
 
   // 导出是链接交给浏览器原生下载，href 必须落在 events/export 上
-  const href = await page.locator('.bar__actions a').getAttribute('href')
+  const href = await page.locator('.head__actions a').getAttribute('href')
   expect(href).toContain('/api/events/export')
 
   // 空态与账册二选一，不能两个都不在
@@ -78,7 +82,7 @@ test('按类别筛选后每一行都匹配', async ({ page }) => {
   const total = await totalRows(page)
   test.skip(total === 0, '事件库为空，跳过')
 
-  await page.locator('.bar select').first().selectOption('fire')
+  await page.locator('.tray select').first().selectOption('fire')
   await expect(page.locator('table.fs-ledger tbody tr').first()).toBeVisible()
 
   const tags = await page.locator('table.fs-ledger tbody tr td .tag--alarm').count()
@@ -101,7 +105,7 @@ test('状态筛选：四个状态各自只显示该状态的行', async ({ page 
   await openEvents(page)
   test.skip((await totalRows(page)) === 0, '事件库为空，跳过')
 
-  const statusSelect = page.locator('.bar select').nth(1)
+  const statusSelect = page.locator('.tray select').nth(1)
 
   // 每个状态筛下去，行里那个状态标签必须唯一且正确。
   // .filter({ hasText }) 是子串匹配，所以「误报」不会误吃到「已标误报」这种旧文案，
@@ -126,7 +130,7 @@ test('状态筛选：误报行只给撤销、不再给标误报', async ({ page 
   await openEvents(page)
   test.skip((await totalRows(page)) === 0, '事件库为空，跳过')
 
-  await page.locator('.bar select').nth(1).selectOption('false_positive')
+  await page.locator('.tray select').nth(1).selectOption('false_positive')
   await page.waitForTimeout(600)
   const fpRows = page.locator('table.fs-ledger tbody tr')
   const n = await fpRows.count()
@@ -144,7 +148,7 @@ test('待处置行给确认与标误报，不给撤销', async ({ page }) => {
   await openEvents(page)
   test.skip((await totalRows(page)) === 0, '事件库为空，跳过')
 
-  await page.locator('.bar select').nth(1).selectOption('pending')
+  await page.locator('.tray select').nth(1).selectOption('pending')
   await page.waitForTimeout(600)
   const rows = page.locator('table.fs-ledger tbody tr')
   const n = await rows.count()
@@ -164,7 +168,7 @@ test('分页翻页不重复', async ({ page }) => {
   await openEvents(page)
   test.skip((await totalRows(page)) <= 20, '记录不足一页，跳过')
 
-  await page.locator('.bar select').nth(2).selectOption('20')
+  await page.locator('.tray select').nth(2).selectOption('20')
   await expect(page.locator('table.fs-ledger tbody tr')).toHaveCount(20)
 
   const page1 = await page
@@ -238,10 +242,10 @@ test('片段回放：浏览器真的解得出画面', async ({ page }) => {
 test('导出链接跟随当前筛选', async ({ page }) => {
   await openEvents(page)
 
-  await page.locator('.bar select').first().selectOption('smoke')
-  await page.locator('.bar input').first().fill('北门')
+  await page.locator('.tray select').first().selectOption('smoke')
+  await page.locator('.tray input').first().fill('北门')
 
-  const href = await page.locator('.bar__actions a').getAttribute('href')
+  const href = await page.locator('.head__actions a').getAttribute('href')
   expect(href).toContain('label=smoke')
   expect(href).toContain('keyword=')
   // 空条件不该出现在 URL 里

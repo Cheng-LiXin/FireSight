@@ -63,7 +63,7 @@ test('页面结构：当前权重、归档表、对比区', async ({ page }) => 
   test.skip(count === 0, '没有归档，跳过')
   await openModels(page)
 
-  await expect(page.locator('h2.fs-block__title').first()).toContainText('当前权重')
+  await expect(page.locator('.panel__title').first()).toContainText('当前权重')
 
   const headers = await page.locator(`${ARCHIVES} thead th`).allInnerTexts()
   for (const h of ['归档', '轮数', 'mAP@50', '体积', '操作']) {
@@ -174,7 +174,7 @@ test('对比按钮要选够两份才可用', async ({ page }) => {
   await boxes.nth(1).check()
   await expect(start).toBeEnabled()
   // 勾选的两份要显示成 chip，让人确认选对了
-  await expect(page.locator('.bar__picked .chip')).toHaveCount(2)
+  await expect(page.locator('.picked .chip')).toHaveCount(2)
 })
 
 test('对比评估：进度按模型推进，结果标出最佳值', async ({ page }) => {

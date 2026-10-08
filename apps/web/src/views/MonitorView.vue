@@ -8,7 +8,6 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 
 import { api } from '@/api/client'
 import type { MonitorStatus } from '@/api/types'
-import FrameMarks from '@/components/FrameMarks.vue'
 
 const status = ref<MonitorStatus | null>(null)
 const error = ref('')
@@ -151,23 +150,44 @@ onUnmounted(() => {
 <template>
   <div class="monitor">
     <div class="head">
-      <h1 class="head__title">实时监控</h1>
-      <p class="head__note">
-        一路 RTSP 常驻推理：告警进事件库、片段留前后各 30 秒、TTS 播报位置。与训练互斥，训练优先。
-      </p>
+      <div>
+        <h1 class="head__title">实时监控</h1>
+        <p class="head__sub">
+          一路 RTSP 常驻推理：告警进事件库、片段留前后各 30 秒、TTS 播报位置。与训练互斥，训练优先。
+        </p>
+      </div>
+      <div class="head__actions">
+        <button
+          v-if="active"
+          type="button"
+          class="btn btn--ghost"
+          :disabled="busy"
+          :data-testid="ttsPaused ? 'mon-tts-resume' : 'mon-tts-pause'"
+          :title="ttsPaused ? '恢复语音播报' : '暂停语音播报（告警与片段照常留存）'"
+          @click="toggleTtsPaused"
+        >
+          {{ ttsPaused ? '恢复播报' : '暂停播报' }}
+        </button>
+        <button v-if="!active" type="button" class="btn btn--primary" :disabled="busy || !form.source.trim()" @click="start">
+          开始监控
+        </button>
+        <button v-else type="button" class="btn btn--ghost" :disabled="busy" @click="stop">
+          停止监控
+        </button>
+      </div>
     </div>
 
-    <div v-if="shownError" class="fs-note-error" role="alert">
+    <p v-if="shownError" class="fs-note-error" role="alert">
       {{ shownError }}
-    </div>
+    </p>
 
-    <!-- 启动表单 -->
-    <section class="fs-viewfinder panel--params">
-      <FrameMarks />
-      <h2 class="fs-viewfinder__title">启动参数</h2>
-      <div class="form">
-        <div class="field field--stack field--wide">
-          <label class="field__label" for="mon-source">视频源</label>
+    <!-- 参数在左、画面在右。启动参数是低频动作——填一次就好；
+         画面是这页的高频对象，要一直占着主视区。两块并排看的时候，
+         「现在到底在不在看」和「我刚才填的源是什么」不用来回找。 -->
+    <section class="tray" aria-label="启动参数">
+      <div class="tray__grid">
+        <label class="knob" for="mon-source">
+          <span class="knob__label">视频源</span>
           <input
             id="mon-source"
             v-model="form.source"
@@ -175,9 +195,9 @@ onUnmounted(() => {
             placeholder="rtsp://… 或本地视频/图片目录"
             :disabled="active"
           />
-        </div>
-        <div class="field field--stack">
-          <label class="field__label" for="mon-loc">位置名</label>
+        </label>
+        <label class="knob" for="mon-loc">
+          <span class="knob__label">位置名</span>
           <input
             id="mon-loc"
             v-model="form.camera_name"
@@ -185,12 +205,9 @@ onUnmounted(() => {
             placeholder="如：东门"
             :disabled="active"
           />
-          <p class="field__hint">进事件与语音播报：「检测到明火，位置：东门」</p>
-        </div>
-        <div class="field field--stack field--narrow">
-          <label class="field__label" for="mon-conf">
-            置信度阈值 <b>{{ form.conf.toFixed(2) }}</b>
-          </label>
+        </label>
+        <label class="knob" for="mon-conf">
+          <span class="knob__label">置信度阈值 <b>{{ form.conf.toFixed(2) }}</b></span>
           <input
             id="mon-conf"
             v-model.number="form.conf"
@@ -201,164 +218,135 @@ onUnmounted(() => {
             :style="{ '--fill': `${((form.conf - 0.05) / 0.9) * 100}%` }"
             :disabled="active"
           />
-        </div>
-        <div class="field field--stack field--narrow">
-          <label class="field__label" for="mon-device">设备</label>
+        </label>
+        <label class="knob" for="mon-device">
+          <span class="knob__label">设备</span>
           <select id="mon-device" v-model="form.device" class="field__control" :disabled="active">
             <option value="0">GPU (0)</option>
             <option value="cpu">CPU</option>
           </select>
-        </div>
-        <div class="field field--stack field--narrow">
-          <label class="field__label" for="mon-tts">语音播报</label>
+        </label>
+        <label class="knob" for="mon-tts">
+          <span class="knob__label">语音播报</span>
           <select id="mon-tts" v-model="form.enable_tts" class="field__control" :disabled="active">
             <option :value="true">开</option>
             <option :value="false">关</option>
           </select>
-        </div>
-
-        <div class="actions">
-          <button
-            v-if="active"
-            type="button"
-            class="fs-btn-ghost"
-            :disabled="busy"
-            :data-testid="ttsPaused ? 'mon-tts-resume' : 'mon-tts-pause'"
-            :title="ttsPaused ? '恢复语音播报' : '暂停语音播报（告警与片段照常留存）'"
-            @click="toggleTtsPaused"
-          >
-            {{ ttsPaused ? '恢复播报' : '暂停播报' }}
-          </button>
-          <button v-if="!active" type="button" class="fs-btn-primary" :disabled="busy || !form.source.trim()" @click="start">
-            开始监控
-          </button>
-          <button v-else type="button" class="fs-btn-ghost" :disabled="busy" @click="stop">
-            停止监控
-          </button>
-        </div>
+        </label>
       </div>
+
+      <p class="tray__hint">
+        位置名会进事件与语音播报：「检测到明火，位置：东门」。填一次就好，监控期间不能改。
+      </p>
     </section>
 
     <!-- 状态条贴在画面正上方：这页的判断依据是「现在到底在不在看」，
          状态和画面必须同时落在一眼里，不必先读参数再往下找画面 -->
-    <div class="live">
-      <section class="status" aria-label="监控状态">
-        <span class="status__item">
-          状态
-          <b>{{ status ? (STATUS_CN[status.status] ?? status.status) : '—' }}</b>
-        </span>
-        <span class="status__item">已处理帧 <b class="fs-num">{{ status?.frames ?? 0 }}</b></span>
-        <span class="status__item">断线重连 <b class="fs-num">{{ status?.reconnects ?? 0 }}</b></span>
-        <span v-if="active" class="status__item">
-          语音 <b :data-testid="'mon-tts-state'">{{ ttsPaused ? '已暂停' : '播报中' }}</b>
-        </span>
-        <span v-if="status?.camera_name" class="status__item">位置 {{ status.camera_name }}</span>
-      </section>
+    <section class="panel">
+      <div class="panel__head">
+        <h2 class="panel__title">画面</h2>
+        <!-- 这行是读数条不是面板：它和标题说的是同一件事（这一路在跑什么），
+             所以并排而不是另起一行。数字用等宽，纵向扫的时候位置感才不会跳。 -->
+        <div class="status" aria-label="监控状态">
+          <span class="status__item">
+            状态
+            <b>{{ status ? (STATUS_CN[status.status] ?? status.status) : '—' }}</b>
+          </span>
+          <span class="status__item">已处理帧 <b class="num">{{ status?.frames ?? 0 }}</b></span>
+          <span class="status__item">断线重连 <b class="num">{{ status?.reconnects ?? 0 }}</b></span>
+          <span v-if="active" class="status__item">
+            语音 <b :data-testid="'mon-tts-state'">{{ ttsPaused ? '已暂停' : '播报中' }}</b>
+          </span>
+          <span v-if="status?.camera_name" class="status__item">位置 {{ status.camera_name }}</span>
+        </div>
+      </div>
 
-      <!-- 画面 -->
-      <section class="fs-viewfinder">
-        <FrameMarks />
-        <h2 class="fs-viewfinder__title">画面</h2>
+      <div class="panel__body panel__body--flush">
         <div class="stage">
           <img v-if="streamUrl && hasFrames" class="stage__img" :src="streamUrl" alt="监控画面" />
           <p v-else-if="active" class="stage__hint">正在接入画面…</p>
           <p v-else class="stage__hint">未在监控。填好视频源后点「开始监控」。</p>
         </div>
-      </section>
-    </div>
+      </div>
+    </section>
   </div>
 </template>
 
 <style scoped>
-/* 参数在左、画面在右。启动参数是低频动作——填一次就好；
-   画面是这页的高频对象，要一直占着主视区。三块全宽纵排的话，
-   看画面得先滚过整张参数表，每次看一眼都要滚一次。 */
 .monitor {
-  display: grid;
-  grid-template-columns: minmax(0, 320px) minmax(0, 1fr);
-  grid-template-areas: 'head head' 'note note' 'params live';
-  align-content: start;
-  gap: var(--sp-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s5);
 }
 
-.head {
-  grid-area: head;
+/* 参数分两行：第一行两个文本框（视频源要留出放整条 rtsp 网址的宽度），
+   第二行三个短控件（阈值、设备、播报）。五格一行平均分，
+   视频源会被压到放不下网址，位置名和阈值反而空出一大片。 */
+.tray__grid {
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
 }
 
-.monitor > .fs-note-error {
-  grid-area: note;
+/* 阈值滑块要横着铺满一行：太窄的话拇指会压在轨道两端，
+   0.05 到 0.95 这段精度根本点不准。 */
+.tray__grid > :nth-child(3) {
+  grid-column: 1 / -1;
 }
 
-.panel--params {
-  grid-area: params;
-}
-
-/* 窄屏折回纵排：参数表横过来会把视频源输入框挤成一条缝 */
 @media (max-width: 1100px) {
-  .monitor {
+  .tray__grid {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-areas: 'head' 'note' 'params' 'live';
   }
 }
 
-.live {
-  grid-area: live;
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-3);
-  min-width: 0;
+.tray__hint {
+  margin: var(--s3) 0 0;
+  font-size: var(--t-small);
+  color: var(--ink-mute);
 }
 
-.head__title {
-  margin: 0;
-  font-size: var(--fs-xl);
-  font-weight: 500;
-  color: var(--bone);
-}
-
-.head__note {
-  margin: var(--sp-2) 0 0;
-  font-size: var(--fs-sm);
-  color: var(--dross);
-}
-
-/* 左栏里的参数不再横铺：320px 宽放五个控件，横排会挤成两行错位。
-   .field--stack 负责把每个控件的 180px 最小宽也一并放开。 */
-.form {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: var(--sp-4);
-}
-
-.actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--sp-3);
-}
-
+/* 状态读数横排在面板标题栏右侧：它和标题说的是同一件事
+   （这一路在跑什么），所以并排而不是另起一行。窄屏时折到下面。 */
 .status {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--sp-5);
-  font-size: var(--fs-sm);
-  color: var(--dross);
+  justify-content: flex-end;
+  gap: var(--s4);
+  margin: 0;
+  font-size: var(--t-small);
+  color: var(--ink-mute);
 }
 
 .status__item b {
-  margin-left: var(--sp-1);
-  font-weight: 500;
-  color: var(--bone);
+  margin-left: var(--s1);
+  font-weight: var(--w-bold);
+  color: var(--ink);
+}
+
+/* 画面面板的标题行只放标题：状态条挤在右边，
+   标题就不该再占满整行，否则「画面」两个字会被推走。 */
+.panel__head {
+  align-items: center;
+}
+
+@media (max-width: 1100px) {
+  .panel__head {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--s2);
+  }
+
+  .status {
+    justify-content: flex-start;
+  }
 }
 
 .stage {
-  min-height: 320px;
+  min-height: 340px;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--soot);
-  border: 1px dashed var(--ink-4);
-  border-radius: var(--radius-sm);
+  background: var(--stage-void);
+  border-radius: 0 0 var(--r-lg) var(--r-lg);
   overflow: hidden;
 }
 
@@ -370,7 +358,7 @@ onUnmounted(() => {
 
 .stage__hint {
   margin: 0;
-  font-size: var(--fs-sm);
-  color: var(--dross);
+  font-size: var(--t-small);
+  color: #8a93a0;
 }
 </style>

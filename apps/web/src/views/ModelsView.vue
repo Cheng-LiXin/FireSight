@@ -239,277 +239,310 @@ onBeforeUnmount(stopPolling)
   <div class="models" :data-loaded="loaded">
     <p v-if="error" class="fs-note-error" role="alert">{{ error }}</p>
 
-    <!-- 当前权重 -->
-    <section class="fs-block">
-      <div class="fs-block__head">
-        <h2 class="fs-block__title">当前权重</h2>
-        <button type="button" class="fs-btn-ghost" :disabled="busy" @click="load">
-          {{ busy ? '加载中…' : '刷新' }}
-        </button>
-      </div>
-
-      <el-skeleton v-if="!loaded" :rows="4" animated />
-
-      <p v-else-if="!rows.length" class="fs-empty">
-        还没有归档训练。去<RouterLink to="/training">训练中心</RouterLink>跑一次，结束后会自动归档。
-      </p>
-
-      <template v-else>
-        <p class="now">
-          <span class="now__id mono">{{ active?.run_id ?? '—' }}</span>
-          <!-- 自动切换是「需要知道」而不是「需要处置」：用中性标签，不占告警红 -->
-          <span v-if="active?.switched" class="tag">已自动切换</span>
-          <span v-if="active?.source === 'pinned'" class="tag tag--ok">已指定</span>
-          <span v-else-if="active?.source === 'fallback-newest'" class="tag">取最新</span>
-          <span v-else-if="active?.source === 'fallback-missing'" class="tag tag--warn">指定已失效</span>
-          <button
-            v-if="active?.pinned"
-            type="button"
-            class="fs-btn-ghost fs-btn-ghost--tiny"
-            @click="clearActive"
-          >
-            清除指定
-          </button>
+    <div class="head">
+      <div>
+        <h1 class="head__title">模型库</h1>
+        <p class="head__sub">
+          归档权重、当前在用的那一份，以及多权重对比评估。当前权重由你显式指定，
+          训练结束不会自动顶掉线上模型。
         </p>
-        <!-- 「为什么是它」必须说出来：静默回落会让人以为设置丢了 -->
-        <p class="now__note">{{ active?.note }}</p>
-      </template>
-    </section>
-
-    <!-- 归档列表 -->
-    <section v-if="rows.length" class="fs-block">
-      <div class="fs-block__head">
-        <h2 class="fs-block__title">
-          归档 <span class="fs-num">{{ rows.length }}</span> 份
-        </h2>
-        <span class="hint">勾选两份以上可比对（已选 <span class="fs-num">{{ picked.length }}</span>）</span>
       </div>
-
-      <div class="fs-scroll">
-        <table class="fs-ledger" data-table="archives">
-          <thead>
-            <tr>
-              <th class="is-pick"></th>
-              <th>归档</th>
-              <th>数据集</th>
-              <th class="is-num">轮数</th>
-              <th class="is-num">mAP@50</th>
-              <th class="is-num">mAP@50-95</th>
-              <th class="is-num">精确率</th>
-              <th class="is-num">召回率</th>
-              <th class="is-num">体积</th>
-              <th>归档时间</th>
-              <th>操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr
-              v-for="r in rows"
-              :key="r.run_id"
-              :data-run-id="r.run_id"
-              :class="{ 'is-active': r.is_active }"
-            >
-              <td class="is-pick">
-                <input
-                  type="checkbox"
-                  :checked="picked.includes(r.run_id)"
-                  :aria-label="`选择 ${r.run_id}`"
-                  @change="toggle(r.run_id)"
-                />
-              </td>
-              <td class="mono run">
-                {{ shortName(r.run_id) }}
-                <span v-if="r.is_active" class="tag tag--ok">当前</span>
-                <!-- 旧数据的指标不可与新数据直接比：新 val 里有一部分图当初进过
-                     旧 train。不标出来的话，用户会拿虚高的旧数去挑模型。 -->
-                <span v-if="r.legacy" class="tag" title="用旧数据训的，指标不可与新数据直接比">
-                  旧数据
-                </span>
-              </td>
-              <td>{{ r.dataset ?? '—' }}</td>
-              <td class="is-num">{{ r.epochs ?? '—' }}</td>
-              <td class="is-num strong">{{ fix(r.mAP50) }}</td>
-              <td class="is-num">{{ fix(r.mAP50_95) }}</td>
-              <td class="is-num">{{ fix(r.precision, 3) }}</td>
-              <td class="is-num">{{ fix(r.recall, 3) }}</td>
-              <td class="is-num">{{ r.size_mb === null ? '—' : `${r.size_mb} MB` }}</td>
-              <td class="mono">{{ stamp(r.created) }}</td>
-              <td class="acts">
-                <button
-                  type="button"
-                  class="fs-btn-ghost fs-btn-ghost--tiny"
-                  :disabled="r.is_active"
-                  @click="setActive(r.run_id)"
-                >
-                  设为当前
-                </button>
-                <a class="fs-btn-ghost fs-btn-ghost--tiny" :href="api.modelDownloadUrl(r.run_id)">
-                  下载
-                </a>
-                <button
-                  type="button"
-                  class="fs-btn-ghost fs-btn-ghost--tiny is-danger"
-                  @click="askDelete(r)"
-                >
-                  删除
-                </button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-
-    <!-- 删除确认：必须说清「删的是什么、还剩什么、能不能捞回来」。
-         权重是几十分钟到两小时的产物，误点一次的代价太大。 -->
-    <div v-if="pending" class="confirm" role="dialog" aria-label="确认删除">
-      <p class="confirm__title">
-        删除归档 <span class="mono">{{ shortName(pending.run_id) }}</span>？
-      </p>
-      <p class="confirm__body">
-        归档权重与训练现场是两份数据，可以分开处置。
-        <strong>归档</strong>是能部署的 <span class="mono">best.pt</span>，
-        <strong>训练现场</strong>是曲线、图件与检查点。
-      </p>
-      <label class="confirm__pick">
-        <input v-model="withRun" type="checkbox" />
-        连同训练现场一起删除（含曲线与检查点，删了就再也续不了训）
-      </label>
-      <p class="confirm__body">
-        两者都会<strong>移进回收目录</strong>（<span class="mono">models/.trash</span>），
-        页面上不再出现、磁盘也不会立即释放，删错了可以手工捞回来。
-      </p>
-      <p v-if="pending.is_active" class="confirm__warn">
-        这是当前权重，删除后会自动回落到最新的归档。
-      </p>
-      <div class="confirm__acts">
-        <button type="button" class="fs-btn-ghost" :disabled="removing" @click="cancelDelete">
-          取消
-        </button>
-        <button
-          type="button"
-          class="fs-btn-primary is-danger"
-          :disabled="removing"
-          @click="confirmDelete"
-        >
-          {{ removing ? '正在删除…' : '确认删除' }}
+      <div class="head__actions">
+        <button type="button" class="btn btn--ghost" :disabled="busy" @click="load">
+          {{ busy ? '刷新中…' : '刷新' }}
         </button>
       </div>
     </div>
 
-      <p v-if="receipt" class="receipt" role="status">{{ receipt }}</p>
+    <!-- 当前权重 -->
+    <section class="panel">
+      <div class="panel__head">
+        <h2 class="panel__title">当前权重</h2>
+      </div>
+
+      <div class="panel__body">
+        <el-skeleton v-if="!loaded" :rows="3" animated />
+
+        <p v-else-if="!rows.length" class="empty">
+          还没有归档训练。去<RouterLink to="/training">训练中心</RouterLink>跑一次，结束后会自动归档。
+        </p>
+
+        <template v-else>
+          <p class="now">
+            <span class="now__id mono">{{ active?.run_id ?? '—' }}</span>
+            <!-- 自动切换是「需要知道」而不是「需要处置」：用中性标签，不占告警红 -->
+            <span v-if="active?.switched" class="tag">已自动切换</span>
+            <span v-if="active?.source === 'pinned'" class="tag tag--ok">已指定</span>
+            <span v-else-if="active?.source === 'fallback-newest'" class="tag">取最新</span>
+            <span v-else-if="active?.source === 'fallback-missing'" class="tag tag--warn">指定已失效</span>
+            <button
+              v-if="active?.pinned"
+              type="button"
+              class="btn btn--ghost"
+              @click="clearActive"
+            >
+              清除指定
+            </button>
+          </p>
+          <!-- 「为什么是它」必须说出来：静默回落会让人以为设置丢了 -->
+          <p class="now__note">{{ active?.note }}</p>
+        </template>
+      </div>
+    </section>
+
+    <!-- 归档列表 -->
+    <section v-if="rows.length" class="panel">
+      <div class="panel__head">
+        <h2 class="panel__title">
+          归档 <span class="num">{{ rows.length }}</span> 份
+        </h2>
+        <span class="panel__hint">勾选两份以上可比对（已选 <span class="num">{{ picked.length }}</span>）</span>
+      </div>
+
+      <div class="panel__body panel__body--flush">
+        <!-- 十一列在 900px 视口放不下，所以滚动发生在表格内部，
+             而不是把整个页面撑宽、把顶栏和图标轨一起拖走。 -->
+        <div class="fs-scroll">
+          <table class="fs-ledger" data-table="archives">
+            <thead>
+              <tr>
+                <th class="is-pick"></th>
+                <th>归档</th>
+                <th>数据集</th>
+                <th class="is-num">轮数</th>
+                <th class="is-num">mAP@50</th>
+                <th class="is-num">mAP@50-95</th>
+                <th class="is-num">精确率</th>
+                <th class="is-num">召回率</th>
+                <th class="is-num">体积</th>
+                <th>归档时间</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                v-for="r in rows"
+                :key="r.run_id"
+                :data-run-id="r.run_id"
+                :class="{ 'is-active': r.is_active }"
+              >
+                <td class="is-pick">
+                  <input
+                    type="checkbox"
+                    :checked="picked.includes(r.run_id)"
+                    :aria-label="`选择 ${r.run_id}`"
+                    @change="toggle(r.run_id)"
+                  />
+                </td>
+                <td class="mono run">
+                  {{ shortName(r.run_id) }}
+                  <span v-if="r.is_active" class="tag tag--ok">当前</span>
+                  <!-- 旧数据的指标不可与新数据直接比：新 val 里有一部分图当初进过
+                       旧 train。不标出来的话，用户会拿虚高的旧数去挑模型。 -->
+                  <span v-if="r.legacy" class="tag" title="用旧数据训的，指标不可与新数据直接比">
+                    旧数据
+                  </span>
+                </td>
+                <td>{{ r.dataset ?? '—' }}</td>
+                <td class="is-num">{{ r.epochs ?? '—' }}</td>
+                <td class="is-num strong">{{ fix(r.mAP50) }}</td>
+                <td class="is-num">{{ fix(r.mAP50_95) }}</td>
+                <td class="is-num">{{ fix(r.precision, 3) }}</td>
+                <td class="is-num">{{ fix(r.recall, 3) }}</td>
+                <td class="is-num">{{ r.size_mb === null ? '—' : `${r.size_mb} MB` }}</td>
+                <td class="mono">{{ stamp(r.created) }}</td>
+                <td class="acts">
+                  <button
+                    type="button"
+                    class="fs-btn-ghost fs-btn-ghost--tiny"
+                    :disabled="r.is_active"
+                    @click="setActive(r.run_id)"
+                  >
+                    设为当前
+                  </button>
+                  <a class="fs-btn-ghost fs-btn-ghost--tiny" :href="api.modelDownloadUrl(r.run_id)">
+                    下载
+                  </a>
+                  <button
+                    type="button"
+                    class="fs-btn-ghost fs-btn-ghost--tiny is-danger"
+                    @click="askDelete(r)"
+                  >
+                    删除
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- 删除确认：必须说清「删的是什么、还剩什么、能不能捞回来」。
+             权重是几十分钟到两小时的产物，误点一次的代价太大。
+             放在面板底部而不是盖住页面：它只是这一步的补充说明，
+             盖满一屏反而让人以为已经删了。 -->
+        <div v-if="pending" class="confirm" role="dialog" aria-label="确认删除">
+          <p class="confirm__title">
+            删除归档 <span class="mono">{{ shortName(pending.run_id) }}</span>？
+          </p>
+          <p class="confirm__body">
+            归档权重与训练现场是两份数据，可以分开处置。
+            <strong>归档</strong>是能部署的 <span class="mono">best.pt</span>，
+            <strong>训练现场</strong>是曲线、图件与检查点。
+          </p>
+          <label class="confirm__pick">
+            <input v-model="withRun" type="checkbox" />
+            连同训练现场一起删除（含曲线与检查点，删了就再也续不了训）
+          </label>
+          <p class="confirm__body">
+            两者都会<strong>移进回收目录</strong>（<span class="mono">models/.trash</span>），
+            页面上不再出现、磁盘也不会立即释放，删错了可以手工捞回来。
+          </p>
+          <p v-if="pending.is_active" class="confirm__warn">
+            这是当前权重，删除后会自动回落到最新的归档。
+          </p>
+          <div class="confirm__acts">
+            <button type="button" class="btn btn--ghost" :disabled="removing" @click="cancelDelete">
+              取消
+            </button>
+            <button
+              type="button"
+              class="btn btn--danger"
+              :disabled="removing"
+              @click="confirmDelete"
+            >
+              {{ removing ? '正在删除…' : '确认删除' }}
+            </button>
+          </div>
+        </div>
+
+        <p v-if="receipt" class="receipt" role="status">{{ receipt }}</p>
+      </div>
     </section>
 
     <!-- 对比评估 -->
-    <section v-if="rows.length" class="fs-block">
-      <h2 class="fs-block__title">多权重对比评估</h2>
-
-      <div class="bar fs-tray">
-        <p class="bar__picked">
-          <template v-if="pickedRows.length">
-            <span v-for="r in pickedRows" :key="r.run_id" class="chip mono">{{ shortName(r.run_id) }}</span>
-          </template>
-          <template v-else>从上面的表里勾选两份以上归档</template>
-        </p>
-
-        <label class="field field--narrow">
-          <span class="field__label">imgsz</span>
-          <input v-model.number="evalImgsz" class="field__control" type="number" min="32" max="2048" />
-        </label>
-        <label class="field field--narrow">
-          <span class="field__label">划分</span>
-          <select v-model="evalSplit" class="field__control" data-field="eval-split">
-            <option value="val">val（选模型）</option>
-            <option value="test">test（最终汇报）</option>
-          </select>
-        </label>
-        <label class="field field--narrow">
-          <span class="field__label">设备</span>
-          <select v-model="evalDevice" class="field__control">
-            <option value="0">GPU (0)</option>
-            <option value="cpu">CPU</option>
-          </select>
-        </label>
-
-        <div class="bar__actions">
-          <button
-            type="button"
-            class="fs-btn-primary"
-            :disabled="!canCompare || starting"
-            @click="startCompare"
-          >
-            {{ starting ? '正在发起…' : '开始对比' }}
-          </button>
-        </div>
+    <section v-if="rows.length" class="panel">
+      <div class="panel__head">
+        <h2 class="panel__title">多权重对比评估</h2>
+        <span class="panel__hint">同一划分、同一 imgsz 跑完，选模型才有意义</span>
       </div>
 
-      <p class="note">
-        同一次对比里所有模型跑**同一个划分**，阈值口径与归档 metrics.txt 一致
-        （conf=0.001 / iou=0.7，mAP 计算口径），所以**模型之间**可比。<br />
-        默认 <span class="mono">val</span>——它是平时选模型用的那一份；
-        <span class="mono">test</span> 留给最终汇报，它从未参与过任何决策（选模型、比对照），
-        所以在那上面出的数才算「没被挑过的」。**两者的数不要混着比**。<br />
-        评估用的 imgsz 可能与训练时不同（这里统一用上面的值），因此绝对数值会和归档里
-        训练期验证的数字略有差异——对比看的是同一条起跑线上的排序，不是复现归档的数。
-        选 CPU 会非常慢，val 集有上千张图。
-      </p>
-
-      <!-- 进度 -->
-      <div v-if="job" class="job">
-        <p class="job__line">
-          <template v-if="job.status === 'running'">
-            正在评估 <span class="fs-num">{{ job.done }}</span> / <span class="fs-num">{{ job.total }}</span> …
-          </template>
-          <template v-else-if="job.status === 'done'">评估完成。</template>
-          <template v-else>评估失败。</template>
-          <span class="job__meta mono">
-            {{ job.dataset ?? '—' }} · {{ job.split }} · imgsz={{ job.imgsz }} ·
-            {{ stamp(job.started_at) }}
-          </span>
-        </p>
-        <p v-if="job.status === 'running'" class="job__warn">
-          评估占着 GPU，这期间发起训练会返回 409。
-        </p>
-        <p v-if="job.error" class="fs-note-error" role="alert">{{ job.error }}</p>
-
-        <table v-if="job.results.length" class="fs-ledger" data-table="eval">
-          <thead>
-            <tr>
-              <th>模型</th>
-              <th class="is-num">mAP@50</th>
-              <th class="is-num">mAP@50-95</th>
-              <th class="is-num">精确率</th>
-              <th class="is-num">召回率</th>
-              <th class="is-num">推理 ms</th>
-              <th>烟雾 / 明火 mAP@50-95</th>
-              <th>备注</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="r in job.results" :key="r.run_id" :data-eval-id="r.run_id">
-              <td class="mono run">{{ shortName(r.run_id) }}</td>
-              <td class="is-num" :class="{ strong: isBest(r, 'mAP50') }">
-                {{ fix(r.mAP50) }}<span v-if="isBest(r, 'mAP50')" class="tag tag--best">最佳</span>
-              </td>
-              <td class="is-num" :class="{ strong: isBest(r, 'mAP50_95') }">
-                {{ fix(r.mAP50_95) }}
-              </td>
-              <td class="is-num" :class="{ strong: isBest(r, 'precision') }">
-                {{ fix(r.precision, 3) }}
-              </td>
-              <td class="is-num" :class="{ strong: isBest(r, 'recall') }">
-                {{ fix(r.recall, 3) }}
-              </td>
-              <td class="is-num">{{ fix(r.speed_ms?.inference ?? null, 1) }}</td>
-              <td class="is-num">
-                <template v-if="r.per_class && Object.keys(r.per_class).length">
-                  {{ fix(r.per_class.smoke ?? null, 3) }} / {{ fix(r.per_class.fire ?? null, 3) }}
+      <div class="panel__body">
+        <div class="tray">
+          <div class="tray__grid">
+            <!-- 已勾选的归档放在第一格：它是「这次对比的对象」，
+                 不是输入控件，所以排在参数之前，而且要让用户看见自己勾了谁。 -->
+            <div class="knob">
+              <span class="knob__label">本次对比</span>
+              <p class="picked">
+                <template v-if="pickedRows.length">
+                  <span v-for="r in pickedRows" :key="r.run_id" class="chip mono">{{ shortName(r.run_id) }}</span>
                 </template>
-                <template v-else>—</template>
-              </td>
-              <td class="note-cell">{{ r.error ?? '' }}</td>
-            </tr>
-          </tbody>
-        </table>
+                <template v-else>从上面的表里勾选两份以上归档</template>
+              </p>
+            </div>
+            <label class="knob">
+              <span class="knob__label">imgsz</span>
+              <input v-model.number="evalImgsz" class="field__control" type="number" min="32" max="2048" />
+            </label>
+            <label class="knob">
+              <span class="knob__label">划分</span>
+              <select v-model="evalSplit" class="field__control" data-field="eval-split">
+                <option value="val">val（选模型）</option>
+                <option value="test">test（最终汇报）</option>
+              </select>
+            </label>
+            <label class="knob">
+              <span class="knob__label">设备</span>
+              <select v-model="evalDevice" class="field__control">
+                <option value="0">GPU (0)</option>
+                <option value="cpu">CPU</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="tray__actions">
+            <button
+              type="button"
+              class="btn btn--primary"
+              :disabled="!canCompare || starting"
+              @click="startCompare"
+            >
+              {{ starting ? '正在发起…' : '开始对比' }}
+            </button>
+          </div>
+        </div>
+
+        <p class="note">
+          同一次对比里所有模型跑<strong>同一个划分</strong>，阈值口径与归档 metrics.txt 一致
+          （conf=0.001 / iou=0.7，mAP 计算口径），所以<strong>模型之间</strong>可比。<br />
+          默认 <span class="mono">val</span>——它是平时选模型用的那一份；
+          <span class="mono">test</span> 留给最终汇报，它从未参与过任何决策（选模型、比对照），
+          所以在那上面出的数才算「没被挑过的」。<strong>两者的数不要混着比</strong>。<br />
+          评估用的 imgsz 可能与训练时不同（这里统一用上面的值），因此绝对数值会和归档里
+          训练期验证的数字略有差异——对比看的是同一条起跑线上的排序，不是复现归档的数。
+          选 CPU 会非常慢，val 集有上千张图。
+        </p>
+
+        <!-- 进度 -->
+        <div v-if="job" class="job">
+          <p class="job__line">
+            <template v-if="job.status === 'running'">
+              正在评估 <span class="num">{{ job.done }}</span> / <span class="num">{{ job.total }}</span> …
+            </template>
+            <template v-else-if="job.status === 'done'">评估完成。</template>
+            <template v-else>评估失败。</template>
+            <span class="job__meta mono">
+              {{ job.dataset ?? '—' }} · {{ job.split }} · imgsz={{ job.imgsz }} ·
+              {{ stamp(job.started_at) }}
+            </span>
+          </p>
+          <p v-if="job.status === 'running'" class="job__warn">
+            评估占着 GPU，这期间发起训练会返回 409。
+          </p>
+          <p v-if="job.error" class="fs-note-error" role="alert">{{ job.error }}</p>
+
+          <div v-if="job.results.length" class="fs-scroll">
+            <table class="fs-ledger" data-table="eval">
+              <thead>
+                <tr>
+                  <th>模型</th>
+                  <th class="is-num">mAP@50</th>
+                  <th class="is-num">mAP@50-95</th>
+                  <th class="is-num">精确率</th>
+                  <th class="is-num">召回率</th>
+                  <th class="is-num">推理 ms</th>
+                  <th>烟雾 / 明火 mAP@50-95</th>
+                  <th>备注</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="r in job.results" :key="r.run_id" :data-eval-id="r.run_id">
+                  <td class="mono run">{{ shortName(r.run_id) }}</td>
+                  <td class="is-num" :class="{ strong: isBest(r, 'mAP50') }">
+                    {{ fix(r.mAP50) }}<span v-if="isBest(r, 'mAP50')" class="tag tag--best">最佳</span>
+                  </td>
+                  <td class="is-num" :class="{ strong: isBest(r, 'mAP50_95') }">
+                    {{ fix(r.mAP50_95) }}
+                  </td>
+                  <td class="is-num" :class="{ strong: isBest(r, 'precision') }">
+                    {{ fix(r.precision, 3) }}
+                  </td>
+                  <td class="is-num" :class="{ strong: isBest(r, 'recall') }">
+                    {{ fix(r.recall, 3) }}
+                  </td>
+                  <td class="is-num">{{ fix(r.speed_ms?.inference ?? null, 1) }}</td>
+                  <td class="is-num">
+                    <template v-if="r.per_class && Object.keys(r.per_class).length">
+                      {{ fix(r.per_class.smoke ?? null, 3) }} / {{ fix(r.per_class.fire ?? null, 3) }}
+                    </template>
+                    <template v-else>—</template>
+                  </td>
+                  <td class="note-cell">{{ r.error ?? '' }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
       </div>
     </section>
   </div>
@@ -519,11 +552,11 @@ onBeforeUnmount(stopPolling)
 .models {
   display: flex;
   flex-direction: column;
-  gap: var(--sp-5);
+  gap: var(--s5);
 }
 
 .mono {
-  font-family: var(--font-mono);
+  font-family: var(--font-num);
   font-variant-numeric: tabular-nums;
 }
 
@@ -532,19 +565,22 @@ onBeforeUnmount(stopPolling)
 }
 
 .strong {
-  font-weight: 600;
+  font-weight: var(--w-bold);
 }
 
 .hint,
 .note {
-  font-size: var(--fs-xs);
-  color: var(--dross);
+  font-size: var(--t-small);
+  color: var(--ink-mute);
 }
 
+/* 口径说明是长段落：靠一条竖线把它和上面的控件分开，
+   比再套一层卡片轻，也比留一段空白更容易看出「这是一段说明」。 */
 .note {
-  margin: var(--sp-3) 0 0;
-  padding-left: var(--sp-3);
-  border-left: 2px solid var(--cinder);
+  margin: var(--s4) 0 0;
+  padding-left: var(--s3);
+  border-left: 2px solid var(--line);
+  line-height: 1.65;
 }
 
 /* --- 当前权重 --------------------------------------------------------- */
@@ -552,18 +588,22 @@ onBeforeUnmount(stopPolling)
 .now {
   display: flex;
   align-items: center;
-  gap: var(--sp-3);
+  gap: var(--s3);
   margin: 0;
+  flex-wrap: wrap;
 }
 
 .now__id {
-  font-size: var(--fs-lg);
+  font-size: var(--t-read);
+  font-family: var(--font-num);
+  font-weight: var(--w-bold);
+  letter-spacing: var(--track-tight);
 }
 
 .now__note {
-  margin: var(--sp-2) 0 0;
-  font-size: var(--fs-xs);
-  color: var(--dross);
+  margin: var(--s2) 0 0;
+  font-size: var(--t-small);
+  color: var(--ink-mute);
 }
 
 /* --- 表格 ------------------------------------------------------------- */
@@ -572,14 +612,20 @@ onBeforeUnmount(stopPolling)
   width: 28px;
 }
 
-/* 当前权重那一行：它决定了识别页用哪份权重，值得一眼看到 */
+/* 当前权重那一行：它决定了识别页用哪份权重，值得一眼看到。
+   竖线只画在第一格上。写 `td`（每格都画）的话，十一列的表格会变成
+   十一条蓝色分隔线，把发丝横线的账册切成一格一格。 */
 .fs-ledger tbody tr.is-active td {
-  background: var(--highlight);
+  background: var(--surface-sunk);
+}
+
+.fs-ledger tbody tr.is-active td:first-child {
+  box-shadow: inset 2px 0 0 var(--signal);
 }
 
 .acts {
   display: flex;
-  gap: var(--sp-2);
+  gap: var(--s2);
   white-space: nowrap;
 }
 
@@ -596,145 +642,137 @@ onBeforeUnmount(stopPolling)
   color: var(--alarm);
 }
 
-.fs-btn-primary.is-danger {
-  color: var(--soot);
-  background: var(--alarm);
-  border-color: var(--alarm);
-}
-
 /* --- 删除确认 --------------------------------------------------------- */
 
 .confirm {
-  margin-top: var(--sp-3);
-  padding: var(--sp-3);
-  background: var(--highlight);
-  border: 1px solid var(--alarm);
-  border-radius: var(--radius-sm);
-  box-shadow: var(--shadow-1);
+  margin: var(--s4) var(--s4) 0;
+  padding: var(--s4);
+  background: var(--alarm-soft);
+  border: 1px solid var(--alarm-line);
+  border-radius: var(--r);
 }
 
 .confirm__title {
-  margin: 0 0 var(--sp-2);
-  font-weight: 600;
-  color: var(--bone);
+  margin: 0 0 var(--s2);
+  font-weight: var(--w-bold);
+  color: var(--ink);
 }
 
 .confirm__body {
-  margin: 0 0 var(--sp-2);
-  font-size: var(--fs-xs);
-  line-height: 1.6;
-  color: var(--dross);
+  margin: 0 0 var(--s2);
+  font-size: var(--t-small);
+  line-height: 1.65;
+  color: var(--ink-body);
 }
 
 .confirm__pick {
   display: flex;
-  gap: var(--sp-2);
+  gap: var(--s2);
   align-items: flex-start;
-  margin: 0 0 var(--sp-2);
-  font-size: var(--fs-xs);
-  line-height: 1.6;
-  color: var(--bone);
+  margin: 0 0 var(--s2);
+  font-size: var(--t-small);
+  line-height: 1.65;
+  color: var(--ink);
   cursor: pointer;
 }
 
 .confirm__warn {
-  margin: 0 0 var(--sp-2);
-  font-size: var(--fs-xs);
+  margin: 0 0 var(--s2);
+  font-size: var(--t-small);
+  font-weight: var(--w-medium);
   color: var(--alarm);
 }
 
 .confirm__acts {
   display: flex;
-  gap: var(--sp-2);
-  margin-top: var(--sp-3);
+  gap: var(--s2);
+  margin-top: var(--s4);
 }
 
 .receipt {
-  margin: var(--sp-3) 0 0;
-  font-size: var(--fs-xs);
-  line-height: 1.6;
-  color: var(--bone);
-  border-left: 2px solid var(--cinder);
-  padding-left: var(--sp-3);
+  margin: var(--s4) 0 0;
+  padding: var(--s3) var(--s4);
+  font-size: var(--t-small);
+  line-height: 1.65;
+  color: var(--ink);
+  background: var(--surface-sunk);
+  border-left: 2px solid var(--ok);
+  border-radius: 0 var(--r-sm) var(--r-sm) 0;
 }
 
+/* 三个状态标签。基准跟告警事件页、训练中心页同一款实心胶囊，
+   不在这页另写一份描边配方——同一个类名在两套配方之间漂移，
+   比缺一个变体更糟。 */
 .tag {
-  display: inline-block;
-  margin-left: var(--sp-2);
-  padding: 1px var(--sp-2);
-  font-size: var(--fs-xs);
-  color: var(--dross);
-  border: 1px solid var(--cinder);
-  border-radius: var(--radius-pill);
+  display: inline-flex;
+  align-items: center;
+  margin-left: var(--s2);
+  padding: 1px var(--s2);
+  font-size: var(--t-micro);
+  color: var(--ink-body);
+  background: var(--surface-sunk);
+  border-radius: var(--r-pill);
   white-space: nowrap;
 }
 
+/* 「当前」是既成事实，不是需要处置的状态，所以只描边不染色 */
 .tag--ok {
-  color: var(--bone);
+  color: var(--ink);
+  box-shadow: inset 0 0 0 1px var(--line-strong);
 }
 
 /* 指定的归档失效了：这是需要人去处理的状态，用告警红 */
 .tag--warn {
-  color: var(--alarm);
-  border-color: var(--alarm);
+  color: #fff;
+  background: var(--alarm);
 }
 
 .tag--best {
-  font-weight: 400;
-  color: var(--bone);
+  margin-left: var(--s2);
+  font-weight: var(--w-bold);
+  color: var(--signal-deep);
+  background: var(--signal-soft);
 }
 
 /* --- 对比 ------------------------------------------------------------- */
 
-.bar {
+/* 勾选中的归档权重直接用全局的 .chip 胶囊，这里只管它换行 */
+.picked {
   display: flex;
   flex-wrap: wrap;
-  align-items: flex-end;
-  gap: var(--sp-4);
-}
-
-.bar__picked {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--sp-2);
+  gap: var(--s2);
   margin: 0;
-  font-size: var(--fs-sm);
-  color: var(--dross);
+  min-height: 34px;
+  align-items: center;
+  font-size: var(--t-small);
+  color: var(--ink-mute);
 }
-
-.bar__actions {
-  margin-left: auto;
-}
-
-/* 勾选中的归档权重：直接用全局那个状态胶囊。
-   这里原先又写了一份描边配方，和全局的胶囊底色打架——
-   同一个类在两套配方间漂移，比缺一个变体更糟。 */
 
 .job {
-  margin-top: var(--sp-4);
+  margin-top: var(--s4);
 }
 
 .job__line {
   display: flex;
   align-items: baseline;
-  gap: var(--sp-3);
-  margin: 0 0 var(--sp-2);
+  gap: var(--s3);
+  margin: 0 0 var(--s2);
 }
 
 .job__meta {
-  font-size: var(--fs-xs);
-  color: var(--dross);
+  font-size: var(--t-small);
+  color: var(--ink-mute);
 }
 
 .job__warn {
-  margin: 0 0 var(--sp-3);
-  font-size: var(--fs-xs);
-  color: var(--dross);
+  margin: 0 0 var(--s3);
+  font-size: var(--t-small);
+  color: var(--ink-mute);
 }
 
 .note-cell {
   max-width: 240px;
-  font-size: var(--fs-xs);
-  color: var(--dross);
+  font-size: var(--t-small);
+  color: var(--ink-mute);
 }
 </style>

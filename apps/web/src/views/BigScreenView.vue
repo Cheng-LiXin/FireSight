@@ -11,7 +11,6 @@ import type { MonthlyStats } from '@/api/types'
 import { hourlyOption, monthlyTrendOption } from '@/charts/options'
 import EChart from '@/components/EChart.vue'
 import CountUp from '@/components/CountUp.vue'
-import FrameMarks from '@/components/FrameMarks.vue'
 
 const stats = ref<MonthlyStats | null>(null)
 const error = ref('')
@@ -82,16 +81,16 @@ watch(month, load)
       <h1 class="bs-title">月度火情统计 · {{ monthTitle }}</h1>
 
       <div class="bs-nav">
-        <button type="button" class="bs-btn fs-btn-ghost" @click="shiftMonth(-1)">上一月</button>
+        <button type="button" class="btn btn--ghost" @click="shiftMonth(-1)">上一月</button>
         <button
           type="button"
-          class="bs-btn fs-btn-ghost"
+          class="btn btn--ghost"
           :disabled="canNext === false"
           @click="shiftMonth(1)"
         >
           下一月
         </button>
-        <RouterLink to="/" class="bs-btn bs-btn--link fs-btn-ghost">返回控制台</RouterLink>
+        <RouterLink to="/" class="btn btn--ghost btn-link">返回控制台</RouterLink>
       </div>
     </header>
 
@@ -132,80 +131,87 @@ watch(month, load)
       </section>
 
       <template v-if="hasData">
-        <section class="fs-viewfinder">
-          <FrameMarks />
-          <h2 class="fs-viewfinder__title">近 12 个月告警次数（按类别）</h2>
-          <EChart v-if="stats" :option="monthlyTrendOption(stats.months)" :height="320" />
+        <section class="panel">
+          <div class="panel__head">
+            <h2 class="panel__title">近 12 个月告警次数（按类别）</h2>
+            <span class="panel__hint">按月堆叠 · 单位：起</span>
+          </div>
+          <div class="panel__body panel__body--chart">
+            <EChart v-if="stats" :option="monthlyTrendOption(stats.months)" :height="320" />
+          </div>
         </section>
 
-        <section class="fs-viewfinder">
-          <FrameMarks />
-          <h2 class="fs-viewfinder__title">本月 24 小时时段分布</h2>
-          <EChart :option="hourlyOption(detail.hourly)" :height="260" />
+        <section class="panel">
+          <div class="panel__head">
+            <h2 class="panel__title">本月 24 小时时段分布</h2>
+            <span class="panel__hint">按告警发生时刻</span>
+          </div>
+          <div class="panel__body panel__body--chart">
+            <EChart :option="hourlyOption(detail.hourly)" :height="260" />
+          </div>
         </section>
       </template>
 
-      <section v-else class="fs-empty">
+      <section v-else class="empty empty--inset">
         这个月没有告警记录。先跑一次推理产生事件，大屏才有内容可看；也可以切换到有数据的月份回看。
       </section>
     </template>
 
-    <section v-else-if="!error" class="fs-empty">正在读取事件库…</section>
+    <section v-else-if="!error" class="empty empty--inset">正在读取事件库…</section>
   </div>
 </template>
 
 <style scoped>
+/* 大屏脱掉顶栏，整页就是这一个视图：所以底色直接用页面底色，
+   靠左右不对称的内边距和分区留白撑住版面，不再另铺一层灰。 */
 .bigscreen {
   min-height: 100%;
-  padding: var(--sp-5) var(--sp-6) var(--sp-7);
-  background: var(--soot);
+  padding: var(--s6) var(--s8) var(--s8);
   display: flex;
   flex-direction: column;
-  gap: var(--sp-5);
+  gap: var(--s5);
 }
 
 .bs-head {
   display: flex;
   align-items: center;
-  gap: var(--sp-5);
-  padding-bottom: var(--sp-4);
-  border-bottom: var(--hairline);
+  gap: var(--s5);
+  padding-bottom: var(--s4);
+  border-bottom: 1px solid var(--line);
 }
 
 .bs-brand {
-  font-size: var(--fs-lg);
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  color: var(--bone);
+  font-size: var(--t-read);
+  font-weight: var(--w-black);
+  letter-spacing: var(--track-tight);
+  color: var(--ink);
   white-space: nowrap;
 }
 
 .bs-brand__mark {
-  color: var(--accent);
+  color: var(--alarm);
 }
 
 .bs-title {
   margin: 0;
-  font-size: var(--fs-xl);
-  font-weight: 500;
-  color: var(--bone);
+  font-size: var(--t-title);
+  font-weight: var(--w-bold);
+  color: var(--ink);
 }
 
 .bs-nav {
   display: flex;
-  gap: var(--sp-2);
+  gap: var(--s2);
   margin-left: auto;
 }
 
-/* 大屏沿用标准按钮（.fs-btn-ghost），只留两处本页特有的差异：
-   站两米外看要更大一点，以及 RouterLink 那枚需要去掉下划线。
-   此前这里自己抄了一整套按钮配方（底、边、圆角、hover、按下、禁用），
-   于是这一页成了全站唯一绕过标准按钮的地方——在控制台学会的按钮
-   高度与禁用态，进了大屏全都不成立。 */
-.bs-btn {
-  height: 36px;
-  padding: 0 var(--sp-4);
-  text-decoration: none;
+/* 大屏沿用标准按钮（.btn--ghost），只留一处本页特有的差异：
+   站两米外看要更大一点。此前这里自己抄了一整套按钮配方（底、边、圆角、
+   hover、按下、禁用），于是这一页成了全站唯一绕过标准按钮的地方——
+   在控制台学会的按钮高度与禁用态，进了大屏全都不成立。 */
+.bs-nav .btn {
+  height: 38px;
+  padding: 0 var(--s5);
 }
 
 /* KPI 行：大屏是站在两米外看的，五个读数要能一眼分出主次，
@@ -215,33 +221,34 @@ watch(month, load)
 .kpis {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: var(--sp-6);
+  gap: var(--s7);
 }
 
 .kpi {
-  padding-top: var(--sp-2);
-  border-top: var(--hairline);
+  padding-top: var(--s2);
+  border-top: 1px solid var(--line);
 }
 
 /* 领读的那个：全月唯一的总量，其余四项是它的分解。
    让它比邻居大一档，视线第一落点才在总量上，而不是五选一。 */
 .kpi--lead .kpi__value {
-  font-size: 3.25rem;
-  color: var(--bone);
+  font-size: 3.75rem;
+  color: var(--ink);
 }
 
 .kpi__label {
-  font-size: var(--fs-sm);
-  color: var(--dross);
+  font-size: var(--t-small);
+  font-weight: var(--w-medium);
+  color: var(--ink-mute);
 }
 
 /* hero 数字用比例字形：等宽在大字号下显得松散 */
 .kpi__value {
-  margin-top: var(--sp-2);
-  font-size: 2.5rem;
-  font-weight: 500;
+  margin-top: var(--s2);
+  font-size: 2.75rem;
+  font-weight: var(--w-medium);
   line-height: 1.1;
-  color: var(--bone);
+  color: var(--ink);
 }
 
 /* 「这个读数表示有火/有告警」——正是 --alarm 的合法用途 */
@@ -251,14 +258,14 @@ watch(month, load)
 
 .kpi__unit {
   margin-left: 2px;
-  font-size: var(--fs-lg);
-  color: var(--dross);
+  font-size: 1.5rem;
+  color: var(--ink-mute);
 }
 
 .kpi__sub {
-  margin-top: var(--sp-2);
-  font-size: var(--fs-xs);
-  color: var(--dross);
+  margin-top: var(--s2);
+  font-size: var(--t-small);
+  color: var(--ink-mute);
 }
 
 .kpi__sub.is-fire {
@@ -266,7 +273,7 @@ watch(month, load)
 }
 
 .kpi__sub.is-cool {
-  color: var(--ink-1);
+  color: var(--signal-deep);
 }
 
 /* --- 窄屏：KPI 换行，标题让位 ------------------------------------------ */
@@ -281,7 +288,7 @@ watch(month, load)
   }
 
   .bs-title {
-    font-size: var(--fs-lg);
+    font-size: var(--t-read);
     order: 3;
     width: 100%;
   }
