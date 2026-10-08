@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { expect, test } from '@playwright/test'
+import { expect, test, type Locator } from '@playwright/test'
 
 /**
  * 识别检测页的端到端验证。
@@ -23,6 +23,24 @@ test.beforeEach(() => {
   test.skip(!existsSync(IMAGE), `缺少测试图: ${IMAGE}（需先准备 data/raw/D-Fire）`)
 })
 
+/**
+ * 取一张图的「显示宽高比」与「原始宽高比」。
+ *
+ * 原来这条回归是比「原图 vs 标注图」两张图的宽高比——那是双栏时代的写法，
+ * 现在主位一次只显示一张图，比法换了，但意图没换：图不能被 CSS 压扁或裁切。
+ */
+async function displayRatio(img: Locator) {
+  const box = await img.evaluate((el) => {
+    const node = el as HTMLImageElement
+    const rect = node.getBoundingClientRect()
+    return {
+      shown: rect.width / rect.height,
+      natural: node.naturalWidth / node.naturalHeight,
+    }
+  })
+  return box
+}
+
 test('上传真实火情图，出结果对比与检测框账册', async ({ page }) => {
   await page.goto('/detect')
 
@@ -35,13 +53,11 @@ test('上传真实火情图，出结果对比与检测框账册', async ({ page 
   const table = page.locator('table.fs-ledger')
   await expect(table).toBeVisible({ timeout: 60_000 })
 
-  // 原图与检测结果并排
-  const figures = page.locator('.pair__item')
-  await expect(figures).toHaveCount(2)
-  await expect(figures.nth(1).locator('img')).toBeVisible()
+  // 图占主位：主区里真的有图
+  await expect(page.locator('.stage .pair__item img').first()).toBeVisible()
 
   // 读数区填上了（目标数不再是占位符）
-  await expect(page.locator('.fs-readout').first()).not.toContainText('—')
+  await expect(page.locator('.readout').first()).not.toContainText('—')
 
   // 表里至少有一行，且类别是契约里的中文名
   const rows = table.locator('tbody tr')
@@ -73,31 +89,35 @@ test('账册表头与数字列对齐（回归）', async ({ page }) => {
   expect(tdAligns).toEqual(thAligns)
 })
 
-test('结果对比图不拉伸变形', async ({ page }) => {
+test('结果图不拉伸变形', async ({ page }) => {
   await page.goto('/detect')
   await page.setInputFiles('input[type=file]', IMAGE)
 
-  const imgs = page.locator('.pair__item img')
-  await expect(imgs.nth(1)).toBeVisible({ timeout: 60_000 })
+  const overlayImg = page.locator('.overlay img')
+  await expect(overlayImg).toBeVisible({ timeout: 60_000 })
 
-  // 原图与标注图同源同尺寸，显示的宽高比必须一致；
-  // 若 CSS 把某一侧压扁，这里会先炸
-  const ratios = await imgs.evaluateAll((els) =>
-    els.map((el) => {
-      const img = el as HTMLImageElement
-      return img.naturalWidth / img.naturalHeight
-    }),
-  )
-  expect(ratios).toHaveLength(2)
-  expect(Math.abs(ratios[0] - ratios[1])).toBeLessThan(0.01)
+  // 显示框的宽高比必须等于原图宽高比。叠加层把 svg 铺在 <img> 的盒子上，
+  // 一旦 CSS 把图压扁或裁切，图上的框就会整体错位——所以这条回归盯的是
+  // 「图和框用同一套几何」，不是某一张图好不好看。
+  const overlayRatio = await displayRatio(overlayImg)
+  expect(Math.abs(overlayRatio.shown - overlayRatio.natural)).toBeLessThan(0.01)
+
+  // 后端位图那一侧同样不许变形——它是另一条渲染路径，不该有豁免
+  await page.getByRole('radio', { name: '后端标注图' }).click()
+  const backendImg = page.locator('.stage img')
+  await expect(backendImg).toBeVisible()
+
+  const backendRatio = await displayRatio(backendImg)
+  expect(Math.abs(backendRatio.shown - backendRatio.natural)).toBeLessThan(0.01)
 })
 
 test('窄屏下布局不塌（回归）', async ({ page }) => {
   await page.setViewportSize({ width: 900, height: 900 })
   await page.goto('/detect')
 
-  // 参数栏与取景窗都要在，且不出现横向滚动条
-  await expect(page.getByText('取景窗')).toBeVisible()
+  // 页头与主位都要在，且不出现横向滚动条
+  await expect(page.getByRole('heading', { name: '识别检测' })).toBeVisible()
+  await expect(page.locator('.stage')).toBeVisible()
 
   const overflow = await page.evaluate(
     () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
@@ -112,23 +132,23 @@ test('默认用前端 SVG 叠加画框，框数与账册一致', async ({ page }
   const table = page.locator('table.fs-ledger')
   await expect(table).toBeVisible({ timeout: 60_000 })
 
+  // 账本只收够格的框（LEDGER_AT），但图上始终画全：
+  // 所以断言的基准是图上的框数，不是账本行数
   const rows = table.locator('tbody tr')
-  const expected = await rows.count()
-  expect(expected).toBeGreaterThan(0)
-
-  // 右栏默认是叠加层，所以 DOM 里有 svg 矩形，而不是只有后端位图
-  const rects = page.locator('.overlay__svg .overlay__box')
-  await expect(rects).toHaveCount(expected)
+  const boxes = page.locator('.overlay__svg .overlay__box')
+  const drawn = await boxes.count()
+  expect(drawn).toBeGreaterThan(0)
+  expect(await rows.count()).toBeGreaterThan(0)
+  expect(await rows.count()).toBeLessThanOrEqual(drawn)
 
   // 每个框都要带中文类别 + 置信度标签：只画裸矩形比后端那张位图信息更少
-  await expect(page.locator('.overlay__tag')).toHaveCount(expected)
+  await expect(page.locator('.overlay__tag')).toHaveCount(drawn)
   await expect(page.locator('.overlay__tag').first()).toContainText(/明火|烟雾/)
   await expect(page.locator('.overlay__tag').first()).toContainText(/0\.\d{2}/)
 
-  // 切换器能把右栏换成后端位图，且两栏对比形态不塌
+  // 切换器能把主位换成后端位图
   await page.getByRole('radio', { name: '后端标注图' }).click()
   await expect(page.locator('.overlay__svg')).toHaveCount(0)
-  await expect(page.locator('.pair__item')).toHaveCount(2)
 })
 
 test('账册行与叠加框双向联动（回归）', async ({ page }) => {
@@ -143,23 +163,39 @@ test('账册行与叠加框双向联动（回归）', async ({ page }) => {
   expect(expected).toBeGreaterThan(0)
 
   const boxes = page.locator('.overlay__svg .overlay__box')
+  await expect(boxes).toHaveCount(await boxes.count())
 
-  // 账册 → 图像：第一行被指到时，只有第 0 个框点亮，其余退到暗态
+  /** 点亮状态的读数。行与框各有两种可能：正在被指的那一个，
+   *  以及「有人指着别的」时被压暗的那些。两个方向都要数得出来。 */
+  const litBoxes = () =>
+    boxes.evaluateAll((els) => els.filter((el) => el.classList.contains('is-hot')).length)
+  const dimBoxes = () =>
+    boxes.evaluateAll((els) => els.filter((el) => el.classList.contains('is-dim')).length)
+  const litRows = () =>
+    rows.evaluateAll((els) => els.filter((el) => el.classList.contains('is-hot')).length)
+
+  // 账册 → 图像：指第一行，第一行自己亮，图上恰好一个框跟着亮，
+  // 其余退到暗态。账本行 i 对应 detections 里第 i 个框，所以可以
+  // 直接用 nth 断言——不必绕开序号去找 xyxy。
   await rows.first().hover()
   await expect(rows.first()).toHaveClass(/is-hot/)
-  await expect(boxes.nth(0)).toHaveClass(/is-hot/)
-  await expect(boxes.nth(0).locator('rect')).toHaveCSS('stroke-width', '4px')
+  expect(await litRows()).toBe(1)
+  expect(await litBoxes()).toBe(1)
   if (expected > 1) {
+    expect(await dimBoxes()).toBe(expected - 1)
     await expect(boxes.nth(1)).toHaveClass(/is-dim/)
   }
 
-  // 指针移开后两边都复位，否则会一直留着一个假的选中态
-  await page.getByText('取景窗').hover()
+  // 指针移开，两侧都复位——否则会一直留着一个假的选中态
+  await page.locator('.stage__title').hover()
   await expect(rows.first()).not.toHaveClass(/is-hot/)
+  expect(await litBoxes()).toBe(0)
 
   // 图像 → 账册：直接指第二个框，账册里对应行才亮
   if (expected > 1) {
     await boxes.nth(1).hover({ force: true })
+    expect(await litBoxes()).toBe(1)
+    expect(await litRows()).toBe(1)
     await expect(rows.nth(1)).toHaveClass(/is-hot/)
     await expect(rows.first()).not.toHaveClass(/is-hot/)
   }

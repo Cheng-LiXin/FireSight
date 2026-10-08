@@ -1,11 +1,13 @@
 /* ==========================================================================
-   基底样式与三种容器
+   基底样式与容器体系
    --------------------------------------------------------------------------
-   刻意不做「等权卡片墙」：容器按信息层级分化为三种，各自有不同的形状语言，
-   而不是同一个圆角盒子反复用。
+   容器按信息层级分化，而不是同一个圆角盒子反复用：
      .fs-viewfinder  被观察对象（图像 / 曲线）——有四角框标
      .fs-readout     仪表读数——无边框，只靠顶部分隔线与等宽数字形成节奏
-     .fs-ledger      密集列表——表头 + 细线行，可排序
+     .fs-ledger      密集列表——表头 + 细线行
+     .fs-tray        参数托盘——要你去操作的控件，不挂四角刻度
+   另有本版新增的一组（.readouts / .panel / .sheet / .chip / .btn / .pick），
+   它们服务新方案的两页，旧六页逐步迁过去。两组并存期间不要互相改配方。
    ========================================================================== */
 
 *,
@@ -23,17 +25,30 @@ body,
 body {
   margin: 0;
   background: var(--soot);
-  color: var(--bone);
+  color: var(--ink-body);
   font-family: var(--font-sans);
   font-size: var(--fs-base);
-  line-height: 1.6;
+  line-height: 1.55;
   -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3,
+p,
+figure,
+dl,
+dd {
+  margin: 0;
 }
 
 /* 所有数字走等宽并对齐——这是仪表读数不是文本 */
 .fs-num,
+.num,
+.readout__value,
 .fs-readout__value,
 .fs-ledger td.is-num,
+.sheet .num,
 code,
 kbd {
   font-family: var(--font-mono);
@@ -45,7 +60,7 @@ kbd {
 :focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
-  box-shadow: 0 0 0 4px rgba(17, 24, 39, 0.08);
+  box-shadow: 0 0 0 4px rgba(13, 17, 23, 0.06);
 }
 
 /* --- 滚动条 ----------------------------------------------------------- */
@@ -57,11 +72,13 @@ kbd {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: var(--cinder);
+  /* 滑块要能从底色里看出来。原来的 --cinder 换成浅发丝线之后就太淡了，
+     这里直接用刻度色那一档。 */
+  background: var(--ink-faint);
   border-radius: var(--radius-pill);
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--ink-3);
+  background: var(--ink-mute);
 }
 
 /* ==========================================================================
@@ -434,14 +451,363 @@ input[type='range']:hover::-webkit-slider-thumb {
   padding: var(--sp-3) var(--sp-4);
   font-size: var(--fs-sm);
   color: var(--bone);
-  background: var(--ash);
+  background: var(--alarm-soft);
   border: var(--hairline);
   border-left: 3px solid var(--alarm);
   border-radius: var(--radius-sm);
-  box-shadow: var(--shadow-1);
 }
 
-/* 动效：尊重系统偏好，全局一刀切 */
+/* ==========================================================================
+   新方案的一组容器（值班总览 / 识别检测）
+   --------------------------------------------------------------------------
+   与上面 .fs-* 的差别不在配色而在形状语言：这一组全部圆润，且承载体一律
+   「白底 + 1px 线 + 极浅影 + 大圆角」；浮起关系靠明度差（页面底比白底深），
+   不靠堆阴影。辨识度由字号层级与数字排版承担，不靠卡片描边。
+   ========================================================================== */
+
+/* 读数：数字当图形。没有卡片盒子，只有一条顶线与一个大号等宽数字。 */
+.readout {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  padding-top: var(--s3);
+  border-top: 1px solid var(--line);
+}
+
+.readout__label {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s2);
+  font-size: var(--t-micro);
+  color: var(--ink-mute);
+  letter-spacing: 0.02em;
+}
+
+.readout__value {
+  font-size: var(--t-read);
+  font-weight: 500;
+  line-height: 1.05;
+  color: var(--ink);
+  letter-spacing: -0.02em;
+}
+
+.readout--hero .readout__value {
+  font-size: var(--t-hero);
+}
+
+.readout__unit {
+  font-family: var(--font-ui);
+  font-size: var(--t-small);
+  color: var(--ink-faint);
+  margin-left: 2px;
+}
+
+/* 「这个数是怎么算的」——每条读数都要能回答来源问题，这是可信度的来源 */
+.readout__basis {
+  font-size: var(--t-micro);
+  color: var(--ink-faint);
+  line-height: 1.45;
+  max-width: 34ch;
+}
+
+/* 一排读数。提到全局是因为多页都要用；早期它只长在首页的 scoped 里，
+   第二个页面照抄了一份，第三个页面的列数就忘了改。 */
+.readouts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--s5);
+}
+
+/* 横排时每条自己成卡：竖排的顶线读数与横排的卡片读数不是同一个容器，
+   靠 .readouts 的存在与否区分，不额外发明一个修饰类。 */
+.readouts > .readout {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  padding: var(--s4) var(--s5) var(--s5);
+  gap: var(--s3);
+  box-shadow: var(--lift-1);
+  transition: transform var(--dur-2) var(--ease-out),
+    box-shadow var(--dur-2) var(--ease-out);
+}
+
+/* 抬起一格是「可以点进去看」的暗示，不是装饰 */
+.readouts > .readout:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--lift-2);
+}
+
+/* 承载体 */
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--lift-1);
+}
+
+.panel__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s4);
+  padding: var(--s4) var(--s5);
+  border-bottom: 1px solid var(--line-faint);
+}
+
+.panel__title {
+  font-size: var(--t-title);
+  font-weight: var(--w-bold);
+  color: var(--ink);
+  letter-spacing: var(--track-tight);
+}
+
+.panel__hint {
+  font-size: var(--t-micro);
+  color: var(--ink-faint);
+}
+
+.panel__body {
+  padding: var(--s5);
+}
+
+/* --- 表格：发丝横线，无竖线无外框 ---------------------------------------- */
+.sheet {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--t-small);
+}
+
+.sheet th {
+  padding: var(--s2) var(--s3);
+  text-align: left;
+  font-weight: 500;
+  color: var(--ink-mute);
+  font-size: var(--t-micro);
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+
+.sheet td {
+  padding: var(--s2) var(--s3);
+  border-bottom: 1px solid var(--line-faint);
+  color: var(--ink-body);
+}
+
+.sheet tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+/* 表格直接坐在面板里时，最后一行的底色会从面板圆角外溢。
+   让最后一行自己带上圆角，比给表格加 overflow 更可控。 */
+.sheet--flush tbody tr:last-child td:first-child {
+  border-bottom-left-radius: var(--r-lg);
+}
+
+.sheet--flush tbody tr:last-child td:last-child {
+  border-bottom-right-radius: var(--r-lg);
+}
+
+.sheet tbody tr:hover td {
+  background: var(--surface-sunk);
+}
+
+.sheet th.num {
+  text-align: right;
+}
+
+/* --- 页头：标题 + 一句说明 + 右侧动作。多页共用，不各写一份 --------------- */
+.head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--s6);
+}
+
+.head__title {
+  font-size: 1.375rem;
+  font-weight: var(--w-bold);
+  color: var(--ink);
+  letter-spacing: var(--track-tight);
+}
+
+.head__sub {
+  margin-top: 2px;
+  font-size: var(--t-small);
+  color: var(--ink-mute);
+  max-width: 62ch;
+}
+
+.head__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  flex-wrap: wrap;
+}
+
+/* --- 按钮：两枚，仅此两枚 ------------------------------------------------
+   主按钮实心冷色，次按钮描边。过去每个页面自己抄过一遍，结果是四种高度、
+   三种圆角、四套 hover。 */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+  height: 34px;
+  padding: 0 var(--s5);
+  font: inherit;
+  font-size: var(--t-small);
+  font-weight: var(--w-medium);
+  border-radius: var(--r-pill);
+  border: 1px solid transparent;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color var(--dur-1) var(--ease-out),
+    border-color var(--dur-1) var(--ease-out), color var(--dur-1) var(--ease-out),
+    transform var(--dur-1) var(--ease-out), box-shadow var(--dur-1) var(--ease-out);
+}
+
+.btn--primary {
+  color: #fff;
+  background: var(--signal);
+}
+
+.btn--primary:hover:not(:disabled) {
+  background: var(--signal-deep);
+  transform: translateY(-1px);
+  box-shadow: var(--lift-2);
+}
+
+.btn--ghost {
+  color: var(--ink-body);
+  background: var(--surface);
+  border-color: var(--line);
+}
+
+.btn--ghost:hover:not(:disabled) {
+  border-color: var(--line-strong);
+  transform: translateY(-1px);
+}
+
+.btn--danger {
+  color: #fff;
+  background: var(--alarm);
+}
+
+.btn--danger:hover:not(:disabled) {
+  filter: brightness(1.06);
+  transform: translateY(-1px);
+  box-shadow: var(--lift-2);
+}
+
+.btn:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+/* 禁用态必须人眼可见。灰到跟底色一样等于没有禁用态。 */
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* --- 分段选择：胶囊组，在一组互斥选项里挑一个 --------------------------- */
+.picks {
+  display: inline-flex;
+  gap: var(--s2);
+}
+
+.pick {
+  padding: 7px var(--s5);
+  font: inherit;
+  font-size: var(--t-small);
+  font-weight: var(--w-medium);
+  color: var(--ink-body);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+  cursor: pointer;
+  transition: background-color var(--dur-1) var(--ease-out),
+    border-color var(--dur-1) var(--ease-out), color var(--dur-1) var(--ease-out),
+    transform var(--dur-1) var(--ease-out), box-shadow var(--dur-1) var(--ease-out);
+}
+
+.pick:hover:not(:disabled) {
+  border-color: var(--line-strong);
+  transform: translateY(-1px);
+}
+
+.pick:active:not(:disabled) {
+  transform: scale(0.96);
+}
+
+.pick.is-on {
+  color: #fff;
+  background: var(--signal);
+  border-color: var(--signal);
+  font-weight: var(--w-bold);
+  box-shadow: var(--lift-2);
+}
+
+.pick:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* --- 状态胶囊：把状态做成一枚标签而不是又一行文字 ----------------------- */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px var(--s3);
+  font-size: var(--t-micro);
+  font-weight: var(--w-medium);
+  line-height: 1.5;
+  color: var(--ink-body);
+  background: var(--surface-sunk);
+  border-radius: var(--r-pill);
+  white-space: nowrap;
+}
+
+/* 告警橙的额度只给「确实有火 / 确实有告警 / 出错了」三件事。
+   任何装饰性强调都不许用，否则这一支色就不再是信号。 */
+.chip--alarm {
+  color: #fff;
+  background: var(--alarm);
+}
+
+.chip--ok {
+  color: var(--ok);
+  background: var(--ok-soft);
+}
+
+/* --- 类别点 --------------------------------------------------------------- */
+.dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+
+.dot--smoke {
+  background: var(--cls-smoke);
+}
+
+.dot--fire {
+  background: var(--cls-fire);
+}
+
+/* --- 空态：说「现在没有」，不说「现在不知道」。加载态另有骨架屏 ---------- */
+.empty {
+  padding: var(--s7) var(--s4);
+  text-align: center;
+  color: var(--ink-faint);
+  font-size: var(--t-small);
+  line-height: 1.7;
+}
+
+/* 动效：尊重系统偏好，全局一刀切。
+   这条只压得住 CSS 动画与过渡。ECharts 画在 canvas 上、CountUp 自己
+   requestAnimationFrame，两者必须各自再判一次 matchMedia。 */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -449,5 +815,12 @@ input[type='range']:hover::-webkit-slider-thumb {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  /* 抬起是留给「点进去看」的暗示。降级模式下连这一格也不该动，
+     否则鼠标一动版面就抖，比不给反馈更烦人。 */
+  .readouts > .readout:hover {
+    transform: none;
   }
 }

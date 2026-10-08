@@ -1,255 +1,445 @@
 <script setup lang="ts">
-/** 仪表盘：读数行 + 告警趋势 + 置信度趋势 + 类别构成 + 当前模型。
+/** 值班总览。
  *
- * 「次数」与「置信度」量纲不同，拆成两张共用 X 轴的图，不做双 Y 轴。
+ * 版面上的第一个东西是「当前风险」，而不是一条 KPI 卡片带。
+ * 值班员开机后唯一真正要回答的问题是「现在要不要紧」，所以头号读数
+ * 必须是风险分，告警读数排在它下面。
+ *
+ * 两条纪律在这一页被推到极限：
+ *   1. 取不到数就显示「—」，不显示 0。0 是一个结论（「一条都没有」），
+ *      而此刻的事实是「还没取到」。滚动动画也会跳过非数字。
+ *   2. 加载态给骨架屏，不给结论。「尚无告警记录」是在断言「没有数据」，
+ *      此刻只是还不知道。
  */
 import { computed } from 'vue'
 
-import { alertTrendOption, confidenceOption } from '@/charts/options'
+import { alertTrendOption } from '@/charts/options'
+import CountUp from '@/components/CountUp.vue'
 import EChart from '@/components/EChart.vue'
-import FrameMarks from '@/components/FrameMarks.vue'
-import StatTile from '@/components/StatTile.vue'
 import { useConsoleStore } from '@/stores/console'
 
 const store = useConsoleStore()
 
-/** 未取到数据时读数显示什么。
- *
- * 不用 0：0 是一个结论（「一条都没有」），而此刻的事实是「还没取到」。
- * 用破折号——它读起来就是「此处无数」，不撒谎，滚动动画也会跳过它
- * （CountUp 对非数字原样显示）。 */
-function tileValue(n: number | undefined | null): number | string {
-  return n === undefined || n === null ? '—' : n
-}
-
-/** 误报率读数：取不到就是「—」，而不是 0.0%。 */
-function tileRate(rate: number | undefined | null): number | string {
-  return rate === undefined || rate === null ? '—' : (rate * 100).toFixed(1)
-}
-
 const ov = computed(() => store.overview)
-const daily = computed(() => ov.value?.daily ?? [])
 
-/** 数据还没到，此刻不能报「0」——那是在把「不知道」说成「没有」。
- *  骨架屏只盖住了趋势图；读数行和两个下方面板也得等，否则页面一进来
- *  满屏都是并不存在的零和「尚无」结论，比不给数据更糟。 */
+/** 数据还没到，此刻不能报「0」——那是在把「不知道」说成「没有」。 */
 const ready = computed(() => ov.value !== null)
 const loading = computed(() => store.loading || !ready.value)
 
-/** 空态看总量，不看序列长度——序列永远是连续的 30 天（缺日补 0）。 */
-const hasData = computed(() => (ov.value?.alerts.total ?? 0) > 0)
+const LEVEL_CN: Record<string, string> = {
+  normal: '正常',
+  watch: '留意',
+  warn: '警戒',
+  alert: '告警',
+}
 
+const level = computed(() => ov.value?.risk.level ?? 'normal')
+
+function n(v: number | undefined | null): number | '—' {
+  return v === undefined || v === null ? '—' : v
+}
+
+const daily = computed(() => ov.value?.daily ?? [])
 const trendOption = computed(() => alertTrendOption(daily.value))
-const confOption = computed(() => confidenceOption(daily.value))
 
-const ratio = computed(() => ov.value?.class_ratio ?? { smoke: 0, fire: 0 })
-const classTotal = computed(() => (ratio.value.smoke ?? 0) + (ratio.value.fire ?? 0))
+/**
+ * 类别构成。
+ *
+ * 后端回的 class_ratio 键是英文（fire / smoke），不是中文——唯一真相在
+ * fire_sight/services/stats_service.py。这里在展示层翻一次：中文只该出现在
+ * 屏幕上，不该泄漏到接口的字段名里。
+ *
+ * 两个类别不画环形图：两段饼读不出比例差，数字本身就是答案。
+ */
+const ratio = computed(() => ({
+  明火: ov.value?.class_ratio.fire ?? 0,
+  烟雾: ov.value?.class_ratio.smoke ?? 0,
+}))
+const classTotal = computed(() => ratio.value.明火 + ratio.value.烟雾)
 
 function pct(n: number): number {
   return classTotal.value ? (n / classTotal.value) * 100 : 0
 }
 
-const metrics = computed(() => ov.value?.model.metrics ?? {})
+/** 指标表：直接列 metrics.txt 的键值，并给常见键配一句人话解释。 */
+const METRIC_CN: Record<string, string> = {
+  'mAP@0.5': 'IoU 放宽到 0.5 时的综合精度与召回',
+  'mAP@0.5:0.95': 'IoU 从 0.5 到 0.95 逐步收紧，框歪一点就扣分',
+  precision: '报出来的框里有多少是真的',
+  recall: '真实存在的目标里找回了多少',
+  loss: '训练损失，越低越好',
+}
 
 /** metrics.txt 存的是原始浮点串（0.7733534279277221），展示必须收窄到可读位数。 */
 function fmtMetric(v: string | undefined): string {
   if (v === undefined || v === '') return '—'
-  const n = Number(v)
-  return Number.isFinite(n) ? n.toFixed(3) : v
+  const parsed = Number(v)
+  return Number.isFinite(parsed) ? parsed.toFixed(4) : v
 }
 
-const metricRows = computed(() => [
-  { label: 'mAP@50', value: fmtMetric(metrics.value.mAP50) },
-  { label: '精确率 P', value: fmtMetric(metrics.value.precision) },
-  { label: '召回率 R', value: fmtMetric(metrics.value.recall) },
-])
+const metricRows = computed(() =>
+  Object.entries(ov.value?.model.metrics ?? {}).map(([key, value]) => ({
+    key,
+    value: fmtMetric(value),
+    note: METRIC_CN[key] ?? '',
+  })),
+)
 </script>
 
 <template>
-  <div class="dash">
-    <!-- 读数行：数字本身就是图，不额外画单柱图或两段饼 -->
-    <section class="tiles" aria-label="告警读数" :aria-busy="loading">
-      <StatTile label="告警总数" :value="tileValue(ov?.alerts.total)" />
-      <StatTile
-        label="待复核"
-        :value="tileValue(ov?.alerts.pending)"
-        :tone="(ov?.alerts.pending ?? 0) > 0 ? 'fire' : 'default'"
-      />
-      <StatTile
-        label="误报率"
-        :value="tileRate(ov?.alerts.false_positive_rate)"
-        unit="%"
-      />
-      <StatTile
-        label="归档模型"
-        :value="tileValue(store.status?.trained_model_count)"
-        unit="个"
-        tone="muted"
-      />
-    </section>
+  <div class="page">
+    <!-- 头号读数：风险。当前最要紧的答案，不是一张 KPI 卡片。 -->
+    <section class="risk" :data-level="level" :aria-busy="loading">
+      <div class="risk__head">
+        <span class="risk__label">当前风险</span>
+        <span class="risk__level">{{ LEVEL_CN[level] }}</span>
+      </div>
 
-    <template v-if="hasData">
-      <section class="fs-viewfinder">
-        <FrameMarks />
-        <h2 class="fs-viewfinder__title">近 30 日告警次数（按类别）</h2>
-        <EChart :option="trendOption" :height="280" />
-      </section>
-
-      <section class="fs-viewfinder">
-        <FrameMarks />
-        <h2 class="fs-viewfinder__title">近 30 日平均置信度</h2>
-        <EChart :option="confOption" :height="220" />
-      </section>
-    </template>
-
-    <!-- 加载中不给「尚无告警记录」：这句话是在断言「没有数据」，
-         而此刻只是还不知道。此刻该说的是「正在取」。 -->
-    <section v-else-if="loading" class="fs-viewfinder" aria-busy="true">
-      <FrameMarks />
-      <h2 class="fs-viewfinder__title">近 30 日告警次数（按类别）</h2>
-      <el-skeleton :rows="6" animated />
-    </section>
-
-    <section v-else class="fs-empty">
-      尚无告警记录。运行一次识别检测后，趋势会出现在这里。
-      <RouterLink to="/detect" class="fs-empty__action">去做一次识别检测</RouterLink>
-    </section>
-
-    <div class="dash__cols">
-      <!-- 两个类别不画环形图：两段饼图读不出比例差，数字本身就是答案 -->
-      <section class="fs-viewfinder">
-        <FrameMarks />
-        <h2 class="fs-viewfinder__title">告警类别构成</h2>
-
-        <el-skeleton v-if="loading" :rows="3" animated />
-
-        <div v-else-if="classTotal > 0" class="ratio">
-          <div class="ratio__bar">
-            <span
-              class="ratio__seg ratio__seg--smoke"
-              :style="{ width: `${pct(ratio.smoke)}%` }"
-            />
-            <span class="ratio__seg ratio__seg--fire" :style="{ width: `${pct(ratio.fire)}%` }" />
-          </div>
-
-          <dl class="ratio__legend">
-            <div class="ratio__item">
-              <dt><i class="ratio__dot ratio__dot--smoke" />烟雾</dt>
-              <dd>
-                <span class="fs-num">{{ ratio.smoke }}</span>
-                <span class="ratio__pct fs-num">{{ pct(ratio.smoke).toFixed(0) }}%</span>
-              </dd>
-            </div>
-            <div class="ratio__item">
-              <dt><i class="ratio__dot ratio__dot--fire" />明火</dt>
-              <dd>
-                <span class="fs-num">{{ ratio.fire }}</span>
-                <span class="ratio__pct fs-num">{{ pct(ratio.fire).toFixed(0) }}%</span>
-              </dd>
-            </div>
-          </dl>
+      <div class="risk__body">
+        <div class="risk__score">
+          <CountUp :value="ov ? ov.risk.score : '—'" :digits="2" />
         </div>
 
-        <p v-else class="dash__none">尚无告警，无法统计类别构成。</p>
-      </section>
+        <!-- 风险尺：0 到 1 的刻度条，游标落在读数上。
+             这是「这个数是怎么算的」的图形答案。 -->
+        <div class="gauge" role="img" aria-label="风险刻度">
+          <div class="gauge__track" />
+          <div class="gauge__cursor" :style="{ left: `${(ov?.risk.score ?? 0) * 100}%` }" />
+          <span class="gauge__cap gauge__cap--l">低</span>
+          <span class="gauge__cap gauge__cap--r">高</span>
+        </div>
+      </div>
 
-      <section class="fs-viewfinder">
-        <FrameMarks />
-        <h2 class="fs-viewfinder__title">当前模型</h2>
+      <p class="risk__basis">{{ ov?.risk.basis ?? '正在读取事件库…' }}</p>
+    </section>
 
-        <el-skeleton v-if="loading" :rows="3" animated />
+    <!-- 告警读数：四条并排，每条自己成卡 -->
+    <section class="readouts" aria-label="告警读数">
+      <div class="readout">
+        <span class="readout__label">近 30 日告警</span>
+        <span class="readout__value">
+          <CountUp :value="n(ov?.alerts.total)" />
+          <span class="readout__unit">起</span>
+        </span>
+        <span class="readout__basis">按事件库中已落盘的告警统计</span>
+      </div>
+      <div class="readout">
+        <span class="readout__label">待复核</span>
+        <span class="readout__value">
+          <CountUp :value="n(ov?.alerts.pending)" />
+          <span class="readout__unit">起</span>
+        </span>
+        <span class="readout__basis">还没有人工判定的告警</span>
+      </div>
+      <div class="readout">
+        <span class="readout__label">误报率</span>
+        <span class="readout__value">
+          <!-- digits 必须给：默认是 0 位，会把 4.4% 四舍五入成 4%，
+               那是在报错数，比不显示更难发现。 -->
+          <CountUp
+            :value="ov ? ov.alerts.false_positive_rate * 100 : '—'"
+            :digits="1"
+          />
+          <span class="readout__unit">%</span>
+        </span>
+        <span class="readout__basis">已判定为误报的告警占全部已判定的比例</span>
+      </div>
+      <div class="readout">
+        <span class="readout__label">归档模型</span>
+        <span class="readout__value readout__value--id">
+          {{ ov?.model.run_id ?? (ready ? '未归档' : '—') }}
+        </span>
+        <span class="readout__basis">
+          {{ store.status?.trained_model_count ?? '—' }} 个已归档
+        </span>
+      </div>
+    </section>
 
-        <template v-else-if="ov?.model.exists">
-          <p class="dash__run fs-num">{{ ov.model.run_id }}</p>
-          <div class="metrics">
-            <div v-for="row in metricRows" :key="row.label" class="metrics__item">
-              <div class="metrics__label">{{ row.label }}</div>
-              <div class="metrics__value">{{ row.value }}</div>
+    <section class="charts">
+      <div class="panel">
+        <div class="panel__head">
+          <h2 class="panel__title">近 30 日告警次数（按类别）</h2>
+          <span class="panel__hint">单位：起</span>
+        </div>
+        <div class="panel__body">
+          <EChart v-if="ready" :option="trendOption" :height="260" />
+          <el-skeleton v-else :rows="6" animated />
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel__head">
+          <h2 class="panel__title">告警类别构成</h2>
+        </div>
+        <div class="panel__body">
+          <el-skeleton v-if="loading" :rows="3" animated />
+
+          <template v-else>
+            <div v-if="classTotal > 0" class="ratio">
+              <div class="ratio__bar">
+                <span
+                  class="ratio__seg ratio__seg--smoke"
+                  :style="{ width: `${pct(ratio.烟雾)}%` }"
+                />
+                <span
+                  class="ratio__seg ratio__seg--fire"
+                  :style="{ width: `${pct(ratio.明火)}%` }"
+                />
+              </div>
+              <dl class="ratio__legend">
+                <div class="ratio__item">
+                  <dt><i class="dot dot--smoke" />烟雾</dt>
+                  <dd>
+                    <span class="num">{{ ratio.烟雾 }}</span>
+                    <span class="ratio__pct num">{{ pct(ratio.烟雾).toFixed(0) }}%</span>
+                  </dd>
+                </div>
+                <div class="ratio__item">
+                  <dt><i class="dot dot--fire" />明火</dt>
+                  <dd>
+                    <span class="num">{{ ratio.明火 }}</span>
+                    <span class="ratio__pct num">{{ pct(ratio.明火).toFixed(0) }}%</span>
+                  </dd>
+                </div>
+              </dl>
             </div>
-          </div>
-          <p class="dash__hint">
-            明火为弱类，召回偏低是可预期的。提高召回可在训练中心调整增强后重训。
-          </p>
-        </template>
 
-        <p v-else class="dash__none">尚未归档模型。运行 fs-train 后会在此显示指标。</p>
-      </section>
-    </div>
+            <p v-else class="empty">尚无告警，无法统计类别构成。</p>
+          </template>
+        </div>
+      </div>
+    </section>
+
+    <!-- 图表区下方：当前权重。模型没归档时这一块说「还没归档」，
+         不是把指标列成空表。 -->
+    <section class="panel">
+      <div class="panel__head">
+        <h2 class="panel__title">当前权重指标</h2>
+        <span class="panel__hint">
+          {{ ov?.model.run_id ?? '验证集' }}
+        </span>
+      </div>
+      <div class="panel__body panel__body--tight">
+        <el-skeleton v-if="loading" :rows="4" animated />
+
+        <table v-else-if="metricRows.length" class="sheet sheet--flush">
+          <thead>
+            <tr>
+              <th>指标</th>
+              <th class="num">取值</th>
+              <th>含义</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="row in metricRows" :key="row.key">
+              <td class="metric-name">{{ row.key }}</td>
+              <td class="num">{{ row.value }}</td>
+              <td class="metric-note">{{ row.note }}</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <p v-else class="empty">
+          尚未归档模型，或归档产物里没有 metrics.txt。运行 fs-train 后会在此显示指标。
+        </p>
+      </div>
+    </section>
   </div>
 </template>
 
 <style scoped>
-.dash {
+.page {
+  max-width: 1360px;
+  margin: 0 auto;
   display: flex;
   flex-direction: column;
-  gap: var(--sp-5);
+  gap: var(--s5);
 }
 
-/* 四条读数共用一条顶线，像仪表盘上的一排刻度：
-   盒子之间的界线由这一条线给出，不必各画一个边框。 */
-.tiles {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: var(--sp-5);
+/* --- 风险：这一页的第一个东西，也是最大的一个数字 ------------------------ */
+.risk {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  /* 左边一道 5px 的档位色：这是「当前处在哪一档」的常驻答案。
+     不用背景色铺满，因为橙色铺满一整块会盖过下面所有的数字。 */
+  border-left: 5px solid var(--line);
+  border-radius: var(--r-lg);
+  padding: var(--s5) var(--s7);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s4);
+  box-shadow: var(--lift-1);
+  transition: border-left-color var(--dur-3) var(--ease-out),
+    background-color var(--dur-3) var(--ease-out);
 }
 
-/* .fs-readout 原本是纵向读数条，靠「相邻的再往下挪一截」分开；
-   这里横排，间距交给 grid 的 gap——否则每条都比它的邻居低 8px，
-   四条顶线就错开了，「一排刻度」也没了。 */
-.tiles > .tile {
-  margin-top: 0;
+.risk[data-level='normal'] {
+  border-left-color: var(--ok);
 }
 
-.dash__cols {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--sp-5);
-  /* 两个面板各自按内容定高，不互相拉平——否则短的那侧会留一大片空 */
-  align-items: start;
+.risk[data-level='watch'] {
+  border-left-color: var(--signal);
 }
 
-.dash__none {
-  margin: 0;
-  color: var(--dross);
-  font-size: var(--fs-sm);
+.risk[data-level='warn'] {
+  border-left-color: var(--alarm);
 }
 
-.dash__run {
-  margin: 0 0 var(--sp-4);
-  font-size: var(--fs-sm);
-  color: var(--dross);
+.risk[data-level='alert'] {
+  border-left-color: var(--alarm);
+  background: var(--alarm-soft);
+}
+
+.risk__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.risk__label {
+  font-size: var(--t-micro);
+  color: var(--ink-mute);
+  letter-spacing: var(--track-label);
+}
+
+.risk__level {
+  padding: 3px var(--s4);
+  font-size: var(--t-small);
+  font-weight: var(--w-bold);
+  color: var(--ink);
+  background: var(--surface-sunk);
+  border-radius: var(--r-pill);
+}
+
+.risk[data-level='warn'] .risk__level,
+.risk[data-level='alert'] .risk__level {
+  color: #fff;
+  background: var(--alarm);
+}
+
+.risk__body {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--s7);
+}
+
+/* 头号读数：这一页唯一的最大字号。字重拉到 650 而不是靠字号堆——
+   只放大字号会让页面像「放大了的模板」。 */
+.risk__score {
+  font-family: var(--font-num);
+  font-size: 5.25rem;
+  font-weight: var(--w-bold);
+  line-height: 0.86;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--track-hero);
+}
+
+/* --- 风险尺：给「0.62」一个可视的来历 ------------------------------------ */
+.gauge {
+  flex: 1;
+  position: relative;
+  height: 32px;
+  margin-bottom: var(--s2);
+}
+
+.gauge__track {
+  position: absolute;
+  top: 10px;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: var(--line);
+  border-radius: var(--r-pill);
+}
+
+/* 刻度线：每 0.1 一根，让尺子是可读的而不是一根装饰横线 */
+.gauge__track::after {
+  content: '';
+  position: absolute;
+  inset: -3px 0;
+  background-image: repeating-linear-gradient(
+    to right,
+    var(--line) 0 1px,
+    transparent 1px 10%
+  );
+}
+
+.gauge__cursor {
+  position: absolute;
+  top: 2px;
+  width: 4px;
+  height: 18px;
+  background: var(--ink);
+  border-radius: var(--r-pill);
+  transition: left var(--dur-4) var(--ease-out);
+}
+
+.gauge__cap {
+  position: absolute;
+  bottom: -2px;
+  font-size: var(--t-micro);
+  color: var(--ink-faint);
+  letter-spacing: var(--track-label);
+}
+
+.gauge__cap--l {
+  left: 0;
+}
+
+.gauge__cap--r {
+  right: 0;
+}
+
+.risk__basis {
+  font-size: var(--t-small);
+  color: var(--ink-mute);
+  line-height: 1.6;
+}
+
+/* run_id 是一串字符，不是读数：套用读数的等宽大字号会把它读成另一个数字 */
+.readout__value--id {
+  font-size: var(--t-title);
+  letter-spacing: 0;
   word-break: break-all;
 }
 
-.dash__hint {
-  margin: var(--sp-4) 0 0;
-  padding-left: var(--sp-3);
-  border-left: 2px solid var(--cinder);
-  font-size: var(--fs-sm);
-  color: var(--dross);
+/* --- 图 ------------------------------------------------------------------- */
+.charts {
+  display: grid;
+  grid-template-columns: minmax(0, 2.4fr) minmax(0, 1fr);
+  gap: var(--s5);
+  align-items: start;
 }
 
-/* --- 类别构成 --------------------------------------------------------- */
+.panel__hint {
+  font-family: var(--font-num);
+}
 
+.panel__body--tight {
+  padding: 0;
+}
+
+/* --- 类别构成 ----------------------------------------------------------- */
 .ratio__bar {
   display: flex;
   /* 段间留 2px 底色间隙，而不是给段描边 */
   gap: 2px;
   height: 10px;
-  margin-bottom: var(--sp-4);
+  margin-bottom: var(--s4);
 }
 
 .ratio__seg {
   display: block;
-  border-radius: var(--radius-pill);
+  border-radius: var(--r-pill);
 }
 
 .ratio__seg--smoke {
-  background: var(--cat-smoke);
+  background: var(--cls-smoke);
 }
 
 .ratio__seg--fire {
-  background: var(--cat-fire);
+  background: var(--cls-fire);
 }
 
 .ratio__legend {
@@ -260,77 +450,63 @@ const metricRows = computed(() => [
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  padding: var(--sp-2) 0;
-  border-top: var(--hairline);
+  padding: var(--s2) 0;
+  border-top: 1px solid var(--line-faint);
 }
 
 .ratio__item dt {
   display: flex;
   align-items: center;
-  gap: var(--sp-2);
-  font-size: var(--fs-sm);
-  color: var(--bone);
+  font-size: var(--t-small);
+  color: var(--ink-body);
 }
 
 .ratio__item dd {
   margin: 0;
   display: flex;
   align-items: baseline;
-  gap: var(--sp-3);
-}
-
-.ratio__dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-}
-
-.ratio__dot--smoke {
-  background: var(--cat-smoke);
-}
-
-.ratio__dot--fire {
-  background: var(--cat-fire);
+  gap: var(--s3);
 }
 
 /* 百分比是次要读数：压暗，避免和计数抢注意力 */
 .ratio__pct {
   min-width: 3ch;
   text-align: right;
-  font-size: var(--fs-sm);
-  color: var(--dross);
+  color: var(--ink-faint);
 }
 
-/* 三个指标并排。面板很宽，纵向堆叠会让标签和数值之间拉开一大段空白。 */
-.metrics {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: var(--sp-4);
+.metric-name {
+  font-family: var(--font-num);
+  font-size: var(--t-micro);
+  color: var(--ink-body);
+  font-weight: var(--w-medium);
 }
 
-.metrics__item {
-  padding-top: var(--sp-2);
-  border-top: var(--hairline);
+.metric-note {
+  color: var(--ink-faint);
+  font-size: var(--t-micro);
 }
 
-.metrics__label {
-  font-size: var(--fs-xs);
-  color: var(--dross);
-}
-
-.metrics__value {
-  margin-top: var(--sp-1);
-  font-size: var(--fs-lg);
-  color: var(--bone);
-}
-
-@media (max-width: 1000px) {
-  .tiles {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+@media (max-width: 1100px) {
+  .charts {
+    grid-template-columns: minmax(0, 1fr);
   }
 
-  .dash__cols {
-    grid-template-columns: minmax(0, 1fr);
+  .risk__body {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--s4);
+  }
+
+  .gauge {
+    width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .risk,
+  .gauge__cursor {
+    transition: none;
   }
 }
 </style>

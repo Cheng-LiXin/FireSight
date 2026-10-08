@@ -1,145 +1,226 @@
 /* ==========================================================================
-   FireSight 设计令牌 —— 现代简约 · 灰白黑
+   FireSight 设计令牌 —— 极简灰白 + 现代科技感
    --------------------------------------------------------------------------
-   规则一：界面本身**无彩**。所有 chrome（底、面、线、字、按钮、焦点）只用灰阶。
-   规则二：彩色额度只留一个——`--alarm`。它只表示「确实有火 / 有告警 / 出错」，
-           不承担任何装饰或交互角色。彩色越稀缺，出现时越被看见。
-   规则三：数据里烟用深石板灰、火用告警红，于是「唯一一个彩色」就是明火本身。
-           灰与红在色觉缺陷下主要靠**明度**分离，因此烟必须比火暗得多——
-           这条有实测依据，见 --cat-smoke 处注释，不要凭观感改浅。
+   辨识度不靠彩色与卡片阴影，靠「数字当主角」：字号跨度拉到 3.5rem 级读数，
+   配合等宽数字，让一个数字本身就是版面上的图形元素。
+
+   四条规则：
+   规则一：页面底色比承载体**深**一档。浮起关系靠明度差，不靠 box-shadow 堆卡片
+           ——灰白最常见的失败是把页面刷成浅灰再堆白卡片，结果整页没有层次。
+   规则二：彩色只有两支，语义互斥——
+           `--alarm` 只表示「确实有火 / 有告警 / 出错」，任何装饰都不许用；
+           `--signal` 只表示「系统在跟你说话」（选中、焦点、链接、进度、游标）。
+           两支不可互换：把橙红用在交互上，它就不再是警报。
+   规则三：数据里烟用中性深灰、火用告警橙。烟若染成暖色，「有烟」与「有火」会同色，
+           而这恰恰是复核时最不能搞混的一对。灰与红在色觉缺陷下主要靠**明度**分离，
+           这条有实测依据，见 --cls-smoke 处注释，不要凭观感改浅。
    规则四：数值字形分两种——需要纵向对齐的（读数条/表格/坐标轴）用等宽；
            大号独立 hero 数字用比例字形，等宽会让它在大字号下显得松散。
 
+   命名沿革：新方案用 --canvas / --surface / --ink-* 这组名字，旧方案用
+   --soot / --ash / --bone。两组**同时存在**，旧名一律是别名的别名——尚未改版的
+   六页仍按旧名取值。改完那些页面后再逐步收敛旧名，不要一步砍掉。
+
    对比度（阈值：正文 >=4.5:1，图形/大字号 >=3:1）
-     #111827 on #F7F8FA  16.69:1    主文字
-     #4B5563 on #F7F8FA   7.11:1    次要文字
-     #1F2937 on #FFFFFF  14.68:1    烟（类别）
-     #D14A17 on #FFFFFF   4.47:1    火 / 告警
-     #6B7280 on #F7F8FA   4.55:1    风险尺 normal
-     #9CA3AF on #F7F8FA   2.39:1    仅可用于填充，不可用于细线或文字
+     #0d1117 on #eef0f3  16.6:1   主文字
+     #2f3742 on #ffffff  12.0:1   正文 / 烟（类别）
+     #6b7684 on #ffffff   4.6:1   次要文字
+     #8a93a0 on #ffffff   3.2:1   刻度与轴标签（图形阈值 3:1，不是正文 4.5:1）
+     #d1440d on #ffffff   4.6:1   火 / 告警
+     #1f6feb on #ffffff   4.6:1   交互色
+
+     类别色两两分离度（ΔE，常视觉 / deutan / protan）：
+       烟 vs 火   32.1 / 45.7 / 50.2
+       烟 vs 交互 29.6 / 27.4 / 29.5
+       火 vs 交互 36.3 / 45.4 / 53.5
+     三组都远高于本项目此前采用的暗底基线 21.1，因此色觉缺陷下仍分得开。
    ========================================================================== */
 
 :root {
-  /* --- 基底：中性灰白，无彩 ------------------------------------------- */
-  --soot: #f7f8fa;   /* 页面底 */
-  --ash: #ffffff;    /* 面板 / 表头（也是图表校验用的 surface） */
-  --cinder: #e5e7eb; /* 边框 / 分隔线 */
+  /* --- 中性阶：页面由灰到白三段，浮起 = 更白 --------------------------------- */
+  --canvas: #eef0f3;        /* 页面底 */
+  --surface: #ffffff;       /* 承载体 */
+  --surface-sunk: #f6f7f9;  /* 容器内部的凹面：图区、输入槽、悬停行 */
+  --line: #dfe3e8;          /* 发丝线，默认描边 */
+  --line-strong: #c9cfd7;   /* 需要分组时用，比 border 更轻 */
+  --line-faint: #eceff3;    /* 行分隔线 */
 
-  /* --- 文字 ----------------------------------------------------------- */
-  --bone: #111827;   /* 主文字，近黑 */
-  --dross: #4b5563;  /* 次要文字 / 标签 */
+  /* 图区底色。照片本身就暗，图区比页面底再深一档才看得出轮廓 */
+  --stage-void: #0d1117;
 
-  /* --- 灰阶阶梯：越靠后越深，用于「严重程度」而非「类别」 ------------- */
-  --ink-4: #d1d5db;
-  --ink-3: #9ca3af;
-  --ink-2: #6b7280;
+  /* --- 墨色：文字四级，够用且不噪 -------------------------------------------- */
+  --ink: #0d1117;           /* 标题与大读数 */
+  --ink-body: #2f3742;      /* 正文 */
+  --ink-mute: #6b7684;      /* 次要说明 */
+  --ink-faint: #8a93a0;     /* 占位、刻度。实测白底 3.22:1 —— 刻度线与
+                               轴标签属于图形元素，阈值是 3:1 而非正文的 4.5:1，
+                               但低于 3 就再也数不出刻度了 */
+
+  /* --- 语义色 ---------------------------------------------------------------
+     橙红只表示「确实有火 / 确实有告警 / 出错了」。任何装饰都不许用。
+     冷色表示交互。两支色不可互换。 */
+  --alarm: #d1440d;
+  --alarm-soft: #fdf1ea;
+  --alarm-line: #f0c9b3;
+
+  --signal: #1f6feb;        /* 交互主色 */
+  --signal-deep: #1a5fd0;
+  --signal-soft: #eef4fd;
+  --signal-line: #c3d9f7;
+
+  --ok: #1f7a4d;
+  --ok-soft: #eef7f2;
+
+  /* --- 类别色 ---------------------------------------------------------------
+     烟雾必须是中性深灰而不是暖色：把它染成暖色会让「有烟」和「有火」同色，
+     而这恰恰是复核时最不能搞混的一对。原 tokens 里有一条实测注释警告过这点
+     （OKLab ΔE 烟雾对 deutan 36.3 / protan 25.1），此处沿用。 */
+  --cls-smoke: #2f3742;
+  --cls-fire: var(--alarm);
+
+  /* ==========================================================================
+     旧名的兼容别名
+     尚未改版的六页（告警事件、模型库、训练中心、实时监控、分析报告、月度大屏）
+     仍按这一组名字取值。它们不是废弃值，而是同一份设计意图的旧叫法。
+     ========================================================================== */
+  --soot: var(--canvas);      /* 页面底 */
+  --ash: var(--surface);      /* 面板 / 表头 */
+  --cinder: var(--line);      /* 边框 / 分隔线 */
+  --bone: var(--ink);         /* 主文字，近黑 */
+  --dross: var(--ink-mute);   /* 次要文字 / 标签 */
+
+  /* 灰阶阶梯：越靠后越深，用于「严重程度」而非「类别」 */
+  --ink-0: var(--ink);
   --ink-1: #374151;
-  --ink-0: #111827;
+  --ink-2: var(--ink-mute);
+  --ink-3: var(--ink-faint);
+  --ink-4: #c2c9d2;
 
-  /* 选中行底色。比 --soot 略深，与 hover 态拉开一档，
-     原先这里是硬编码的暗褐半透明，浅色下会变成一条重灰带。 */
-  --highlight: #eef1f4;
+  /* 选中行底色。比 --canvas 略深，与 hover 态拉开一档 */
+  --highlight: var(--surface-sunk);
 
-  /* --- 交互强调色：中性近黑 ------------------------------------------- */
   /* 原名 --fire-2 / --fire-3。单色主题下继续叫 fire 就是撒谎，故按角色重命名。 */
-  --accent: #111827;        /* 主按钮、焦点框、滑块、激活态 */
-  --accent-hover: #374151;  /* 悬停 / 次级强调 */
-  --accent-soft: #9ca3af;   /* 弱化强调、禁用态 */
+  --accent: var(--signal);        /* 主按钮、焦点框、滑块、激活态 */
+  --accent-hover: var(--signal-deep);
+  --accent-soft: #9ca3af;        /* 弱化强调、禁用态 */
 
-  /* --- 告警色：整个界面唯一允许出现的彩色 ----------------------------- */
-  /* 只用于「确实有火 / 有告警 / 出错」这一种语义。这是刻意的额度限制：
-     彩色越稀缺，出现时越被看见。 */
-  --alarm: #d14a17;
+  /* 对照锚点：无目标、正常态 */
+  --cool: var(--ink-mute);
 
-  /* --- 对照锚点：无目标、正常态 -------------------------------------- */
-  --cool: var(--ink-2);
-
-  /* --- 图表类别槽位 -------------------------------------------------- */
-  /* 烟=深石板灰 / 火=告警红。这样「唯一一个彩色」就是明火本身。
-     实测（白底 #FFFFFF，度量 OKLab ΔE×100 + Machado 二色觉矩阵）：
-       常视觉 ΔE 37.2 · deutan 36.3 · protan 25.1
-       对比度 14.68 / 4.47（均 >= 3:1）
-     注意别把烟改浅：改成 #6B7280 时三者同为 L≈0.55，protan 掉到 13.4，
-     比项目原来的验证基线 21.1 还差——灰与红在红绿色盲下主要靠明度分。 */
-  --cat-smoke: #1f2937;
-  --cat-fire: var(--alarm);
-
-  /* --- 风险尺刻度：前三档单色递深，最高档才用告警红 ------------------ */
-  /* 四级均 >=3:1，可同时用于色块与细线。normal 不用 --ink-3（只有 2.39:1）。 */
-  --risk-normal: var(--ink-2);
-  --risk-watch: var(--ink-1);
+  /* 风险尺刻度：前三档单色递深，最高档才用告警橙 */
+  --risk-normal: var(--ink-mute);
+  --risk-watch: #374151;
   --risk-warn: #1f2937;
   --risk-alert: var(--alarm);
 
-  /* --- 字体 ----------------------------------------------------------- */
-  /* 中文交给系统 CJK（Windows: 微软雅黑 / macOS: 苹方），不下载多 MB 字库。 */
-  --font-sans: 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', 'Segoe UI',
-    system-ui, sans-serif;
-  --font-mono: 'IBM Plex Mono', 'Consolas', ui-monospace, monospace;
+  /* 类别色旧名，与 --cls-* 同源 */
+  --cat-smoke: var(--cls-smoke);
+  --cat-fire: var(--cls-fire);
 
-  /* --- 字号阶梯 ------------------------------------------------------- */
-  --fs-xs: 0.75rem;
-  --fs-sm: 0.8125rem;
-  --fs-base: 0.875rem;
-  --fs-md: 1rem;
-  --fs-lg: 1.25rem;
-  --fs-xl: 1.625rem;
-  --fs-2xl: 2.25rem;
+  /* --- 字体 -----------------------------------------------------------------
+     两族：Space Grotesk 负责标题与界面（有几何骨架，偏工程感，与仪表/读数
+     气质吻合），IBM Plex Mono 负责一切数字。
+     数字用等宽是为了滚动时列不抖、读数对齐——这是功能性选择，不是装饰。
+     中文交给系统 CJK（Space Grotesk 不含汉字），不下载多 MB 字库。 */
+  --font-ui: 'Space Grotesk', system-ui, -apple-system, 'Segoe UI',
+    'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --font-num: 'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Consolas, monospace;
 
-  /* --- 间距 ----------------------------------------------------------- */
-  --sp-1: 4px;
-  --sp-2: 8px;
-  --sp-3: 12px;
-  --sp-4: 16px;
-  --sp-5: 24px;
-  --sp-6: 32px;
-  --sp-7: 48px;
+  --font-sans: var(--font-ui);
+  --font-mono: var(--font-num);
 
-  /* --- 结构 ----------------------------------------------------------- */
-  /* 圆角阶梯：12px 是主容器的圆润基准，8px 给小控件，16px 给大面板/弹层，
-     pill 给胶囊激活态。取景框四角框标是刻意的直角记忆点，不受此影响。 */
-  --radius: 12px;
-  --radius-sm: 8px;
-  --radius-lg: 16px;
-  --radius-pill: 999px;
-  --hairline: 1px solid var(--cinder);
-  --shell-h: 52px;
+  /* --- 字号：跨度故意拉大，让读数有资格当图形 -------------------------------- */
+  --t-hero: 3.5rem;     /* 头号读数 */
+  --t-read: 2.25rem;    /* 常规读数 */
+  --t-title: 1.0625rem;
+  --t-body: 0.875rem;
+  --t-small: 0.8125rem;
+  --t-micro: 0.6875rem; /* 刻度、标签 */
 
-  /* --- 左侧图标轨 ----------------------------------------------------- */
-  /* 常驻宽度。折叠态不是 0，而是留一条能点回来的窄边——收成 0 的话用户
-     就找不到「怎么回去」，折叠就变成了单向操作。 */
-  --rail-w: 68px;
-  --rail-w-collapsed: 40px;
-  --rail-tip-w: 132px;   /* hover 浮出标签的宽度 */
+  --fs-xs: var(--t-micro);
+  --fs-sm: var(--t-small);
+  --fs-base: var(--t-body);
+  --fs-md: var(--t-title);
+  --fs-lg: var(--t-read);
+  --fs-xl: 1.375rem;
+  --fs-2xl: 3.5rem;   /* 供旧页面的 hero 数字取用 */
 
-  /* --- 取景器刻度角：全站视觉签名 ------------------------------------- */
-  /* 角标线宽与刻度线长。它是刻意的直角记忆点，不参与圆角阶梯。 */
+  /* 字重跨度。设计感有相当一部分来自「同一个字能有多重」的对比，
+     而不是字号对比——只有字号变大时，页面会显得像放大了的模板。 */
+  --w-normal: 400;
+  --w-medium: 500;
+  --w-bold: 650;   /* Space Grotesk 有 700 上限，650 够撑住大读数 */
+  --w-black: 700;
+
+  /* 字距。大号读数收紧、小号标签放开，这是两处必须分开的调整。 */
+  --track-hero: -0.035em;
+  --track-tight: -0.018em;
+  --track-label: 0.04em;
+
+  /* --- 间距 ----------------------------------------------------------------- */
+  --s1: 4px;
+  --s2: 8px;
+  --s3: 12px;
+  --s4: 16px;
+  --s5: 24px;
+  --s6: 32px;
+  --s7: 48px;
+  --s8: 64px;
+
+  --sp-1: var(--s1);
+  --sp-2: var(--s2);
+  --sp-3: var(--s3);
+  --sp-4: var(--s4);
+  --sp-5: var(--s5);
+  --sp-6: var(--s6);
+  --sp-7: var(--s7);
+
+  /* --- 圆角：全站圆润。承载体、按钮、标签、输入槽一律带圆角 ----------------
+     刻意改掉了早先「内容区一律直角、圆角只是控件属性」那条原则：圆润换来
+     亲和与现代感，代价是这一页会更接近常见的 SaaS 后台。
+     两档就够，不要三四档混着来——圆角值一多，版面就散了。 */
+  --r-sm: 8px;
+  --r: 14px;
+  --r-lg: 18px;
+  --r-pill: 999px;   /* 按钮与标签走胶囊 */
+
+  --radius-sm: var(--r-sm);
+  --radius: var(--r);
+  --radius-lg: var(--r-lg);
+  --radius-pill: var(--r-pill);
+  --hairline: 1px solid var(--line);
+  --shell-h: 56px;
+
+  /* --- 取景器刻度角：旧版视觉签名 ------------------------------------------
+     角标线宽与刻度线长。它是刻意的直角记忆点，不参与圆角阶梯。
+     新方案的两页不再挂它，其余五页仍在用。 */
   --frame-mark: 2px;
   --frame-tick: 6px;
 
-  /* --- 层次阴影：默认几乎不可见的浮起，hover 抬一档 ------------------- */
-  --shadow-1: 0 1px 2px rgba(17, 24, 39, 0.04);
-  --shadow-2: 0 4px 16px rgba(17, 24, 39, 0.07);
-  --shadow-3: 0 12px 32px rgba(17, 24, 39, 0.1);
+  /* --- 层次阴影：只给浮起的东西一层极浅的影 --------------------------------- */
+  --lift-1: 0 1px 2px rgba(13, 17, 23, 0.04);
+  --lift-2: 0 4px 16px rgba(13, 17, 23, 0.08);
+  --lift-3: 0 12px 40px rgba(13, 17, 23, 0.14);
 
-  /* --- 运动：全站统一缓动与时长 --------------------------------------- */
-  --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
-  --dur-1: 150ms;
-  --dur-2: 250ms;
+  --shadow-1: var(--lift-1);
+  --shadow-2: var(--lift-2);
+  --shadow-3: var(--lift-3);
 
-  /* --- 运动扩展：进场与数字变化 ----------------------------------------- */
-  /* 三条缓动各有分工，别混用：
+  /* --- 运动：进场与反馈分两档缓动 -------------------------------------------
      --ease      状态变化（边框、底色、阴影）——快进快出，不引人注意
      --ease-out  进场（元素入场、抽屉落下）——起手快、收尾稳，不会有"飘"的尾巴
-     --ease-back 回弹（数字更新、检测框出现）——轻微过冲再落回，让"变了"被看见
+     --ease-back 回弹（数字更新）——轻微过冲再落回，让"变了"被看见
 
      时长按"元素离眼睛多远"分档，而不是按"效果复杂不复杂"：
-     附近的 150ms，超过一屏的大件 450ms，中间 320ms。超过 600ms 的等待动画
-     在真实网络下会显得卡，不如不做。 */
+     附近的 140ms，中间 240–380ms，大件 520ms。超过 600ms 的等待动画在真实
+     网络下会显得卡，不如不做。 */
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
-  --ease-back: cubic-bezier(0.34, 1.56, 0.64, 1);
-  --dur-3: 320ms;
-  --dur-4: 450ms;
+  --ease-back: cubic-bezier(0.34, 1.3, 0.64, 1);
+  --ease: var(--ease-out);
+  --dur-1: 140ms;
+  --dur-2: 240ms;
+  --dur-3: 380ms;
+  --dur-4: 520ms;
 
   /* 错峰进场的步长。列表项逐个进场时用：
      animation-delay: calc(var(--i, 0) * var(--stagger));
@@ -151,35 +232,50 @@
   --count-min-delta: 2;
 }
 
-/* Element Plus 主题适配：接到中性令牌上，避免组件库默认蓝 #409eff 漏进灰白色系。
-   注意挂在 :root，不是 html.dark——保留 Dark 版的选择器会把暗色语义一起带进来。 */
+/* ==========================================================================
+   Element Plus 主题适配
+   --------------------------------------------------------------------------
+   改皮靠 CSS 变量而不是 deep 选择器，这样 EP 组件和自绘组件读的是同一份数值。
+   只挂 :root，不引 theme-chalk/dark/css-vars.css——本主题只做浅色。
+   ========================================================================== */
 :root {
-  --el-bg-color: var(--ash);
-  --el-bg-color-page: var(--soot);
-  --el-bg-color-overlay: var(--ash);
-  --el-text-color-primary: var(--bone);
-  --el-text-color-regular: var(--bone);
-  --el-text-color-secondary: var(--dross);
-  --el-text-color-placeholder: var(--ink-3);
-  --el-border-color: var(--cinder);
-  --el-border-color-light: var(--cinder);
-  --el-border-color-lighter: var(--cinder);
-  --el-fill-color: var(--soot);
-  --el-fill-color-light: var(--soot);
-  --el-fill-color-blank: var(--ash);
-  --el-color-primary: var(--accent);
-  --el-color-primary-light-3: var(--ink-1);
-  --el-color-primary-light-5: var(--ink-2);
-  --el-color-primary-light-7: var(--ink-3);
-  --el-color-primary-light-8: var(--ink-4);
-  --el-color-primary-light-9: #f3f4f6;
-  --el-color-primary-dark-2: #000000;
-  /* 控件走 8px（radius-sm），容器走 12px——与全站圆角阶梯一致 */
-  --el-border-radius-base: var(--radius-sm);
-  --el-border-radius-small: 6px;
-  --el-box-shadow-light: var(--shadow-2);
-  --el-box-shadow: var(--shadow-3);
-  --el-font-family: var(--font-sans);
+  --el-color-primary: var(--signal);
+  --el-color-primary-light-3: #5896f0;
+  --el-color-primary-light-5: #8fb8f5;
+  --el-color-primary-light-7: #c6daf9;
+  --el-color-primary-light-8: #dce8fc;
+  --el-color-primary-light-9: var(--signal-soft);
+  --el-color-primary-dark-2: var(--signal-deep);
+  --el-color-danger: var(--alarm);
+  --el-color-error: var(--alarm);
+  --el-color-success: var(--ok);
+
+  --el-bg-color: var(--surface);
+  --el-bg-color-page: var(--canvas);
+  --el-bg-color-overlay: var(--surface);
+  --el-text-color-primary: var(--ink);
+  --el-text-color-regular: var(--ink-body);
+  --el-text-color-secondary: var(--ink-mute);
+  --el-text-color-placeholder: var(--ink-faint);
+  --el-border-color: var(--line);
+  --el-border-color-light: var(--line-faint);
+  --el-border-color-lighter: var(--line-faint);
+  --el-fill-color: var(--surface-sunk);
+  --el-fill-color-light: var(--surface-sunk);
+  --el-fill-color-blank: var(--surface);
+
+  /* 圆角与控件高度跟全站圆角阶梯一致 */
+  --el-border-radius-base: var(--r-sm);
+  --el-border-radius-small: var(--r-sm);
+  --el-border-radius-round: var(--r-pill);
+  --el-component-size: 34px;
+  --el-component-size-small: 28px;
+  --el-component-size-large: 40px;
+
+  --el-box-shadow-light: var(--lift-2);
+  --el-box-shadow: var(--lift-3);
+  --el-font-family: var(--font-ui);
+  --el-font-size-base: var(--t-body);
 }
 
 /* Element Plus 表格令牌：默认的带边框方卡是 el-table 最强的识别特征，
@@ -189,8 +285,8 @@
    --highlight。挂 :root 而非 scoped，多页共用同一套。 */
 :root {
   --el-table-border-color: transparent;
-  --el-table-header-bg-color: var(--ash);
-  --el-table-header-text-color: var(--dross);
+  --el-table-header-bg-color: var(--surface);
+  --el-table-header-text-color: var(--ink-mute);
   --el-table-row-hover-bg-color: var(--highlight);
   --el-table-bg-color: transparent;
   --el-table-tr-bg-color: transparent;

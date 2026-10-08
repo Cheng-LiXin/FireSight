@@ -1,3 +1,7 @@
+// 字体两族：Space Grotesk 负责标题与界面（有几何骨架，偏工程感），
+// IBM Plex Mono 负责一切数字——数字用等宽是为了读数对齐、滚动时列不抖，
+// 这是功能性选择而非装饰。中文交给系统 CJK，两族都不含汉字，不下多 MB 字库。
+import '@fontsource-variable/space-grotesk'
 import '@fontsource/ibm-plex-mono/400.css'
 import '@fontsource/ibm-plex-mono/500.css'
 

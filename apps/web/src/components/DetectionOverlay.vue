@@ -168,7 +168,10 @@ function hover(i: number | null): void {
 }
 
 .overlay__box rect {
-  fill: none;
+  /* 命中区是整个矩形内部，不只是那条描边。fill:none 的图元按 SVG 规范
+     不参与命中测试，那样只有两三像素宽的框线可指，指着框中间反而没反应。
+     transparent 是个颜色而不是 none，所以照样不可见、但整块可指。 */
+  fill: transparent;
   stroke-width: 2;
   /* 非缩放描边：viewBox 是原图像素、显示尺寸只有几百像素，
      不钉住的话 2px 会被缩放成不到 1px 的发丝。 */

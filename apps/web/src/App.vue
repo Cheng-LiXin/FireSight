@@ -1,14 +1,16 @@
 <script setup lang="ts">
-/** 应用外壳：左侧图标轨 + 顶部状态区 + 风险尺 + 内容区。
+/** 应用外壳：顶部胶囊导航 + 内容区。
  *
- * 风险尺放在 shell 而不是仪表盘页，因为它是全站的状态读数——
- * 无论切到哪个模块，值班人都应该看得到当前风险。
+ * 这里没有左侧图标轨了。新方案靠字号层级和数字排版立辨识度，图标轨是上一套
+ * 视觉语言的产物——两样摆在一起会互相削弱：一边说「这是仪表盘」，一边说
+ * 「这是一排小图标里的第几格」。
+ *
+ * 大屏页独占整屏：顶栏与导航都不参与。挂在 wallboard 上看的时候，
+ * 导航栏与操作控件都是干扰。
  */
 import { computed, onMounted, onUnmounted, ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { RouterLink, RouterView, useRoute } from 'vue-router'
 
-import AppRail from '@/components/AppRail.vue'
-import RiskRuler from '@/components/RiskRuler.vue'
 import { useConsoleStore } from '@/stores/console'
 
 const store = useConsoleStore()
@@ -17,7 +19,7 @@ const route = useRoute()
 const clock = ref('')
 let timer: number | undefined
 
-function tick() {
+function tick(): void {
   clock.value = new Date().toLocaleTimeString('zh-CN', { hour12: false })
 }
 
@@ -31,279 +33,293 @@ onUnmounted(() => {
   if (timer) window.clearInterval(timer)
 })
 
-/** 顶栏右侧只放一件事：当前占着显存的任务。 */
-const gpuText = computed(() => {
-  const gpu = store.status?.gpu
-  if (!gpu) return null
-  if (!gpu.available) return 'GPU 未就绪'
-  return `${gpu.name?.replace('NVIDIA GeForce ', '') ?? 'GPU'}`
-})
+/** 值守的三页每天都要开，资产类的四页偶尔进。八条平铺会让「现在在哪一组」
+ *  看不出来，所以中间用一段留白分组，而不是靠竖线或底色。 */
+const NAV_WATCH = [
+  { to: '/', label: '值班总览' },
+  { to: '/events', label: '告警事件' },
+  { to: '/detect', label: '识别检测' },
+  { to: '/monitor', label: '实时监控' },
+]
 
+const NAV_ASSET = [
+  { to: '/models', label: '模型库' },
+  { to: '/training', label: '训练中心' },
+  { to: '/reports', label: '分析报告' },
+]
+
+/** 顶栏右侧只放一件事：当前占着显存的任务。机器其余状态由 /api/system/status 提供，
+ *  但值班时真正要盯的是「有没有东西正在跑」。 */
 const jobText = computed(() => {
   const job = store.status?.gpu_job
   if (!job?.busy) return null
   return job.holder === 'train' ? '训练占用中' : '推理占用中'
 })
 
-/** 大屏页要整页展示：顶栏、风险尺、内容留白都不要。 */
 const isFullscreen = computed(() => route.meta.fullscreen === true)
-
-/** 转场分两套，因为「进大屏」和「出大屏」该有不同的说法：
- *  - 进大屏：幕布从上往下拉开（clip-path），像投影幕落下；
- *  - 出大屏：壳层淡入并轻微放大，像从放映回到控制台。
- * 名字跟着目标状态走，于是离开用新名字的 leave 类、进场用新名字的 enter 类，
- *  两者天然成对，不用在模板里判断方向。 */
-const stageName = computed(() => (isFullscreen.value ? 'stage-in' : 'stage-out'))
 </script>
 
 <template>
-  <!-- 转场必须横跨「壳」与「大屏」两个分支：把 <transition> 放在壳内部是无效的，
-       因为 v-if 会先把整个壳节点销毁，壳内的 transition 根本没机会播完。
-       所以这里用一个 transition 同时管两棵树，靠 v-if / v-else 二选一。 -->
-  <transition :name="stageName" mode="out-in">
-    <div v-if="isFullscreen" key="fullscreen" class="stage">
-      <RouterView v-slot="{ Component }">
-        <component :is="Component" />
-      </RouterView>
-    </div>
+  <div class="shell">
+    <template v-if="isFullscreen">
+      <main class="shell__bare">
+        <RouterView v-slot="{ Component }">
+          <transition name="page" mode="out-in">
+            <component :is="Component" />
+          </transition>
+        </RouterView>
+      </main>
+    </template>
 
-    <div v-else key="shell" class="shell">
-      <AppRail />
+    <template v-else>
+      <header class="shell__bar">
+        <RouterLink to="/" class="brand" aria-label="FireSight">
+          <span class="brand__mark" aria-hidden="true" />
+          <span class="brand__name">FireSight</span>
+        </RouterLink>
 
-      <div class="shell__main">
-        <header class="topbar">
-          <!-- 模块名是「我在哪」的定位标签，不是文档标题：各页自己已经有一个
-               <h1>，这里再用 <h1> 会让一页有两个主标题（读屏软件与
-               getByRole('heading') 都会撞车）。所以是 p，读屏仍会念出来。 -->
-          <p class="topbar__where">{{ route.meta.title ?? 'FireSight' }}</p>
+        <nav class="shell__nav" aria-label="主导航">
+          <RouterLink
+            v-for="item in NAV_WATCH"
+            :key="item.to"
+            :to="item.to"
+            class="navlink"
+            :class="{ 'is-on': route.path === item.to }"
+          >
+            {{ item.label }}
+          </RouterLink>
+          <span class="navlink__gap" aria-hidden="true" />
+          <RouterLink
+            v-for="item in NAV_ASSET"
+            :key="item.to"
+            :to="item.to"
+            class="navlink"
+            :class="{ 'is-on': route.path === item.to }"
+          >
+            {{ item.label }}
+          </RouterLink>
+        </nav>
 
-          <div class="env">
-            <RouterLink to="/bigscreen" class="env__link">月度大屏</RouterLink>
-            <span v-if="jobText" class="env__job">{{ jobText }}</span>
-            <span v-if="gpuText" class="env__gpu">{{ gpuText }}</span>
-            <span class="env__clock fs-num">{{ clock }}</span>
-          </div>
-        </header>
+        <div class="shell__meta">
+          <RouterLink to="/bigscreen" class="navlink navlink--wide">月度大屏</RouterLink>
+          <span v-if="jobText" class="shell__job">{{ jobText }}</span>
+          <span class="shell__clock num">{{ clock }}</span>
+        </div>
+      </header>
 
-        <RiskRuler :risk="store.overview?.risk ?? null" />
+      <main class="shell__main">
+        <!-- 系统级错误在这一层报：它不属于任何一页，而属于「后端没通」这件事 -->
+        <div v-if="store.error" class="shell__alert" role="alert">
+          <span>{{ store.error }}</span>
+          <button type="button" class="btn btn--ghost" @click="store.load()">重试</button>
+        </div>
 
-        <main class="content">
-          <div v-if="store.error" class="alert" role="alert">
-            <span>{{ store.error }}</span>
-            <button type="button" class="alert__retry" @click="store.load()">重试</button>
-          </div>
-          <RouterView v-slot="{ Component }">
-            <transition name="page" mode="out-in">
-              <component :is="Component" />
-            </transition>
-          </RouterView>
-        </main>
-      </div>
-    </div>
-  </transition>
+        <RouterView v-slot="{ Component }">
+          <transition name="page" mode="out-in">
+            <component :is="Component" />
+          </transition>
+        </RouterView>
+      </main>
+    </template>
+  </div>
 </template>
 
 <style scoped>
-/* 壳是「轨 + 主区」两列：轨道宽度由 AppRail 自己声明，这里只负责留位。
-   主区是一个纵向 flex 容器，撑满剩余高度，所以风险尺和状态区各自 stick
-   的时候下面滚动的是内容而不是彼此。 */
 .shell {
-  display: flex;
   min-height: 100%;
-}
-
-.shell__main {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  min-width: 0;
-}
-
-/* 大屏的舞台：撑满视口，让 .bigscreen 自己的 min-height:100% 有得参照。 */
-.stage {
   display: flex;
   flex-direction: column;
-  min-height: 100%;
 }
 
-/* --- 顶部状态区 --------------------------------------------------------- */
-
-/* 顶栏现在只回答两个问题：我在哪个模块、机器此刻什么状态。
-   模块名从 route.meta.title 取，省掉一份要在导航和路由两处同步的常量。
-   它不是标题元素——各页自己已经有一个 <h1>，这里再用一个 <h1> 会让一页
-   有两个主标题。用 <p> 则读屏软件仍会把它当普通文本念出来，不丢信息。 */
-.topbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--sp-6);
-  height: var(--shell-h);
-  padding: 0 var(--sp-5);
-  background: var(--ash);
-  border-bottom: var(--hairline);
+/* 顶栏只有一条底线。没有盒子、没有背景色、没有叠影——页面已经是浅灰底，
+   再加一层容器只会把它压平。 */
+.shell__bar {
   position: sticky;
   top: 0;
   z-index: 10;
-}
-
-.topbar__where {
-  margin: 0;
-  font-size: var(--fs-sm);
-  font-weight: 500;
-  color: var(--dross);
-  letter-spacing: 0.04em;
-}
-
-.env {
   display: flex;
   align-items: center;
-  gap: var(--sp-4);
-  margin-left: auto;
-  font-size: var(--fs-sm);
-  color: var(--dross);
+  gap: var(--s6);
+  height: var(--shell-h);
+  padding: 0 var(--s6);
+  background: color-mix(in srgb, var(--canvas) 88%, transparent);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--line);
 }
 
-.env__link {
-  padding: var(--sp-1) var(--sp-3);
-  color: var(--dross);
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
   text-decoration: none;
-  border: 1px solid var(--cinder);
-  border-radius: var(--radius-pill);
-  transition: color var(--dur-1) var(--ease), border-color var(--dur-1) var(--ease),
-    background-color var(--dur-1) var(--ease);
+  color: var(--ink);
 }
 
-.env__link:hover {
-  color: var(--bone);
-  border-color: var(--dross);
-  background: var(--highlight);
+/* 标记是一枚取景框，不是一块实心方块 */
+.brand__mark {
+  position: relative;
+  width: 18px;
+  height: 18px;
+  border: 1.5px solid var(--ink);
+  border-radius: 5px;
+  transition: border-radius var(--dur-2) var(--ease-back);
 }
 
-.env__job {
-  color: var(--accent);
+.brand:hover .brand__mark {
+  border-radius: 9px;
 }
 
-.env__clock {
-  color: var(--bone);
+.brand__mark::after {
+  content: '';
+  position: absolute;
+  inset: 4px;
+  background: var(--alarm);
+  border-radius: 50%;
 }
 
-/* --- 内容区 ----------------------------------------------------------- */
+.brand__name {
+  font-size: var(--t-title);
+  font-weight: var(--w-bold);
+  letter-spacing: var(--track-tight);
+}
 
-.content {
+.shell__nav {
+  display: flex;
+  align-items: center;
+  gap: var(--s1);
+}
+
+/* 组间留白比组内间距大：靠留白分组，不靠竖线或底色 */
+.navlink__gap {
+  width: var(--s5);
+}
+
+/* 导航走胶囊。选中态用冷色而不是橙红——橙红只留给「真的有火」。 */
+.navlink {
+  padding: 6px var(--s4);
+  font-size: var(--t-body);
+  color: var(--ink-mute);
+  text-decoration: none;
+  border-radius: var(--r-pill);
+  transition: color var(--dur-1) var(--ease-out),
+    background-color var(--dur-1) var(--ease-out),
+    transform var(--dur-1) var(--ease-out);
+}
+
+.navlink:hover {
+  color: var(--ink);
+  background: var(--surface-sunk);
+}
+
+.navlink:active {
+  transform: scale(0.96);
+}
+
+/* 选中态除了换底色，还把字重往上抬一档——层级不该只靠颜色区分 */
+.navlink.is-on {
+  color: #fff;
+  background: var(--signal);
+  font-weight: var(--w-medium);
+  box-shadow: var(--lift-2);
+}
+
+.navlink--wide {
+  border: 1px solid var(--line);
+}
+
+.navlink--wide:hover {
+  border-color: var(--line-strong);
+  background: var(--surface);
+}
+
+.shell__meta {
+  display: flex;
+  align-items: center;
+  gap: var(--s4);
+  margin-left: auto;
+  font-size: var(--t-micro);
+  color: var(--ink-faint);
+}
+
+.shell__job {
+  color: var(--alarm);
+}
+
+.shell__clock {
+  color: var(--ink-mute);
+}
+
+.shell__main {
   flex: 1;
-  padding: var(--sp-5);
+  padding: var(--s6);
 }
 
-.alert {
+/* 系统级错误。它不是某页的错误，所以留在壳层而不是塞进 RouterView。 */
+.shell__alert {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--sp-4);
-  margin-bottom: var(--sp-5);
-  padding: var(--sp-3) var(--sp-4);
-  font-size: var(--fs-sm);
-  color: var(--bone);
-  background: var(--ash);
-  border: var(--hairline);
-  border-left: 3px solid var(--accent);
-  border-radius: var(--radius-sm);
-  box-shadow: var(--shadow-1);
+  gap: var(--s4);
+  max-width: 1360px;
+  margin: 0 auto var(--s5);
+  padding: var(--s3) var(--s5);
+  font-size: var(--t-small);
+  color: var(--ink-body);
+  background: var(--alarm-soft);
+  border: 1px solid var(--alarm-line);
+  border-left: 3px solid var(--alarm);
+  border-radius: var(--r);
 }
 
-.alert__retry {
-  padding: var(--sp-1) var(--sp-3);
-  font: inherit;
-  font-size: var(--fs-sm);
-  color: var(--bone);
-  background: transparent;
-  border: 1px solid var(--cinder);
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  transition: border-color var(--dur-1) var(--ease),
-    background-color var(--dur-1) var(--ease);
+.shell__bare {
+  flex: 1;
+  min-height: 100%;
 }
 
-.alert__retry:hover {
-  border-color: var(--dross);
-  background: var(--highlight);
-}
-
-/* --- 页面切换：淡入 + 轻微上移，出场上更快一点 ------------------------- */
-
+/* 页面切换：淡入并轻微上移。出场比进场快，因为等的人是想看新页的人。 */
 .page-enter-active {
-  transition: opacity var(--dur-2) var(--ease), transform var(--dur-2) var(--ease);
+  transition: opacity var(--dur-2) var(--ease-out),
+    transform var(--dur-2) var(--ease-out);
 }
 
 .page-leave-active {
-  transition: opacity var(--dur-1) var(--ease), transform var(--dur-1) var(--ease);
+  transition: opacity var(--dur-1) var(--ease-out);
 }
 
 .page-enter-from {
   opacity: 0;
-  transform: translateY(8px);
+  transform: translateY(6px);
 }
 
 .page-leave-to {
   opacity: 0;
-  transform: translateY(-4px);
 }
 
-/* --- 进/出大屏 ------------------------------------------------------------ */
-
-/* 进大屏：幕布收起来——淡出并向下让位。回大屏：幕布重新落下并回正。
-   名字跟着**目标**分支走，所以切换时新旧两套类自动成对：
-   去大屏 = stage-out（旧的壳离开 + 新的大屏进入），
-   回大屏 = stage-in（旧的大屏离开 + 新的壳进入）。
-   用两套而不是一套的理由：大屏和壳是两种「场合」，
-   切换要读得出场合变了，而不只是闪一下。 */
-.stage-in-enter-active,
-.stage-out-enter-active {
-  transition: opacity var(--dur-3) var(--ease-out), transform var(--dur-3) var(--ease-out);
-}
-
-.stage-in-leave-active,
-.stage-out-leave-active {
-  transition: opacity var(--dur-2) var(--ease), transform var(--dur-2) var(--ease);
-}
-
-/* 大屏进场：从上方带一点位移落下，像投影幕降下来 */
-.stage-out-enter-from {
-  opacity: 0;
-  transform: translateY(-10px);
-}
-
-.stage-out-leave-to {
-  opacity: 0;
-  transform: scale(0.99);
-}
-
-/* 壳进场：从下方托起，尺度略放大，像回到控制台 */
-.stage-in-enter-from {
-  opacity: 0;
-  transform: translateY(10px);
-}
-
-.stage-in-leave-to {
-  opacity: 0;
-  transform: scale(0.99);
-}
-
-/* --- 窄屏：状态区换行，让高 ---------------------------------------------- */
-
-@media (max-width: 860px) {
-  .topbar {
+@media (max-width: 1100px) {
+  .shell__bar {
     height: auto;
     flex-wrap: wrap;
-    gap: var(--sp-2) var(--sp-4);
-    padding: var(--sp-2) var(--sp-4);
+    gap: var(--s3) var(--s5);
+    padding: var(--s3) var(--s5);
   }
 
-  .env {
-    font-size: var(--fs-xs);
+  .shell__nav {
+    order: 3;
+    width: 100%;
+    overflow-x: auto;
   }
 
-  .content {
-    padding: var(--sp-4);
+  .shell__main {
+    padding: var(--s5);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page-enter-active,
+  .page-leave-active,
+  .navlink,
+  .brand__mark {
+    transition: none;
   }
 }
 </style>

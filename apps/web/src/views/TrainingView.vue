@@ -584,7 +584,7 @@ onBeforeUnmount(disconnect)
           >
             <td>
               <!-- 用真的 button 而不是给 tr 挂 click：键盘可达 -->
-              <button type="button" class="pick" @click="selectedId = r.run_id">
+              <button type="button" class="runlink" @click="selectedId = r.run_id">
                 <span class="mono">{{ r.run_id }}</span>
               </button>
             </td>
@@ -695,7 +695,10 @@ onBeforeUnmount(disconnect)
 
 /* --- 运行列表 --------------------------------------------------------- */
 
-.pick {
+/* 表格里的 run_id 入口。它是「一行里的一个跳转目标」，不是一组互斥选项，
+   所以不能套全局那个胶囊 .pick——那会让二十几行表格变成二十几个按钮。
+   这里给的是文字按钮的配方：零内边距、无背景，靠冷色和手型表明可点。 */
+.runlink {
   padding: 0;
   font: inherit;
   color: var(--bone);
@@ -705,7 +708,7 @@ onBeforeUnmount(disconnect)
   text-align: left;
 }
 
-.pick:hover {
+.runlink:hover {
   color: var(--accent);
 }
 

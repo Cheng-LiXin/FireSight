@@ -706,12 +706,9 @@ onBeforeUnmount(stopPolling)
   margin-left: auto;
 }
 
-.chip {
-  padding: 1px var(--sp-2);
-  font-size: var(--fs-xs);
-  color: var(--bone);
-  border: 1px solid var(--cinder);
-}
+/* 勾选中的归档权重：直接用全局那个状态胶囊。
+   这里原先又写了一份描边配方，和全局的胶囊底色打架——
+   同一个类在两套配方间漂移，比缺一个变体更糟。 */
 
 .job {
   margin-top: var(--sp-4);
