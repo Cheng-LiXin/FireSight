@@ -248,7 +248,9 @@ onBeforeUnmount(stopPolling)
         </button>
       </div>
 
-      <p v-if="!rows.length" class="fs-empty">
+      <el-skeleton v-if="!loaded" :rows="4" animated />
+
+      <p v-else-if="!rows.length" class="fs-empty">
         还没有归档训练。去<RouterLink to="/training">训练中心</RouterLink>跑一次，结束后会自动归档。
       </p>
 

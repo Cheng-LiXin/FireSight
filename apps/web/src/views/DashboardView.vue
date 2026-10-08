@@ -13,8 +13,28 @@ import { useConsoleStore } from '@/stores/console'
 
 const store = useConsoleStore()
 
+/** 未取到数据时读数显示什么。
+ *
+ * 不用 0：0 是一个结论（「一条都没有」），而此刻的事实是「还没取到」。
+ * 用破折号——它读起来就是「此处无数」，不撒谎，滚动动画也会跳过它
+ * （CountUp 对非数字原样显示）。 */
+function tileValue(n: number | undefined | null): number | string {
+  return n === undefined || n === null ? '—' : n
+}
+
+/** 误报率读数：取不到就是「—」，而不是 0.0%。 */
+function tileRate(rate: number | undefined | null): number | string {
+  return rate === undefined || rate === null ? '—' : (rate * 100).toFixed(1)
+}
+
 const ov = computed(() => store.overview)
 const daily = computed(() => ov.value?.daily ?? [])
+
+/** 数据还没到，此刻不能报「0」——那是在把「不知道」说成「没有」。
+ *  骨架屏只盖住了趋势图；读数行和两个下方面板也得等，否则页面一进来
+ *  满屏都是并不存在的零和「尚无」结论，比不给数据更糟。 */
+const ready = computed(() => ov.value !== null)
+const loading = computed(() => store.loading || !ready.value)
 
 /** 空态看总量，不看序列长度——序列永远是连续的 30 天（缺日补 0）。 */
 const hasData = computed(() => (ov.value?.alerts.total ?? 0) > 0)
@@ -48,22 +68,21 @@ const metricRows = computed(() => [
 <template>
   <div class="dash">
     <!-- 读数行：数字本身就是图，不额外画单柱图或两段饼 -->
-    <section class="tiles" aria-label="告警读数">
-      <StatTile label="告警总数" :value="ov?.alerts.total ?? 0" />
+    <section class="tiles" aria-label="告警读数" :aria-busy="loading">
+      <StatTile label="告警总数" :value="tileValue(ov?.alerts.total)" />
       <StatTile
         label="待复核"
-        :value="ov?.alerts.pending ?? 0"
+        :value="tileValue(ov?.alerts.pending)"
         :tone="(ov?.alerts.pending ?? 0) > 0 ? 'fire' : 'default'"
       />
       <StatTile
         label="误报率"
-        :value="(ov?.alerts.false_positive_rate ?? 0) * 100"
-        :digits="1"
+        :value="tileRate(ov?.alerts.false_positive_rate)"
         unit="%"
       />
       <StatTile
         label="归档模型"
-        :value="store.status?.trained_model_count ?? 0"
+        :value="tileValue(store.status?.trained_model_count)"
         unit="个"
         tone="muted"
       />
@@ -83,6 +102,14 @@ const metricRows = computed(() => [
       </section>
     </template>
 
+    <!-- 加载中不给「尚无告警记录」：这句话是在断言「没有数据」，
+         而此刻只是还不知道。此刻该说的是「正在取」。 -->
+    <section v-else-if="loading" class="fs-viewfinder" aria-busy="true">
+      <FrameMarks />
+      <h2 class="fs-viewfinder__title">近 30 日告警次数（按类别）</h2>
+      <el-skeleton :rows="6" animated />
+    </section>
+
     <section v-else class="fs-empty">
       尚无告警记录。运行一次识别检测后，趋势会出现在这里。
       <RouterLink to="/detect" class="fs-empty__action">去做一次识别检测</RouterLink>
@@ -94,7 +121,9 @@ const metricRows = computed(() => [
         <FrameMarks />
         <h2 class="fs-viewfinder__title">告警类别构成</h2>
 
-        <div v-if="classTotal > 0" class="ratio">
+        <el-skeleton v-if="loading" :rows="3" animated />
+
+        <div v-else-if="classTotal > 0" class="ratio">
           <div class="ratio__bar">
             <span
               class="ratio__seg ratio__seg--smoke"
@@ -128,7 +157,9 @@ const metricRows = computed(() => [
         <FrameMarks />
         <h2 class="fs-viewfinder__title">当前模型</h2>
 
-        <template v-if="ov?.model.exists">
+        <el-skeleton v-if="loading" :rows="3" animated />
+
+        <template v-else-if="ov?.model.exists">
           <p class="dash__run fs-num">{{ ov.model.run_id }}</p>
           <div class="metrics">
             <div v-for="row in metricRows" :key="row.label" class="metrics__item">

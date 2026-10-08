@@ -304,7 +304,7 @@ FireSight/
 | 深度学习 | PyTorch、Ultralytics YOLO11 |
 | 视觉 | OpenCV |
 | 后端 | FastAPI、Uvicorn、Pydantic、SQLite |
-| 前端 | Vue 3、TypeScript、Vite、ECharts、marked + DOMPurify（Element Plus 已在 `main.ts` 全量注册，当前页面零 `<el-` 组件） |
+| 前端 | Vue 3、TypeScript、Vite、ECharts、Element Plus（组件在用，默认皮由 `styles/ep.css` 覆盖掉）、marked + DOMPurify |
 | 大模型 | `anthropic` SDK（Claude）/ OpenAI 兼容接口（DeepSeek、SiliconFlow、自定义），按环境变量切换 |
 | 语音 | pyttsx3（离线中文播报，无设备时降级为日志） |
 | 配置 | PyYAML、Pydantic 三源合并 |

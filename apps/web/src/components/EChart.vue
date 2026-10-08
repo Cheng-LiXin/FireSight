@@ -7,6 +7,8 @@
 import * as echarts from 'echarts'
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
+import { withMotion } from '@/charts/motion'
+
 const props = withDefaults(defineProps<{ option: echarts.EChartsOption; height?: number }>(), {
   height: 260,
 })
@@ -15,17 +17,30 @@ const el = ref<HTMLDivElement | null>(null)
 let chart: echarts.ECharts | null = null
 let observer: ResizeObserver | null = null
 
+/** 用户在系统里关了动效：图表直接落到终态，不画进场。
+ *  这一条必须在这里单独判一次——base.css 那条 prefers-reduced-motion
+ *  规则只压得住 CSS 动画，而 ECharts 画在 canvas 上、由 JS 驱动时间轴，
+ *  CSS 那道闸门管不到它。 */
+function reduced(): boolean {
+  return window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+}
+
+function apply(option: echarts.EChartsOption): echarts.EChartsOption {
+  return reduced() ? { ...option, animation: false } : withMotion(option)
+}
+
 onMounted(() => {
   if (!el.value) return
   chart = echarts.init(el.value, undefined, { renderer: 'canvas' })
-  chart.setOption(props.option)
+  // 动效口径在 charts/motion.ts 里合成，配置本身保持纯数据描述
+  chart.setOption(apply(props.option))
   observer = new ResizeObserver(() => chart?.resize())
   observer.observe(el.value)
 })
 
 watch(
   () => props.option,
-  (opt) => chart?.setOption(opt, { notMerge: true }),
+  (opt) => chart?.setOption(apply(opt), { notMerge: true }),
   { deep: true },
 )
 

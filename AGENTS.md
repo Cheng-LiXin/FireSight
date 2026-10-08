@@ -34,7 +34,7 @@ commit message 只描述**代码变更本身**，不记录「谁参与了写这�
 # 后端测试（在仓库根跑）
 pytest -q                                       # 预期 283 passed
 cd apps/web && npm run typecheck              # 前端类型检查
-npm run test:e2e                              # 需先起服务，预期 37 passed / 6 skipped
+npm run test:e2e                              # 需先起服务，预期 44 passed / 6 skipped
 pwsh -File scripts/firesight.ps1 start         # 起服务并等就绪
 ```
 
