@@ -1,0 +1,304 @@
+/* ==========================================================================
+   Element Plus 覆盖层
+   --------------------------------------------------------------------------
+   引入 EP 组件、但换掉它的默认皮。
+
+   为什么必须覆盖：el-table 的默认外观——带边框方卡、灰底表头、竖线格——
+   是这个组件库最强的识别特征，而参考项目 FireObserve 的 History 页用的
+   正是**原装的** `el-table :border="true"` 加 `el-progress`。原样引入等于
+   把同源特征直接搬回来。所以这里逐项拆默认皮，只留交互行为与可访问性。
+
+   本文件在 main.ts 里排在 tokens.css 之后、base.css 之前：EP 的样式先落地，
+   令牌随后覆盖，base.css 最后收口。
+   ========================================================================== */
+
+/* ==========================================================================
+   表格：账册
+   --------------------------------------------------------------------------
+   目标形态是 .fs-ledger——表头左对齐 + 细线行、无盒子、无竖线。
+   el-table 自带一层 <div class="el-table"> 容器，那层底色与圆角必须拿掉，
+   否则账册凭空多出一个带边框的盒子。 */
+.el-table {
+  background-color: transparent;
+  border-radius: 0;
+  font-size: var(--fs-sm);
+  color: var(--bone);
+}
+
+/* 外层滚动容器的边框：只有需要横向滚动的宽表才留，其余全无 */
+.el-table--border::after,
+.el-table--group::after,
+.el-table::after,
+.el-table__inner-wrapper::before {
+  display: none;
+}
+
+/* 表头：透明底、无下边框之外的一切装饰。EP 默认给的是灰底 + 稍粗字重，
+   这里压回与账册一致：--dross、500。 */
+.el-table th.el-table__cell {
+  background-color: var(--ash);
+  color: var(--dross);
+  font-weight: 500;
+  font-size: var(--fs-xs);
+  padding: 0 var(--sp-3) var(--sp-2);
+  border-bottom: var(--hairline);
+  border-right: none;
+}
+
+/* 表头不参与排序时的可点击手势：EP 给的是 pointer，这里保持系统默认，
+   因为我们的列全部不可排序——表现得像能点，实际不能，比不给手势更坏。 */
+.el-table th.el-table__cell > .cell {
+  cursor: default;
+  overflow-wrap: normal;
+}
+
+/* 单元格：底部只有一条发丝线。左右内边距与表头对齐，否则数字列会错半个字。 */
+.el-table td.el-table__cell {
+  padding: var(--sp-3);
+  border-bottom: var(--hairline);
+  border-right: none;
+  vertical-align: middle;
+}
+
+.el-table td.el-table__cell > .cell {
+  overflow-wrap: normal;
+  /* 归档名、run_id 这类长串在窄列里换行会把整行撑高；
+     账册的读法是一行一条记录，宁可截断也不换行。 */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 悬停与选中：只换底色，不换字色——换字色会让数字看起来变了。 */
+.el-table__body tr.hover-row > td.el-table__cell,
+.el-table__body tr:hover > td.el-table__cell {
+  background-color: var(--highlight) !important;
+}
+
+/* 空数据：EP 会渲染一行「暂无数据」，但我们有自己的 .fs-empty 虚线框，
+   两者不能同时出现。这里把默认的压掉，由页面自己摆。 */
+.el-table__empty-block {
+  min-height: 0;
+}
+
+.el-table__empty-text {
+  display: none;
+}
+
+/* 固定列的阴影：EP 用一道左侧阴影表示"这一列钉住了"。账册不钉列，
+   但归档表在窄视口下横向滚，钉住首列确实有用——所以留着，只是压淡，
+   免得那道阴影比任何一条数据都深。 */
+.el-table__body-wrapper .el-table-fixed-column--left.is-last-column::before,
+.el-table__body-wrapper .el-table-fixed-column--right.is-first-column::before {
+  box-shadow: none;
+}
+
+/* 数值列右对齐。账册的规矩是 th 与 td 同为右对齐（detect.spec 逐位比对
+   两者的 computed textAlign），所以表头这一侧也在这里一起定死。 */
+.el-table .is-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.el-table th.is-num > .cell,
+.el-table td.is-num > .cell {
+  text-align: right;
+}
+
+/* 内部嵌套表格不要跟着塌陷（例如单元格内嵌的对比表） */
+.el-table .el-table {
+  background-color: var(--ash);
+}
+
+/* ==========================================================================
+   分页
+   --------------------------------------------------------------------------
+   默认是方块按钮 + 蓝色高亮页码，与账册的细线调子不符。
+   页码做成小圆角方块、当前页用近黑底白字（沿用 --accent）。 */
+.el-pagination {
+  --el-pagination-bg-color: transparent;
+  --el-pagination-button-bg-color: transparent;
+  --el-pagination-hover-color: var(--accent);
+  font-size: var(--fs-sm);
+  color: var(--dross);
+  gap: var(--sp-1);
+}
+
+.el-pagination button,
+.el-pagination .el-pager li {
+  border-radius: var(--radius-sm);
+  background-color: transparent;
+  color: var(--dross);
+  font-variant-numeric: tabular-nums;
+  transition: background-color var(--dur-1) var(--ease), color var(--dur-1) var(--ease);
+}
+
+.el-pagination button:hover:not(:disabled),
+.el-pagination .el-pager li:hover:not(.is-disabled) {
+  background-color: var(--highlight);
+  color: var(--bone);
+}
+
+/* 当前页：近黑底。不是 EP 默认蓝，也不是参考项目那种淡粉底红字。 */
+.el-pagination .el-pager li.is-active {
+  background-color: var(--accent);
+  color: var(--ash);
+  font-weight: 500;
+}
+
+.el-pagination .el-pager li.is-active:hover {
+  background-color: var(--accent-hover);
+  color: var(--ash);
+}
+
+.el-pagination button:disabled {
+  color: var(--ink-4);
+  cursor: not-allowed;
+}
+
+/* 跳页输入框 */
+.el-pagination .el-input__inner {
+  background-color: var(--ash);
+  border-color: var(--cinder);
+  border-radius: var(--radius-sm);
+  color: var(--bone);
+  font-size: var(--fs-sm);
+  height: 28px;
+  line-height: 28px;
+}
+
+/* ==========================================================================
+   骨架屏
+   --------------------------------------------------------------------------
+   加载态不给「暂无数据」也不给转圈——数据马上就来，给个占位形状更诚实。
+   EP 默认骨架是灰块带微光扫过；我们要的是发丝线灰条，安静、不抢视线。 */
+.el-skeleton {
+  --el-skeleton-color: var(--soot);
+  --el-skeleton-animation-background: var(--highlight);
+}
+
+.el-skeleton__item {
+  background: linear-gradient(90deg, var(--soot) 25%, var(--highlight) 37%, var(--soot) 63%);
+  background-size: 400% 100%;
+  border-radius: var(--radius-sm);
+}
+
+/* ==========================================================================
+   空状态
+   --------------------------------------------------------------------------
+   默认是一个灰插图 + 一句话。我们不用它的插图（具象插画是另一套气质），
+   只留文字与动作区，容器由 .fs-empty 虚线框提供。 */
+.el-empty {
+  --el-empty-padding: var(--sp-5) 0;
+}
+
+.el-empty__image {
+  display: none;
+}
+
+.el-empty__description {
+  margin-top: 0;
+}
+
+.el-empty__description p {
+  color: var(--dross);
+  font-size: var(--fs-sm);
+}
+
+/* ==========================================================================
+   确认框与轻提示
+   --------------------------------------------------------------------------
+   替掉 window.confirm 与各页手写的 p.fs-note-error。
+   默认是圆角盒子 + 阴影，居中弹窗。边框压到发丝线，靠留白与层级定位。 */
+.el-overlay {
+  background-color: rgba(17, 24, 39, 0.45);
+}
+
+.el-message-box {
+  --el-messagebox-width: 420px;
+  --el-messagebox-border-radius: var(--radius);
+  background-color: var(--ash);
+  border: var(--hairline);
+  box-shadow: var(--shadow-3);
+  padding: var(--sp-5);
+}
+
+.el-message-box__title {
+  font-size: var(--fs-lg);
+  font-weight: 500;
+  color: var(--bone);
+}
+
+.el-message-box__content {
+  color: var(--dross);
+  font-size: var(--fs-sm);
+  line-height: 1.6;
+}
+
+.el-message-box__btns {
+  gap: var(--sp-2);
+  margin-top: var(--sp-5);
+}
+
+.el-message-box__btns .el-button {
+  height: 32px;
+  padding: 0 var(--sp-4);
+  border-radius: var(--radius-sm);
+  font-size: var(--fs-sm);
+}
+
+/* 危险操作的确认键：这是全站唯一允许「按钮本身带告警色」的地方，
+   因为确认框本身就是危险操作的外壳。 */
+.el-message-box .el-button--primary {
+  background-color: var(--alarm);
+  border-color: var(--alarm);
+  color: #fff;
+}
+
+.el-message-box .el-button--primary:hover,
+.el-message-box .el-button--primary:focus {
+  background-color: #b23f14;
+  border-color: #b23f14;
+}
+
+.el-message-box .el-button:not(.el-button--primary) {
+  background-color: var(--ash);
+  border-color: var(--cinder);
+  color: var(--bone);
+}
+
+.el-message-box .el-button:not(.el-button--primary):hover {
+  border-color: var(--dross);
+  background-color: var(--highlight);
+  color: var(--bone);
+}
+
+/* 轻提示：贴右上角，不用居中大条 */
+.el-message {
+  background-color: var(--ash);
+  border: var(--hairline);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-2);
+  padding: var(--sp-3) var(--sp-4);
+}
+
+.el-message__content {
+  color: var(--bone);
+  font-size: var(--fs-sm);
+  align-items: center;
+}
+
+/* 出错时左边那道 --alarm 竖线，与 .fs-note-error 的编码方式一致：
+   「确实是错了」是全站唯一的彩色额度。 */
+.el-message--error {
+  border-left: 3px solid var(--alarm);
+}
+
+.el-message--error .el-message__content {
+  color: var(--bone);
+}
+
+.el-message-box__icon.el-icon,
+.el-message__icon {
+  color: var(--alarm);
+}

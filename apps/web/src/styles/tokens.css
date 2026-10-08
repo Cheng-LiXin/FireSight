@@ -126,6 +126,29 @@
   --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
   --dur-1: 150ms;
   --dur-2: 250ms;
+
+  /* --- 运动扩展：进场与数字变化 ----------------------------------------- */
+  /* 三条缓动各有分工，别混用：
+     --ease      状态变化（边框、底色、阴影）——快进快出，不引人注意
+     --ease-out  进场（元素入场、抽屉落下）——起手快、收尾稳，不会有"飘"的尾巴
+     --ease-back 回弹（数字更新、检测框出现）——轻微过冲再落回，让"变了"被看见
+
+     时长按"元素离眼睛多远"分档，而不是按"效果复杂不复杂"：
+     附近的 150ms，超过一屏的大件 450ms，中间 320ms。超过 600ms 的等待动画
+     在真实网络下会显得卡，不如不做。 */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-back: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --dur-3: 320ms;
+  --dur-4: 450ms;
+
+  /* 错峰进场的步长。列表项逐个进场时用：
+     animation-delay: calc(var(--i, 0) * var(--stagger));
+     超过 12 项就不再递增——再多就不是"依次出现"而是"排队"，反而更慢。 */
+  --stagger: 40ms;
+
+  /* 数字变化的最小可见幅度。差 1 的两次更新（比如 3 → 4）不滚动：
+     一帧之内跳一个数会读成噪声，而不是"读数动了"。 */
+  --count-min-delta: 2;
 }
 
 /* Element Plus 主题适配：接到中性令牌上，避免组件库默认蓝 #409eff 漏进灰白色系。
@@ -159,14 +182,11 @@
   --el-font-family: var(--font-sans);
 }
 
-/* Element Plus 表格去边框化：**备而不用**。
-   下面的令牌已接好，页面里暂时没有一处启用 el-table——原计划的
-   「四张密集表改用 el-table」评估后撤回：/api/events 等接口都没有 sort
-   参数（alerting/store.py:196 写死 ORDER BY ts DESC），列排序只会重排当前
-   一页却长得像全局排序；且 el-table 的 <tr> 由组件内部生成，只吃 rowClassName
-   / rowStyle，挂不上 events.spec 依赖的 data-event-id。
-   真要用时按这套接：不开 :border、竖线全无、只留发丝横线、表头透明、
-   悬停与选中底色接 --highlight。挂 :root 而非 scoped，多页共用同一套。 */
+/* Element Plus 表格令牌：默认的带边框方卡是 el-table 最强的识别特征，
+   参考项目 FireObserve 用的正是原装 `el-table :border="true"`——保留默认皮
+   会提高同源风险，因此这里逐项拆掉，规则落在 styles/ep.css。
+   表格不开 :border、竖线全无、只留发丝横线、表头透明、悬停与选中接
+   --highlight。挂 :root 而非 scoped，多页共用同一套。 */
 :root {
   --el-table-border-color: transparent;
   --el-table-header-bg-color: var(--ash);

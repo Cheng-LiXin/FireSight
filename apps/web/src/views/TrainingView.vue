@@ -4,6 +4,7 @@
  * 本次交付「回看」一半；网页启动训练与实时日志流是下一半。
  */
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { ElMessageBox } from 'element-plus'
 
 import { api, ApiError, type TrainJobRequest, type VramLimits } from '@/api/client'
 import { trainingLossPanels, trainingMetricOption } from '@/charts/options'
@@ -304,7 +305,16 @@ async function startTraining(): Promise<void> {
 async function resumeRun(run: TrainRun): Promise<void> {
   const done = run.resume_done ?? 0
   const total = run.resume_total ?? 0
-  if (!window.confirm(`从第 ${done + 1} 轮继续（共 ${total} 轮）？\n几何与总轮数取自检查点，不能在这里改。`)) {
+  // 原生 window.confirm 换掉：它渲染成浏览器自己的控件，深色系统主题下会
+  // 直接顶穿整站的浅灰无彩调子，而且没法把「几何不可改」这条约束排在正文里。
+  // 用户点「取消」是正常路径而不是错误，所以 catch 掉取消这一支。
+  try {
+    await ElMessageBox.confirm(
+      `从第 ${done + 1} 轮继续，共 ${total} 轮。\n几何与总轮数取自检查点，不能在这里改。`,
+      '断点续训',
+      { confirmButtonText: '继续训练', cancelButtonText: '取消', type: 'warning' },
+    )
+  } catch {
     return
   }
   error.value = null

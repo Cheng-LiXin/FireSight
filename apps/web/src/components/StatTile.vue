@@ -6,28 +6,36 @@
  *  圆角、悬停上浮的小卡片，四个一模一样的盒子并排会把四个数字的权重
  *  拉平——而这四个数里只有一个（待复核）真的需要被看见。改成一组共用
  *  顶部分隔线的读数条之后，数字之间靠基线和留白分节奏，不必靠盒子。 */
-withDefaults(
+import CountUp from '@/components/CountUp.vue'
+
+const props = withDefaults(
   defineProps<{
     label: string
+    /** 传数字走滚动动画；传字符串（例如已经是「12.3%」的成品文本）原样显示。 */
     value: string | number
     unit?: string
     /** 语义色：只在读数真的表示「好/坏」时使用，不用来装饰 */
     tone?: 'default' | 'fire' | 'muted'
+    /** 小数位。value 是数字时生效；字符串一律原样显示，不在这里改精度。 */
+    digits?: number
   }>(),
-  { unit: '', tone: 'default' },
+  { unit: '', tone: 'default', digits: 0 },
 )
+
+/** 只有真正的数值才滚。字符串是上游已经格式化好的文本（带单位、带千分位），
+ *  重新解析再滚一遍反而会把不该动的地方动起来。 */
+const isNumber = (): boolean => typeof props.value === 'number'
 </script>
 
 <template>
   <div class="tile fs-readout" :class="`tile--${tone}`">
     <div class="tile__label fs-readout__label">{{ label }}</div>
     <div class="tile__value fs-readout__value">
-      <transition name="num" mode="out-in">
-        <!-- :key 让数值变化时走一次淡入，而不是原地跳变 -->
-        <span :key="String(value)" class="tile__num"
-          >{{ value }}<span v-if="unit" class="tile__unit">{{ unit }}</span></span
-        >
-      </transition>
+      <span class="tile__num">
+        <CountUp v-if="isNumber()" :value="value as number" :digits="digits" />
+        <template v-else>{{ value }}</template>
+        <span v-if="unit" class="tile__unit">{{ unit }}</span>
+      </span>
     </div>
   </div>
 </template>
@@ -58,24 +66,6 @@ withDefaults(
 
 .tile__num {
   display: inline-block;
-}
-
-/* 数值淡入：进场 250ms 从下方 4px 升起，退场直接交棒（out-in） */
-.num-enter-active {
-  transition: opacity var(--dur-2) var(--ease), transform var(--dur-2) var(--ease);
-}
-
-.num-leave-active {
-  transition: opacity var(--dur-1) var(--ease);
-}
-
-.num-enter-from {
-  opacity: 0;
-  transform: translateY(4px);
-}
-
-.num-leave-to {
-  opacity: 0;
 }
 
 .tile__unit {

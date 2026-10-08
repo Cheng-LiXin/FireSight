@@ -57,7 +57,8 @@ const metricRows = computed(() => [
       />
       <StatTile
         label="误报率"
-        :value="((ov?.alerts.false_positive_rate ?? 0) * 100).toFixed(1)"
+        :value="(ov?.alerts.false_positive_rate ?? 0) * 100"
+        :digits="1"
         unit="%"
       />
       <StatTile

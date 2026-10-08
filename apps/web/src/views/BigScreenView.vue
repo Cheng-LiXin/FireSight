@@ -10,6 +10,7 @@ import { api } from '@/api/client'
 import type { MonthlyStats } from '@/api/types'
 import { hourlyOption, monthlyTrendOption } from '@/charts/options'
 import EChart from '@/components/EChart.vue'
+import CountUp from '@/components/CountUp.vue'
 import FrameMarks from '@/components/FrameMarks.vue'
 
 const stats = ref<MonthlyStats | null>(null)
@@ -47,10 +48,7 @@ const momText = computed(() => {
   }
 })
 
-const fpRateText = computed(() => {
-  const v = detail.value?.false_positive_rate ?? 0
-  return (v * 100).toFixed(1)
-})
+const fpRateNum = computed(() => (detail.value?.false_positive_rate ?? 0) * 100)
 
 async function load() {
   loading.value = true
@@ -106,28 +104,28 @@ watch(month, load)
       <section class="kpis" aria-label="本月读数">
         <div class="kpi kpi--lead">
           <div class="kpi__label">告警总数</div>
-          <div class="kpi__value">{{ detail.total }}</div>
+          <div class="kpi__value"><CountUp :value="detail.total" /></div>
           <div class="kpi__sub" :class="`is-${momText.tone}`">较上月 {{ momText.text }}</div>
         </div>
         <div class="kpi">
           <div class="kpi__label">明火</div>
-          <div class="kpi__value kpi__value--fire">{{ detail.fire }}</div>
+          <div class="kpi__value kpi__value--fire"><CountUp :value="detail.fire" /></div>
           <div class="kpi__sub">按类别各计一次</div>
         </div>
         <div class="kpi">
           <div class="kpi__label">烟雾</div>
-          <div class="kpi__value">{{ detail.smoke }}</div>
+          <div class="kpi__value"><CountUp :value="detail.smoke" /></div>
           <div class="kpi__sub">按类别各计一次</div>
         </div>
         <div class="kpi">
           <div class="kpi__label">误报率</div>
-          <div class="kpi__value">{{ fpRateText }}<span class="kpi__unit">%</span></div>
+          <div class="kpi__value"><CountUp :value="fpRateNum" :digits="1" /><span class="kpi__unit">%</span></div>
           <div class="kpi__sub">{{ detail.false_positives }} 条已标误报</div>
         </div>
         <div class="kpi">
           <div class="kpi__label">待复核</div>
           <div class="kpi__value" :class="{ 'kpi__value--fire': detail.pending > 0 }">
-            {{ detail.pending }}
+            <CountUp :value="detail.pending" />
           </div>
           <div class="kpi__sub">平均置信度 {{ detail.avg_conf.toFixed(2) }}</div>
         </div>

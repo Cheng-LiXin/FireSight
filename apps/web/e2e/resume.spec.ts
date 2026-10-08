@@ -82,10 +82,12 @@ test('点「继续训练」送出的是最小载荷：只给现场，几何由�
     })
   })
 
-  // 续训前会确认一次（几十轮的训练，误点代价大）
-  let dialogText = ''
+  // 续训前会确认一次（几十轮的训练，误点代价大）。原先用 window.confirm，
+  // 靠 page.on('dialog') 拦原生弹窗；换成 ElMessageBox 之后它渲染成页面里的
+  // role=dialog 元素，原生 dialog 事件不再触发，断言必须跟着换。
+  let nativeDialog = false
   page.on('dialog', (d) => {
-    dialogText = d.message()
+    nativeDialog = true
     void d.accept()
   })
 
@@ -93,14 +95,26 @@ test('点「继续训练」送出的是最小载荷：只给现场，几何由�
   const row = page.locator(`table.fs-ledger tbody tr[data-run-id="${target!.run_id}"]`)
   await row.getByRole('button', { name: '继续训练' }).click()
 
+  const confirm = page.getByRole('dialog', { name: '断点续训' })
+  await expect(confirm).toBeVisible()
+  // 确认框要把「从第几轮继续」说清楚
+  await expect(confirm).toContainText(`第 ${(target!.resume_done ?? 0) + 1} 轮`)
+  // 取消是正常路径，不该发出请求
+  await confirm.getByRole('button', { name: '取消' }).click()
+  await expect(confirm).toBeHidden()
+  expect(payload).toBeNull()
+  expect(nativeDialog).toBe(false)
+
+  // 再走一遍，这次确认：载荷里**不该**出现几何——它们由后端从检查点取。
+  // 出现了就说明前端在假装能改。
+  await row.getByRole('button', { name: '继续训练' }).click()
+  await page.getByRole('dialog', { name: '断点续训' }).getByRole('button', { name: '继续训练' }).click()
+
   await expect.poll(() => payload !== null, { timeout: 10_000 }).toBe(true)
   expect(payload!.resume_run_id).toBe(target!.run_id)
-  // 载荷里**不该**出现几何——它们由后端从检查点取。出现了就说明前端在假装能改。
   expect(payload!.imgsz).toBeUndefined()
   expect(payload!.batch).toBeUndefined()
   expect(payload!.epochs).toBeUndefined()
-  // 确认框要把「从第几轮继续」说清楚
-  expect(dialogText).toContain(`第 ${(target!.resume_done ?? 0) + 1} 轮`)
 })
 
 test('续训被后端拒时，把理由显示出来', async ({ page }) => {
@@ -125,6 +139,8 @@ test('续训被后端拒时，把理由显示出来', async ({ page }) => {
     .locator(`table.fs-ledger tbody tr[data-run-id="${target!.run_id}"]`)
     .getByRole('button', { name: '继续训练' })
     .click()
+  // ElMessageBox 不会触发原生 dialog 事件，得自己点掉确认
+  await page.getByRole('dialog', { name: '断点续训' }).getByRole('button', { name: '继续训练' }).click()
 
   const err = page.locator('.fs-note-error')
   await expect(err).toBeVisible()
