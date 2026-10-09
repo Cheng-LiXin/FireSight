@@ -170,6 +170,104 @@ def test_unknown_api_path_stays_json_404(client):
     assert r.json()["detail"] == "Not Found"
 
 
+def test_spa_does_not_escape_dist(tmp_path, monkeypatch):
+    """回归：兜底路由必须把候选路径夹在 dist/ 内。
+
+    dist 位于仓库根下三层，早先直接 `WEB_DIST / full_path` 而未归一化，
+    于是 `/../../../AGENTS.md` 能读到工作区里的任意文件（用真实 uvicorn
+    验证过：200 text/markdown）。这里自建一份 dist，不依赖前端是否构建过。
+    """
+    pytest.importorskip("fastapi")
+    from fastapi.testclient import TestClient
+
+    from fire_sight.api import app as app_mod
+
+    dist = tmp_path / "dist"
+    (dist / "assets").mkdir(parents=True)
+    (dist / "index.html").write_text("<!doctype html>index", encoding="utf-8")
+    secret = tmp_path / "secret.txt"
+    secret.write_text("TOP-SECRET", encoding="utf-8")
+
+    monkeypatch.setattr(app_mod, "WEB_DIST", dist)
+    probe = TestClient(app_mod.create_app())
+
+    # 深链接必须仍然交回 index.html（历史的真实 bug）
+    ok = probe.get("/detect")
+    assert ok.status_code == 200
+    assert "text/html" in ok.headers["content-type"]
+
+    # 各种逃逸写法都不许把 dist 外的文件吐出来
+    for path in (
+        "/../secret.txt",
+        "/../../secret.txt",
+        "/..%2fsecret.txt",
+        "/%2e%2e/secret.txt",
+        "/%2e%2e%2fsecret.txt",
+        "/assets/../../secret.txt",
+    ):
+        r = probe.get(path)
+        assert "TOP-SECRET" not in r.text, f"{path} 泄漏了 dist 外的文件"
+
+
+def test_spa_traversal_blocked_via_raw_asgi(tmp_path, monkeypatch):
+    """同上，但绕过客户端对 `..` 的归一化，直接驱动 ASGI 应用。"""
+    pytest.importorskip("fastapi")
+    from starlette.testclient import TestClient as RawTestClient
+
+    from fire_sight.api import app as app_mod
+
+    dist = tmp_path / "dist"
+    (dist / "assets").mkdir(parents=True)
+    (dist / "index.html").write_text("<!doctype html>index", encoding="utf-8")
+    (tmp_path / "secret.txt").write_text("TOP-SECRET", encoding="utf-8")
+
+    monkeypatch.setattr(app_mod, "WEB_DIST", dist)
+    asgi = app_mod.create_app()
+
+    # httpx 会在客户端就把 `..` 归一化掉，所以这里手写 scope
+    def raw_get(target: str) -> bytes:
+        import anyio
+
+        captured: dict = {}
+
+        async def receive():
+            return {"type": "http.request", "body": b"", "more_body": False}
+
+        async def send(message):
+            if message["type"] == "http.response.body":
+                captured.setdefault("body", b"")
+                captured["body"] += message.get("body", b"")
+
+        scope = {
+            "type": "http",
+            "asgi": {"version": "3.0", "spec_version": "2.3"},
+            "http_version": "1.1",
+            "method": "GET",
+            "scheme": "http",
+            "path": target,
+            "raw_path": target.encode(),
+            "query_string": b"",
+            "root_path": "",
+            "headers": [(b"host", b"testserver")],
+            "client": ("127.0.0.1", 12345),
+            "server": ("testserver", 80),
+        }
+        anyio.run(asgi, scope, receive, send)
+        return captured.get("body", b"")
+
+    for target in (
+        "/../secret.txt",
+        "/../../secret.txt",
+        "/../../../secret.txt",
+        "/..%2f..%2fsecret.txt",
+    ):
+        body = raw_get(target)
+        assert b"TOP-SECRET" not in body, f"{target} 泄漏了 dist 外的文件"
+        # 未命中就交回 index.html，而不是 500 / 空
+        assert b"<!doctype html>" in body
+
+
+
 def test_system_status_shape(client):
     body = client.get("/api/system/status").json()
 
