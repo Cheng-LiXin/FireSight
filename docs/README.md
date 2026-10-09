@@ -10,6 +10,7 @@
 | [`tech/`](tech/) | 各阶段技术设计与实现说明 | 要改某个模块的实现 |
 | [`api/`](api/) | CLI 命令与 REST 接口说明 | 要调用某条命令或接口 |
 | [`devlog/`](devlog/) | 按阶段/日期记录的开发日志 | 想了解某段时间做了什么、踩了什么坑 |
+| [`reviews/`](reviews/) | 代码审查报告（`YYYY-MM-DD-<主题>.md`） | 想知道某次审查发现了什么、修了没有 |
 | [`superpowers/`](superpowers/) | 新子系统的设计规格与实现计划（spec / plan） | 想知道某个功能当初是怎么设计与拆解的 |
 | [`assets/`](assets/) | README 等文档引用的图片 | — |
 | [`ROADMAP.md`](ROADMAP.md) | 阶段路线图与完成情况 | 想知道现在到哪一步了 |
