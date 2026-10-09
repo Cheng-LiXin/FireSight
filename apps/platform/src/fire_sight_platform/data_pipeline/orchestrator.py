@@ -17,6 +17,7 @@ from fire_sight_platform.common.constants import (
     assert_canonical_class_order,
 )
 from fire_sight_platform.common import paths as paths_mod
+from fire_sight_platform.common.naming import safe_child
 from fire_sight_platform.common.performance_utils import time_it
 from fire_sight_platform.data_pipeline.convert.service import convert_data_to_yolo
 from fire_sight_platform.data_pipeline.report import analyze_balance
@@ -68,9 +69,23 @@ class DatasetPipeline:
         # "D-Fire/train"，带斜杠表示原始数据集已自行切分），name 是产物目录名，
         # 默认与 dataset 相同。想要一个不同的产物名时显式传 name，
         # 不必再靠改动 dataset 去迁就路径。
+        #
+        # 两者都来自命令行，所以都必须夹在各自的数据根内：下游 materialize()
+        # 会 `shutil.rmtree(out_root/images/<split>)`，早先直接 `ROOT / name`
+        # 拼接时 `--name ../../OUTSIDE` 会真的删掉工作区外的目录（已实测复现）。
+        # 显式传入的 raw_root / processed_root 是调用方自己的选择（测试用临时
+        # 目录），不在这里改写。
         self.name = name or dataset
-        self.raw_root = Path(raw_root or (paths_mod.RAW_DATA_DIR / dataset))
-        self.out_root = Path(processed_root or (paths_mod.PROCESSED_DATA_DIR / self.name))
+        self.raw_root = (
+            Path(raw_root)
+            if raw_root is not None
+            else safe_child(paths_mod.RAW_DATA_DIR, dataset)
+        )
+        self.out_root = (
+            Path(processed_root)
+            if processed_root is not None
+            else safe_child(paths_mod.PROCESSED_DATA_DIR, self.name)
+        )
 
         self.class_names = (
             list(class_names) if class_names else list(DEFAULT_FIRE_SMOKE_CLASSES)

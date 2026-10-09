@@ -106,6 +106,58 @@ def test_output_name_can_be_set_explicitly(split_raw):
 
 
 # --------------------------------------------------------------------------
+# 产物路径必须被夹在 data/processed 内
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "bad_name",
+    ["../../OUTSIDE", "..\\..\\OUTSIDE", "..", "../..", "a/../../b", "/absolute", "C:\\absolute"],
+)
+def test_transform_rejects_name_escaping_processed_root(split_raw, bad_name):
+    """回归：`--name` 曾能让 materialize() 的 rmtree 删到工作区外。
+
+    `out_root = PROCESSED_DATA_DIR / name` 未做包含性校验，下游
+    `materializer.materialize()` 对 `out_root/images/<split>` 直接
+    `shutil.rmtree`。端到端实测过 `--name ../../OUTSIDE` 会真的删掉
+    `<OUTSIDE>/images/train/precious.txt`——不可逆的数据损失。
+    """
+    from fire_sight_platform.data_pipeline.orchestrator import run_transform
+
+    with pytest.raises(ValueError):
+        run_transform("D-Fire/train", source_format="yolo", seed=42, name=bad_name)
+
+
+def test_transform_rejects_dataset_escaping_raw_root(split_raw):
+    """`--dataset` 同样来自命令行，不能拿它去 data/raw 外面读数据。"""
+    from fire_sight_platform.data_pipeline.orchestrator import run_transform
+
+    with pytest.raises(ValueError):
+        run_transform("../../raw2", source_format="yolo", seed=42)
+
+
+def test_transform_still_accepts_nested_dataset(split_raw):
+    """夹取不能把 `D-Fire/train` 这类正常的嵌套路径也挡掉。"""
+    from fire_sight_platform.data_pipeline.orchestrator import run_transform
+
+    r = run_transform("D-Fire/train", source_format="yolo", seed=42)
+    assert r.processed_root == split_raw / "processed" / "D-Fire" / "train"
+    assert r.yaml_path.exists()
+
+
+def test_safe_child_blocks_windows_root_swap(tmp_path):
+    """Windows 上 `Path('a') / '/b'` 会**丢掉 a** 变成 `\\b`，必须挡住。"""
+    from fire_sight_platform.common.naming import safe_child
+
+    root = tmp_path / "root"
+    root.mkdir()
+    for bad in ("/abs", "\\abs", "C:\\abs", "..", "../x"):
+        with pytest.raises(ValueError):
+            safe_child(root, bad)
+    assert safe_child(root, "a", "b") == (root / "a" / "b").resolve()
+
+
+# --------------------------------------------------------------------------
 # 类别契约必须被强制
 # --------------------------------------------------------------------------
 
