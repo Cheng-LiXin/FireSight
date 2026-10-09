@@ -462,17 +462,18 @@ venv 是在这条入口加进 `pyproject.toml` 之前装的（`.venv\Scripts\` �
 欢迎提 Issue 与 PR。提交前请确保：
 
 ```bash
-pytest tests apps/platform/tests -q      # 后端，预期 327 passed
+pytest tests apps/platform/tests -q      # 后端，预期 339 passed
 cd apps/web && npm run typecheck         # 前端类型检查通过
-npm run test:e2e                         # 前端端到端（需先起 fs-serve），预期 44 passed / 6 skipped
+npm run test:e2e                         # 前端端到端（需先起 fs-serve），预期 48 passed / 6 skipped
 ```
 
 前端 E2E 用 Playwright 驱动系统已装的 Edge，不下载自带浏览器。
 跳过的 6 条都是**按需跳过**而非渲染坏了，其中 3 条续训用例依赖「存在未跑完、
 优化器状态还在」的现场——数据集换代时那唯一一份可续训现场已随 `D-Fire/train`
 归档一并删除，所以要验续训链路得先新起一次中断的训练。
-另外两条分别要真调大模型（花钱，设 `FIRESIGHT_LLM_API_KEY` 才跑）与真跑训练
-（设 `FIRESIGHT_E2E_TRAIN=1`）。详见
+余下 3 条各要一样东西：真调大模型（花钱，设 `FIRESIGHT_LLM_API_KEY`）、真跑训练
+（设 `FIRESIGHT_E2E_TRAIN=1`）、以及一份空归档（`models/trained/` 里有归档时空态
+提示那条就没得验）。详见
 [`docs/api/测试说明.md`](docs/api/测试说明.md)。
 
 ---
