@@ -462,7 +462,7 @@ venv 是在这条入口加进 `pyproject.toml` 之前装的（`.venv\Scripts\` �
 欢迎提 Issue 与 PR。提交前请确保：
 
 ```bash
-pytest tests apps/platform/tests -q      # 后端，预期 339 passed
+pytest tests apps/platform/tests -q      # 后端，预期 346 passed
 cd apps/web && npm run typecheck         # 前端类型检查通过
 npm run test:e2e                         # 前端端到端（需先起 fs-serve），预期 48 passed / 6 skipped
 ```
