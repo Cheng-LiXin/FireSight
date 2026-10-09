@@ -17,6 +17,7 @@ import type {
   ModelOption,
   MonthlyStats,
   MonitorStartParams,
+  MonitorSourceOption,
   MonitorStatus,
   Overview,
   ReportDetail,
@@ -259,6 +260,8 @@ export const api = {
   // --- 实时监控 -------------------------------------------------------
 
   monitorStatus: () => request<MonitorStatus>('/monitor/status'),
+  /** 视频源下拉的选项：现场固定设备 + 本机摄像头。监控进行中会跳过摄像头探测。 */
+  monitorSources: () => request<MonitorSourceOption[]>('/monitor/sources'),
   monitorStart: (payload: MonitorStartParams) =>
     request<MonitorStatus>('/monitor/start', {
       method: 'POST',

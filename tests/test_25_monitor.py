@@ -443,3 +443,76 @@ def test_tts_pause_defaults_to_pausing(monitor):
         assert get_tts(enabled=True).paused is True
     finally:
         get_tts(enabled=True).resume()
+
+
+def test_configured_sources_come_from_env(monkeypatch):
+    """`FIRESIGHT_MONITOR_SOURCES` 的每一项都要变成一个下拉选项。"""
+    from fire_sight.services import monitor_sources
+
+    monkeypatch.setenv(
+        monitor_sources.SOURCES_ENV,
+        "东门=rtsp://10.0.0.7/live; 北门=rtsp://10.0.0.8/live, rtsp://10.0.0.9/live",
+    )
+    opts = monitor_sources.configured_sources()
+    assert [o["key"] for o in opts] == [
+        "rtsp://10.0.0.7/live",
+        "rtsp://10.0.0.8/live",
+        "rtsp://10.0.0.9/live",
+    ]
+    assert [o["label"] for o in opts] == ["东门", "北门", "10.0.0.9"]
+    assert {o["kind"] for o in opts} == {"stream"}
+
+
+def test_camera_probe_never_opens_cameras_in_tests(monkeypatch):
+    """单元测试不该碰真摄像头——打桩代替，顺带验「试不开就不算数」。"""
+    import threading
+
+    from fire_sight.services import monitor_sources
+
+    class _FakeCap:
+        def __init__(self, index):
+            self.index = index
+            self.released = False
+
+        def isOpened(self):
+            return self.index in (0, 2)
+
+        def get(self, prop):
+            return 640.0 if prop == 3 else 480.0
+
+        def release(self):
+            self.released = True
+
+    import cv2
+
+    monkeypatch.setattr(cv2, "VideoCapture", _FakeCap)
+    monkeypatch.setattr(monitor_sources, "_lock", threading.Lock())
+    monkeypatch.setitem(monitor_sources._cache, "at", 0.0)
+
+    cams = monitor_sources.local_cameras(force=True)
+    # 序号 1 试不开就不算数；3 也试不开就收手，不再往后试
+    assert [c["key"] for c in cams] == ["0", "2"]
+    assert all(c["kind"] == "camera" for c in cams)
+
+
+def test_sources_endpoint_skips_camera_probe_while_monitoring(monitor, monkeypatch):
+    """监控进行中不能去试开摄像头——会跟流水线抢同一台设备。"""
+    pytest.importorskip("fastapi")
+    from fastapi.testclient import TestClient
+
+    from fire_sight.api.app import app
+    from fire_sight.services import monitor_sources
+
+    monkeypatch.setenv(monitor_sources.SOURCES_ENV, "东门=rtsp://10.0.0.7/live")
+    probed = []
+    monkeypatch.setattr(
+        monitor_sources, "local_cameras", lambda force=False: probed.append(force) or []
+    )
+
+    client = TestClient(app)
+    assert [o["key"] for o in client.get("/api/monitor/sources").json()] == ["rtsp://10.0.0.7/live"]
+    assert probed == [False], "空闲时仍应探测本机摄像头"
+
+    monitor._state["status"] = "running"
+    client.get("/api/monitor/sources")
+    assert probed == [False], "运行中不得再试开摄像头"

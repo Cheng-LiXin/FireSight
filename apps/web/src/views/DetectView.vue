@@ -594,12 +594,13 @@ const weakCount = computed(() => ledger.value.filter(({ d }) => d.conf < LEDGER_
   font-variant-numeric: tabular-nums;
 }
 
-/* --- 工作区：图占大头，右栏固定宽 --------------------------------------- */
+/* --- 工作区：图占大头，右栏固定宽 ---------------------------------------
+   不写 align-items:start（默认就是 stretch）：两栏并排时右栏比画面矮一大截，
+   下沿不齐看着像没做完——实测画面 704px、右栏 542px，差 162px。 */
 .work {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 380px;
   gap: var(--s5);
-  align-items: start;
 }
 
 .stage {
@@ -743,14 +744,36 @@ const weakCount = computed(() => ledger.value.filter(({ d }) => d.conf < LEDGER_
    而且 380px 要塞三条，三等分后每条只剩 120px，「最高置信度」会折行、
    单位「ms」会被挤到第二行。改成标签在左、数字在右的一行式，
    数字右对齐后纵列成一条基线，扫读反而更快。 */
+/* 上下留白交给第一行和最后一行自己带（下面 .side .readout 的 padding），
+   容器本身不留——否则容器 8px + 首行 12px = 20px，末行 16px，
+   上沿 28px、下沿 35px，肉眼能看出头轻脚重。 */
 .side .readouts {
   display: flex;
   flex-direction: column;
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--r-lg);
-  padding: var(--s2) var(--s5);
+  padding: 0;
   box-shadow: var(--lift-1);
+}
+
+/* 真的把「每条成卡」拆掉，而不是只改 padding。
+   base.css:355-364 给 .readouts > .readout 写了白底 + 边框 + 圆角 + 阴影，
+   这套配方是给横排的（容器没有盒子，卡片自己就是盒子）；
+   竖排的这里容器已经是盒子了，卡片再来一层就变成「盒中盒」——
+   实测文字到内框只剩 1px，看着像文字贴在虚框上。
+   所以清成透明无边，只留行间的发丝线，纵列靠线分区而不是靠框。 */
+.side .readouts > .readout {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+/* 标签提到 --t-small：它是这一行里唯一的说明文字，
+   用 --t-micro（11px）在 380px 的窄栏里几乎读不下去。 */
+.side .readout__label {
+  font-size: var(--t-small);
 }
 
 .side .readout {
@@ -760,9 +783,12 @@ const weakCount = computed(() => ledger.value.filter(({ d }) => d.conf < LEDGER_
      按基线对齐会把标签压到数字下沿，看上去像掉下去一格。 */
   align-items: center;
   gap: var(--s3);
-  padding: var(--s2) 0;
+  /* 上下 --s4：容器已经把容器 padding 归零了，留白全靠每行自己带，
+     这样第一行和最后一行的留白不受「行数」影响。 */
+  padding: var(--s4) var(--s5);
 }
 
+/* 行间的发丝线。上下内边距在这里已经足够，再加粗会变成双线。 */
 .side .readout + .readout {
   border-top: var(--hairline);
 }
@@ -793,8 +819,12 @@ const weakCount = computed(() => ledger.value.filter(({ d }) => d.conf < LEDGER_
   color: var(--ink-faint);
 }
 
+/* 两栏等高之后右栏会剩下一截空白。账本不吃这份空白：它 overflow:hidden，
+   让它 flex:1 的话检出多的时候末行会被裁掉而不是把栏目拉高（检测框没有限行）。
+   空白留在说明之前——说明钉在栏目底部，读数、账本、说明三段的间距自然拉开，
+   下沿也跟着画面对齐了。 */
 .side__note {
-  margin: 0;
+  margin: auto 0 0;
   padding-left: var(--s3);
   border-left: 2px solid var(--line-strong);
   font-size: var(--t-micro);

@@ -11,7 +11,7 @@
  *   2. 加载态给骨架屏，不给结论。「尚无告警记录」是在断言「没有数据」，
  *      此刻只是还不知道。
  */
-import { computed } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 
 import { alertTrendOption } from '@/charts/options'
 import CountUp from '@/components/CountUp.vue'
@@ -42,6 +42,47 @@ function n(v: number | undefined | null): number | '—' {
 const daily = computed(() => ov.value?.daily ?? [])
 const trendOption = computed(() => alertTrendOption(daily.value))
 
+/** 左栏图表的高度：跟右栏两段加起来的自然高度走，两栏就等高。
+ *  EChart 需要一个具体像素数（它把自己画进 canvas，不能只给 flex:1），
+ *  所以量一次右栏的盒子高度再回填。
+ *
+ *  一次成环：图表撑高左栏 → 右栏被 stretch 撑高 → 再量回去就更高，
+ *  每轮加几十像素，最后能涨到几万像素。所以量的是右栏的**内容**高度
+ *  （去掉被 stretch 拉出来的那部分），并且只在内容真的变高时才更新，
+ *  且设一个上限兜住任何没预料到的级联。 */
+const CHART_MIN_PX = 220
+const CHART_MAX_PX = 520
+
+const stackEl = ref<HTMLElement | null>(null)
+const chartHeight = ref(300)
+let ro: ResizeObserver | null = null
+
+onMounted(() => {
+  const sync = () => {
+    const el = stackEl.value
+    if (!el) return
+    // 量各段自己：.stack__seg 没有 flex-grow，它的高度就是内容高，
+    // 加起来才是右栏真正需要的那个数。量容器 scrollHeight 会在
+    // .stack 写满（height:100%）之后变成被拉伸后的高度，越量越高。
+    // getBoundingClientRect 已经含 padding 和 border，不要再加一遍。
+    const segs = el.querySelectorAll<HTMLElement>('.stack__seg')
+    const need = [...segs].reduce(
+      (sum, s) => sum + s.getBoundingClientRect().height,
+      0,
+    )
+    const h = Math.min(
+      CHART_MAX_PX,
+      Math.max(CHART_MIN_PX, Math.round(need) - 1),
+    )
+    if (h !== chartHeight.value) chartHeight.value = h
+  }
+  sync()
+  ro = new ResizeObserver(sync)
+  if (stackEl.value) ro.observe(stackEl.value)
+})
+
+onBeforeUnmount(() => ro?.disconnect())
+
 /**
  * 类别构成。
  *
@@ -60,30 +101,6 @@ const classTotal = computed(() => ratio.value.明火 + ratio.value.烟雾)
 function pct(n: number): number {
   return classTotal.value ? (n / classTotal.value) * 100 : 0
 }
-
-/** 指标表：直接列 metrics.txt 的键值，并给常见键配一句人话解释。 */
-const METRIC_CN: Record<string, string> = {
-  'mAP@0.5': 'IoU 放宽到 0.5 时的综合精度与召回',
-  'mAP@0.5:0.95': 'IoU 从 0.5 到 0.95 逐步收紧，框歪一点就扣分',
-  precision: '报出来的框里有多少是真的',
-  recall: '真实存在的目标里找回了多少',
-  loss: '训练损失，越低越好',
-}
-
-/** metrics.txt 存的是原始浮点串（0.7733534279277221），展示必须收窄到可读位数。 */
-function fmtMetric(v: string | undefined): string {
-  if (v === undefined || v === '') return '—'
-  const parsed = Number(v)
-  return Number.isFinite(parsed) ? parsed.toFixed(4) : v
-}
-
-const metricRows = computed(() =>
-  Object.entries(ov.value?.model.metrics ?? {}).map(([key, value]) => ({
-    key,
-    value: fmtMetric(value),
-    note: METRIC_CN[key] ?? '',
-  })),
-)
 </script>
 
 <template>
@@ -156,92 +173,92 @@ const metricRows = computed(() =>
     </section>
 
     <section class="charts">
-      <div class="panel">
+      <div class="panel panel--chart">
         <div class="panel__head">
           <h2 class="panel__title">近 30 日告警次数（按类别）</h2>
           <span class="panel__hint">单位：起</span>
         </div>
-        <div class="panel__body">
-          <EChart v-if="ready" :option="trendOption" :height="260" />
+        <div class="panel__body panel__body--chart">
+          <!-- 图表高度跟着右栏走，不写死 260：右栏两段的自然高度会随数据变，
+               写死就会出现「右栏比图表高、左栏底下空一片」，
+               而这一页的图表只有一条 30 日趋势，向上吃空白最不浪费。 -->
+          <EChart v-if="ready" :option="trendOption" :height="chartHeight" />
           <el-skeleton v-else :rows="6" animated />
         </div>
       </div>
 
-      <div class="panel">
-        <div class="panel__head">
-          <h2 class="panel__title">告警类别构成</h2>
-        </div>
-        <div class="panel__body">
-          <el-skeleton v-if="loading" :rows="3" animated />
+      <!-- 右栏两段，从上到下：类别构成 → 近 24 小时峰值。
+           一盒两段、段间一条发丝线，不各自成盒——盒中盒会让这一栏碎掉。
+           峰值那段贴着盒子下沿（margin-top:auto），空白落在两段之间，
+           这样上面那条色带和它的图例仍然挨在一起（它们是一件事）。 -->
+      <div class="panel panel--stack">
+        <div ref="stackEl" class="stack">
+          <section class="stack__seg">
+            <h2 class="stack__title">告警类别构成</h2>
+            <div class="stack__body">
+              <el-skeleton v-if="loading" :rows="3" animated />
 
-          <template v-else>
-            <div v-if="classTotal > 0" class="ratio">
-              <div class="ratio__bar">
-                <span
-                  class="ratio__seg ratio__seg--smoke"
-                  :style="{ width: `${pct(ratio.烟雾)}%` }"
-                />
-                <span
-                  class="ratio__seg ratio__seg--fire"
-                  :style="{ width: `${pct(ratio.明火)}%` }"
-                />
-              </div>
-              <dl class="ratio__legend">
-                <div class="ratio__item">
-                  <dt><i class="dot dot--smoke" />烟雾</dt>
-                  <dd>
-                    <span class="num">{{ ratio.烟雾 }}</span>
-                    <span class="ratio__pct num">{{ pct(ratio.烟雾).toFixed(0) }}%</span>
-                  </dd>
+              <template v-else>
+                <div v-if="classTotal > 0" class="ratio">
+                  <div class="ratio__bar">
+                    <span
+                      class="ratio__seg ratio__seg--smoke"
+                      :style="{ width: `${pct(ratio.烟雾)}%` }"
+                    />
+                    <span
+                      class="ratio__seg ratio__seg--fire"
+                      :style="{ width: `${pct(ratio.明火)}%` }"
+                    />
+                  </div>
+                  <dl class="ratio__legend">
+                    <div class="ratio__item">
+                      <dt><i class="dot dot--smoke" />烟雾</dt>
+                      <dd>
+                        <span class="num">{{ ratio.烟雾 }}</span>
+                        <span class="ratio__pct num">{{ pct(ratio.烟雾).toFixed(0) }}%</span>
+                      </dd>
+                    </div>
+                    <div class="ratio__item">
+                      <dt><i class="dot dot--fire" />明火</dt>
+                      <dd>
+                        <span class="num">{{ ratio.明火 }}</span>
+                        <span class="ratio__pct num">{{ pct(ratio.明火).toFixed(0) }}%</span>
+                      </dd>
+                    </div>
+                  </dl>
                 </div>
-                <div class="ratio__item">
-                  <dt><i class="dot dot--fire" />明火</dt>
-                  <dd>
-                    <span class="num">{{ ratio.明火 }}</span>
-                    <span class="ratio__pct num">{{ pct(ratio.明火).toFixed(0) }}%</span>
-                  </dd>
-                </div>
-              </dl>
+
+                <p v-else class="empty">尚无告警，无法统计类别构成。</p>
+              </template>
             </div>
+          </section>
 
-            <p v-else class="empty">尚无告警，无法统计类别构成。</p>
-          </template>
+          <!-- 风险分的两根料。风险尺只说「0.34」，这两条说明它是被什么撑起来的，
+               值班员要判断的不是分数高低，而是「24 小时里多了几起、
+               最高置信度到没到 0.7」——这两个数后端已经算好了，
+               之前只拼进了 risk.basis 一句话里，读不出结构。
+
+               这里刻意不再放「当前归档」：它已经是上面那条读数卡（归档模型），
+               再抄一遍就是把同一个 run_id 在一屏里念两遍。 -->
+          <section class="stack__seg">
+            <h2 class="stack__title">近 24 小时峰值</h2>
+            <div class="stack__body stack__body--readouts">
+              <div class="readout">
+                <span class="readout__label">告警</span>
+                <span class="readout__value">
+                  <CountUp :value="n(ov?.risk.alerts_24h)" />
+                  <span class="readout__unit">起</span>
+                </span>
+              </div>
+              <div class="readout">
+                <span class="readout__label">峰值置信度</span>
+                <span class="readout__value">
+                  <CountUp :value="ov ? ov.risk.peak_conf_24h : '—'" :digits="2" />
+                </span>
+              </div>
+            </div>
+          </section>
         </div>
-      </div>
-    </section>
-
-    <!-- 图表区下方：当前权重。模型没归档时这一块说「还没归档」，
-         不是把指标列成空表。 -->
-    <section class="panel">
-      <div class="panel__head">
-        <h2 class="panel__title">当前权重指标</h2>
-        <span class="panel__hint">
-          {{ ov?.model.run_id ?? '验证集' }}
-        </span>
-      </div>
-      <div class="panel__body panel__body--tight">
-        <el-skeleton v-if="loading" :rows="4" animated />
-
-        <table v-else-if="metricRows.length" class="sheet sheet--flush">
-          <thead>
-            <tr>
-              <th>指标</th>
-              <th class="num">取值</th>
-              <th>含义</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="row in metricRows" :key="row.key">
-              <td class="metric-name">{{ row.key }}</td>
-              <td class="num">{{ row.value }}</td>
-              <td class="metric-note">{{ row.note }}</td>
-            </tr>
-          </tbody>
-        </table>
-
-        <p v-else class="empty">
-          尚未归档模型，或归档产物里没有 metrics.txt。运行 fs-train 后会在此显示指标。
-        </p>
       </div>
     </section>
   </div>
@@ -404,20 +421,104 @@ const metricRows = computed(() =>
   word-break: break-all;
 }
 
-/* --- 图 ------------------------------------------------------------------- */
+/* --- 图 -------------------------------------------------------------------
+   拉齐两栏。base.css:724-728 的全局 .charts 带着 align-items:start，
+   同为单类选择器、scoped 也不加权重，后加载的它赢——所以这里必须写回
+   stretch 而不是靠「不写」（不写就是继续吃 start）。
+   实测：左图 369px、右「告警类别构成」214px，不拉齐就在右栏底下空出 155px。 */
 .charts {
   display: grid;
   grid-template-columns: minmax(0, 2.4fr) minmax(0, 1fr);
   gap: var(--s5);
-  align-items: start;
+  align-items: stretch;
+}
+
+/* 右栏是一个盒子装两段，不是两个盒子。
+   两段各自成盒的话盒子之间还会再空出一圈，反而更散；
+   一盒两段靠发丝线分区，底边自然与左图对齐。 */
+.panel--stack {
+  padding: var(--s5) 0;
+  overflow: hidden;
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  /* 写满整栏：两段之间靠 .stack__seg + .stack__seg 的 margin-top:auto
+     把空白让出来，写不满的话空白就掉到盒子下沿，
+     右栏底部会空一大截（左栏图表把它撑高了）。 */
+  height: 100%;
+}
+
+.stack__seg {
+  display: flex;
+  flex-direction: column;
+  padding: var(--s4) var(--s5);
+  /* 不写 flex：两段按内容各自的高来分，剩下的空白落在一起，
+   而不是把空白摊进每段、把色带和图例拉散。
+   类别构成那段内容多、峰值那段矮，写死比例反而会在数据稀疏时露出空当。 */
+}
+
+.stack__seg + .stack__seg {
+  border-top: var(--hairline);
+  margin-top: auto;
+}
+
+.stack__title {
+  font-size: var(--t-title);
+  font-weight: var(--w-bold);
+  color: var(--ink);
+  letter-spacing: var(--track-tight);
+  margin: 0 0 var(--s3);
+}
+
+.stack__body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.stack__body--readouts {
+  flex-direction: row;
+  gap: var(--s5);
+  align-items: flex-start;
+  justify-content: flex-start;
+}
+
+/* run_id 是标识符不是读数：等宽但不用大号，
+   写死了宽度，好让一条很长的 id 也只占一行、只折一次。 */
+.stack__run {
+  margin: 0;
+  font-family: var(--font-num);
+  font-size: var(--t-small);
+  color: var(--ink-body);
+  word-break: break-all;
+  line-height: 1.5;
+}
+
+.stack__note {
+  margin: var(--s2) 0 0;
+  font-size: var(--t-micro);
+  color: var(--ink-faint);
 }
 
 .panel__hint {
   font-family: var(--font-num);
 }
 
-.panel__body--tight {
-  padding: 0;
+/* 左栏：图的高度由 script 里的 chartHeight 回填，面板跟着内容走。
+   不写 align-items 之外的东西——面板自身不需要再撑开。 */
+.panel--chart {
+  display: flex;
+  flex-direction: column;
+}
+
+/* 两栏的高由 chartHeight 配平，这里不再让面板自己撑——
+   面板一旦 stretch 就会反过来影响右栏量出来的数。 */
+.panel--chart > .panel__body--chart {
+  display: flex;
+  flex-direction: column;
 }
 
 /* --- 类别构成 ----------------------------------------------------------- */
@@ -450,15 +551,27 @@ const metricRows = computed(() =>
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  padding: var(--s2) 0;
+  padding: var(--s3) 0;
   border-top: 1px solid var(--line-faint);
 }
 
+/* 类别名和计数一起提到 --t-title（17px）：这两行是右栏唯一的文字内容，
+   右栏宽 393px，一条 `dt` 加一条 `dd` 要占满，两行都是 13px 时
+   整个面板读起来是「一片小字」。计数是这屏要读的东西，不是脚注。 */
 .ratio__item dt {
   display: flex;
   align-items: center;
-  font-size: var(--t-small);
+  font-size: var(--t-title);
   color: var(--ink-body);
+}
+
+/* 色点跟着放大：.dot 是 6px，配 13px 的字刚好；配 17px 的字就像一粒灰。
+   颜色语义不变——烟仍是中性深灰、火仍是 --alarm，
+   在这一档尺寸下靠面积（明火段更长）也能分开。 */
+.ratio__item .dot {
+  width: 9px;
+  height: 9px;
+  margin-right: var(--s2);
 }
 
 .ratio__item dd {
@@ -466,25 +579,16 @@ const metricRows = computed(() =>
   display: flex;
   align-items: baseline;
   gap: var(--s3);
+  font-size: var(--t-title);
 }
 
-/* 百分比是次要读数：压暗，避免和计数抢注意力 */
+/* 百分比是次要读数：压暗并降一档，避免和计数抢注意力。
+   只降字号不降对比度——它和计数并排，差太多会被读成另一个量。 */
 .ratio__pct {
   min-width: 3ch;
   text-align: right;
+  font-size: var(--t-small);
   color: var(--ink-faint);
-}
-
-.metric-name {
-  font-family: var(--font-num);
-  font-size: var(--t-micro);
-  color: var(--ink-body);
-  font-weight: var(--w-medium);
-}
-
-.metric-note {
-  color: var(--ink-faint);
-  font-size: var(--t-micro);
 }
 
 @media (max-width: 1100px) {

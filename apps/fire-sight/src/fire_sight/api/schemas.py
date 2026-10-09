@@ -406,6 +406,22 @@ class ArtifactInfo(BaseModel):
     size: int
 
 
+class MonitorSourceOption(BaseModel):
+    """实时监控页视频源下拉里的一项。
+
+    `key` 是原样交给 MonitorStart.source 的串（设备序号、RTSP 地址或本地路径），
+    前端只回传、不拼装——能进这个清单的都是后端认得的源，界面不负责判断
+    「rtsp://… 该不该写序号 0」。
+    """
+
+    key: str
+    label: str
+    #: camera / stream / file。只为显示分组用，不影响启动路径。
+    kind: str
+    #: 分辨率、帧率或完整地址，作为标签旁的补充信息。
+    detail: str = ""
+
+
 class SourceOption(BaseModel):
     """可批量推理的目录。
 

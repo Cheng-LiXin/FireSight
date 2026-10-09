@@ -1,9 +1,9 @@
-"""RTSP 常驻监控接口：启停、状态、MJPEG 推流。"""
+"""RTSP 常驻监控接口：启停、状态、MJPEG 推流、视频源清单。"""
 
 from __future__ import annotations
 
 import time
-from typing import Iterator, Optional
+from typing import Iterator, List, Optional
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
@@ -11,6 +11,8 @@ from pydantic import BaseModel, Field
 
 from fire_sight.api import deps
 from fire_sight.api.monitor_job import MONITOR
+from fire_sight.api.schemas import MonitorSourceOption
+from fire_sight.services import monitor_sources
 
 router = APIRouter(prefix="/api/monitor", tags=["monitor"])
 
@@ -77,6 +79,18 @@ def stop_monitor() -> dict:
 @router.get("/status")
 def monitor_status() -> dict:
     return MONITOR.status()
+
+
+@router.get("/sources", response_model=List[MonitorSourceOption])
+def list_monitor_sources() -> List[MonitorSourceOption]:
+    """视频源下拉的选项：现场固定设备 + 本机摄像头。
+
+    监控进行中会跳过摄像头探测——试开一台正在被流水线读着的摄像头，
+    等于跟它抢设备，现场表现是「正在看的画面突然黑了」。配置项不受影响，
+    所以页面刷新期间仍然拿得到选项。
+    """
+    options = monitor_sources.list_monitor_sources(probe_cameras=not MONITOR.is_active())
+    return [MonitorSourceOption(**opt) for opt in options]
 
 
 class MonitorTtsPause(BaseModel):

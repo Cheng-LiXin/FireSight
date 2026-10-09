@@ -149,6 +149,16 @@ export interface MonitorStartParams {
   clip_after_sec?: number
 }
 
+/** 视频源下拉里的一项。key 原样交给 MonitorStart.source，界面不拼装地址。 */
+export interface MonitorSourceOption {
+  key: string
+  label: string
+  /** camera / stream / file——只为显示分组用 */
+  kind: string
+  /** 分辨率、帧率或完整地址，作为标签旁的补充 */
+  detail: string
+}
+
 /** 类别名 → 中文名。唯一真相在后端 class_map，这里只做显示映射的兜底。 */
 export const CLASS_CN: Record<string, string> = {
   smoke: '烟雾',
