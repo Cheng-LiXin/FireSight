@@ -307,6 +307,83 @@ def test_start_job_rejects_unknown_dataset(client):
     assert r.status_code == 404
 
 
+@pytest.mark.parametrize(
+    "experiment",
+    [
+        "../../../../EvilExp",
+        "../EvilExp",
+        "..\\..\\EvilExp",
+        "sub/dir",
+        "sub\\dir",
+        "C:absolute",
+        "/absolute",
+    ],
+)
+def test_start_job_rejects_experiment_paths(client, experiment):
+    """回归：experiment 会变成 `runs/training/<name>` 的目录名，不能带路径语义。
+
+    ultralytics 的 increment_path 既不 resolve 也不夹取，实测
+    `increment_path(Path('E:/FireSight/runs/training') / '../../../../EvilExp')`
+    解析到 `E:\\EvilExp`——整轮训练会落到工作区之外，且归档扫不到。
+    这里必须是 422（pydantic 校验拒绝），不能是 201。
+    """
+    r = client.post(
+        "/api/train/jobs",
+        json={"dataset": "D-Fire/raw", "epochs": 1, "experiment": experiment},
+    )
+    assert r.status_code == 422, f"{experiment!r} 竟然被接受了: {r.status_code}"
+
+
+def test_start_job_accepts_a_plain_experiment_name(client, tmp_path, monkeypatch):
+    """正常实验名不受影响——校验不能把「我的实验」这种名字也挡掉。"""
+    from fire_sight.api import deps
+    import fire_sight_platform.training.service as svc
+
+    monkeypatch.setattr(svc, "_resolve_dataset_yaml", lambda _d: tmp_path / "x.yaml")
+    # 让显存守卫直接放行，避免测试机不同带来的差异
+    monkeypatch.setattr(deps, "vram_limits", lambda *a, **k: {"checked": False})
+
+    assert deps.GPU_LOCK.acquire("infer") is True
+    try:
+        r = client.post(
+            "/api/train/jobs",
+            json={"dataset": "任意", "epochs": 1, "experiment": "我的实验"},
+        )
+    finally:
+        deps.GPU_LOCK.release()
+
+    # 校验通过，于是走到抢锁那一步被 409 拦下——关键是不是 422
+    assert r.status_code == 409
+
+
+def test_run_training_refuses_a_traversing_experiment(tmp_path, monkeypatch):
+    """service 层再兜一道：训练是几十分钟的活，不能只靠 API 层守规矩。"""
+    import fire_sight_platform.training.service as svc
+    from fire_sight_platform.runtime_config.base import TrainConfig
+
+    monkeypatch.setattr(svc, "_resolve_dataset_yaml", lambda _d: tmp_path / "x.yaml")
+
+    with pytest.raises(ValueError, match="单个目录名"):
+        svc._train_fresh(
+            TrainConfig(dataset="x", epochs=1, experiment="../../../../EvilExp"),
+            None,
+            lambda _rid: None,
+            lambda _m: None,
+        )
+
+
+def test_archive_refuses_a_traversing_run_id(tmp_path, monkeypatch):
+    """归档名同理：`..` 会把 best.pt 写到 models/trained 之外成为孤儿。"""
+    from fire_sight_platform.training import archive
+
+    monkeypatch.setattr(archive, "TRAINED_MODELS_DIR", tmp_path / "trained")
+    best = tmp_path / "best.pt"
+    best.write_text("w", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="单个目录名"):
+        archive.archive_best_weight(best, "../../escaped")
+
+
 def test_unknown_job_is_404(client):
     assert client.get("/api/train/jobs/nope").status_code == 404
     assert client.post("/api/train/jobs/nope/stop").status_code == 404

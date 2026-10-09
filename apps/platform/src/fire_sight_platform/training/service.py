@@ -27,6 +27,18 @@ class TrainResult:
     dataset_yaml: Path
 
 
+def _assert_run_name(name: str) -> None:
+    """拒绝任何带路径语义的实验名。
+
+    ultralytics 的 `increment_path(project / name)` 不 resolve、不夹取，
+    所以 `..` 能一路把 `runs/training` 换成别处。这里只接受「单个目录名」。
+    """
+    if not name:
+        raise ValueError("训练现场名不能为空")
+    if name in {".", ".."} or "/" in name or "\\" in name or ":" in name:
+        raise ValueError(f"训练现场名只能是单个目录名，不含路径分隔符: {name!r}")
+
+
 def _resolve_dataset_yaml(dataset: str) -> Path:
     """把数据集标签解析成 data.yaml 的路径。
 
@@ -261,6 +273,11 @@ def _train_fresh(
     exp = (cfg.experiment or "").strip()
     if exp.lower() in {"", "none", "null"}:
         exp = run_id
+    # name 会经 ultralytics increment_path 拼成 runs/training/<name>，它既不
+    # resolve 也不夹取：`../../../../EvilExp` 能让整轮产物落到工作区之外，
+    # 且不在任何受管目录里、归档扫不到。API 层已经挡过一道，这里再兜一次——
+    # 训练是几十分钟起步的活，不能靠调用方守规矩。
+    _assert_run_name(exp)
     # 上报的是**现场目录名**（runs/training 下的那一层），不是归档名。两者只在
     # 没设 experiment 时相同；resume_run_id 认的是前者，界面必须拿到对的那个。
     _notify_run(on_run, exp)
