@@ -157,6 +157,75 @@ const stopping = computed(() => job.value?.status === 'stopping')
 /** 占着 GPU 的所有状态。stopping 时进程树还在收尾，同样不能再起新训练。 */
 const active = computed(() => running.value || stopping.value)
 
+/** 本次任务落到哪个现场。子进程**开训前**就把 run_id 报上来了，所以被暂停的任务
+ *  也拿得到——只等 done 事件的话，一按暂停界面就再也说不出该续哪个现场。 */
+const liveRunId = computed(() => job.value?.run_id ?? '')
+
+/** 刚收尾、正在重读训练记录。这期间「能不能续」的判据还是旧列表，按钮先按住。 */
+const refreshing = ref(false)
+
+/** 上一次训练是不是「暂停」或「崩溃」收的尾。跑完的现场优化器已被剥离，不给按钮。 */
+const settledJob = computed(() => {
+  const r = job.value
+  return r && (r.status === 'stopped' || r.status === 'failed') ? r : null
+})
+
+/** 上一次训练在训练记录里的那一条。没有条目＝这个现场还没形成（一次 results.csv
+ *  都没写过），也就是「第 1 轮都没跑完」。 */
+const settleTarget = computed(() => {
+  const id = settledJob.value?.run_id
+  return id ? (runs.value.find((r) => r.run_id === id) ?? null) : null
+})
+
+/** 上一次训练能不能接着练，以及按不下去时怎么解释。
+ *
+ *  判据分两处，缺一不可：`job.run_id` 说「是哪个现场」，训练记录里的 `resumable`
+ *  说「检查点里的优化器还在不在」——后者只有后端知道。
+ *
+ *  `tail` 进状态条（短），`reason` 挂在按钮上（整句）。 */
+const settleAdvice = computed<{ ok: boolean; tail: string; reason: string } | null>(() => {
+  const r = settledJob.value
+  if (!r) return null
+  // 两种收尾的文案分开：崩溃的人想知道「现场还能不能用」，暂停的人想知道「东西还在不在」。
+  const okTail = r.status === 'failed' ? '现场可续' : '现场保留，可继续训练'
+  if (refreshing.value) {
+    return { ok: false, tail: '正在读取现场…', reason: '正在读取现场记录…' }
+  }
+  if (!r.run_id) {
+    return { ok: false, tail: '没有留下现场', reason: '训练还没开跑就结束了，没有留下现场' }
+  }
+  const target = settleTarget.value
+  if (!target) {
+    return {
+      ok: false,
+      tail: '第 1 轮未跑完，没有留下检查点',
+      reason: '第 1 轮未跑完，没有留下检查点',
+    }
+  }
+  if (!target.resumable) {
+    const why = target.resume_note || '该现场不可续训'
+    return { ok: false, tail: why, reason: why }
+  }
+  return { ok: true, tail: okTail, reason: '' }
+})
+
+/** 按钮区「继续训练」：与训练记录里那一条走同一条路（同一个确认框、同一个载荷）。 */
+function resumeSettled(): void {
+  const target = settleTarget.value
+  if (target) void resumeRun(target)
+}
+
+/** 任务收尾后重读训练记录。「能不能续」只有后端读得出（要看优化器状态），
+ *  列表刷新完之前不给按钮——否则会让人对着旧判据点一下撞 400。 */
+async function refreshRuns(): Promise<void> {
+  refreshing.value = true
+  try {
+    await loadRuns()
+  } finally {
+    refreshing.value = false
+  }
+}
+
 /** 显存预算：超上限的组合提交必被后端拒，不如在表单上先说清楚。 */
 const limits = ref<VramLimits | null>(null)
 const overBudget = computed(() => {
@@ -220,6 +289,10 @@ function appendSeries(
 
 function applyEvent(data: TrainStreamEvent): void {
   switch (data.type) {
+    case 'run':
+      // 开训前就有值：暂停时没有 done 事件，这个字段就是「继续训练」的全部依据。
+      if (data.run_id && job.value) job.value = { ...job.value, run_id: data.run_id }
+      break
     case 'epoch':
       if (typeof data.epoch === 'number') liveEpochs.value.push(data.epoch)
       appendSeries(liveLosses.value, data.losses)
@@ -249,7 +322,7 @@ function connect(id: string): void {
   disconnect()
   const es = new EventSource(api.trainJobStreamUrl(id))
   source = es
-  for (const kind of ['start', 'epoch', 'log', 'done', 'error', 'exit'] as const) {
+  for (const kind of ['start', 'run', 'epoch', 'log', 'done', 'error', 'exit'] as const) {
     es.addEventListener(kind, (e) => {
       try {
         applyEvent(JSON.parse((e as MessageEvent).data) as TrainStreamEvent)
@@ -265,7 +338,7 @@ function connect(id: string): void {
       /* 收尾事件的载荷解析失败也要收流 */
     }
     disconnect()
-    void loadRuns()
+    void refreshRuns()
   })
   // 连接异常时浏览器会自动带 Last-Event-ID 重连，服务端据此续传，不必在这里处理
 }
@@ -497,6 +570,12 @@ onBeforeUnmount(disconnect)
         </template>
       </p>
 
+      <!-- 开始 / 暂停 / 继续成组：这三件事是同一件事的三个阶段，放同一行，
+           用户不用在「下面的训练记录表」里找下一步。
+
+           后端那个接口其实是**结束训练进程树**，不是真挂起。但现场（last.pt 带
+           优化器状态）留得住，效果就是暂停，所以按钮就叫暂停——接口路径没改，
+           改它要动文档和 e2e，收益为零。 -->
       <div class="tray__actions">
         <button
           type="button"
@@ -504,7 +583,7 @@ onBeforeUnmount(disconnect)
           :disabled="active || !form.dataset || overBudget"
           @click="startTraining"
         >
-          {{ stopping ? '正在停止…' : running ? '训练进行中…' : '开始训练' }}
+          {{ stopping ? '正在暂停…' : running ? '训练进行中…' : '开始训练' }}
         </button>
         <button
           v-if="active"
@@ -513,7 +592,20 @@ onBeforeUnmount(disconnect)
           :disabled="stopping"
           @click="stopTraining"
         >
-          {{ stopping ? '停止中…' : '停止' }}
+          {{ stopping ? '暂停中…' : '暂停训练' }}
+        </button>
+        <!-- 崩溃（failed）和暂停（stopped）都留得住现场，所以都给这个按钮。
+             不能续时**保留按钮但禁用它**，原因写在下面那句状态里——藏起来的话
+             用户看到的是「上次崩了，然后什么都没有」。 -->
+        <button
+          v-if="settledJob"
+          type="button"
+          class="btn btn--ghost"
+          :disabled="!settleAdvice?.ok"
+          :title="settleAdvice?.reason || ''"
+          @click="resumeSettled"
+        >
+          继续训练
         </button>
       </div>
 
@@ -524,18 +616,28 @@ onBeforeUnmount(disconnect)
             v-if="lastEpoch !== null"
           >
             · 最新 mAP@50 <span class="fs-num">{{ lastEpoch.toFixed(3) }}</span></template
+          ><template v-if="liveRunId">
+            · 现场 <span class="mono">{{ liveRunId }}</span></template
           >
         </template>
         <template v-else-if="stopping">
-          正在停止…（结束训练进程树，几秒内释放 GPU）
+          正在暂停…（结束训练进程树，几秒内释放 GPU）
         </template>
         <template v-else-if="job.status === 'done'">
           已完成 · 归档为 <span class="mono">{{ job.run_id }}</span>
         </template>
         <template v-else-if="job.status === 'failed'">
           失败 · {{ job.error ?? `退出码 ${job.returncode}` }}
+          <template v-if="settleAdvice"> · {{ settleAdvice.tail }}</template>
         </template>
-        <template v-else>已停止（未归档，现场记录仍在）</template>
+        <!-- 暂停留下的现场和崩溃留下的一模一样（last.pt 都带优化器状态），
+             所以两种收尾给同一句话，差别只在下一句能不能续。 -->
+        <template v-else>
+          已暂停 · {{ settleAdvice?.tail ?? '现场保留' }}
+          <template v-if="settleTarget && settleAdvice?.ok">
+            · 现场 <span class="mono">{{ settleTarget.run_id }}</span>
+          </template>
+        </template>
       </p>
     </section>
 
@@ -598,7 +700,7 @@ onBeforeUnmount(disconnect)
               v-for="r in runs"
               :key="r.run_id"
               :data-run-id="r.run_id"
-              :class="{ 'is-selected': r.run_id === selectedId }"
+              :class="{ 'is-selected': r.run_id === selectedId, 'is-live': r.run_id === liveRunId }"
             >
               <td>
                 <!-- 用真的 button 而不是给 tr 挂 click：键盘可达 -->
@@ -616,16 +718,22 @@ onBeforeUnmount(disconnect)
                 <span v-else class="tag">现场</span>
               </td>
               <td>
-                <button
-                  v-if="r.resumable"
-                  type="button"
-                  class="fs-btn-ghost fs-btn-ghost--tiny"
-                  :disabled="active || resuming === r.run_id"
-                  :title="`已完成 ${r.resume_done}/${r.resume_total} 轮，从第 ${(r.resume_done ?? 0) + 1} 轮继续`"
-                  @click="resumeRun(r)"
-                >
-                  {{ resuming === r.run_id ? '发起中…' : '继续训练' }}
-                </button>
+                <!-- 本次任务的那一行要说清「它就是你刚起的那个」：正在跑时按钮必须
+                     按死，否则点下去只会撞 409（GPU 还被自己占着）。 -->
+                <template v-if="r.run_id === liveRunId && active">
+                  <span class="tag tag--live">本次任务{{ running ? '进行中' : '收尾中' }}</span>
+                </template>
+                <template v-else-if="r.resumable">
+                  <button
+                    type="button"
+                    class="fs-btn-ghost fs-btn-ghost--tiny"
+                    :disabled="active || resuming === r.run_id"
+                    :title="`已完成 ${r.resume_done}/${r.resume_total} 轮，从第 ${(r.resume_done ?? 0) + 1} 轮继续`"
+                    @click="resumeRun(r)"
+                  >
+                    {{ resuming === r.run_id ? '发起中…' : '继续训练' }}
+                  </button>
+                </template>
                 <!-- 说不清为什么不能续，用户就会以为是按钮坏了 -->
                 <span v-else class="why" :title="r.resume_note">不可续训</span>
               </td>
@@ -843,6 +951,14 @@ onBeforeUnmount(disconnect)
   padding-left: calc(var(--s3) - 2px);
 }
 
+/* 已暂停：和 stopping 同样是中性色，但竖线画成虚线——实线在这套界面里
+   读作「终局」，而暂停的现场还等着人接着往下跑。 */
+.status--stopped {
+  color: var(--ink-body);
+  border-left: 2px dashed var(--line-strong);
+  padding-left: calc(var(--s3) - 2px);
+}
+
 .logs {
   max-height: 320px;
   margin: 0;
@@ -875,6 +991,12 @@ onBeforeUnmount(disconnect)
   box-shadow: inset 2px 0 0 var(--signal);
 }
 
+/* 本次任务的现场行：正在写盘的那一行。和「选中」用同一道竖线——两者都是
+   「看这里」，不该给两个颜色；不同的是这一行的动作列按死为标签，点不动。 */
+.fs-ledger tbody tr.is-live td:first-child {
+  box-shadow: inset 2px 0 0 var(--signal);
+}
+
 .tag {
   display: inline-flex;
   align-items: center;
@@ -895,6 +1017,14 @@ onBeforeUnmount(disconnect)
   color: var(--ink);
   background: var(--surface-sunk);
   box-shadow: inset 0 0 0 1px var(--line-strong);
+}
+
+/* 「本次任务」：表格里那一行就是当前这个任务。它不是一个可点的动作，
+   是一个指认——所以给冷色竖边，不做成按钮的样子。 */
+.tag--live {
+  color: var(--signal-deep);
+  background: var(--surface-sunk);
+  box-shadow: inset 0 0 0 1px var(--signal);
 }
 
 /* --- 图件 ------------------------------------------------------------- */

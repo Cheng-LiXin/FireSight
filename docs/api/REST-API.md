@@ -537,8 +537,20 @@ data: {"type":"epoch","epoch":1,"epochs":3,
        "seq":73}
 ```
 
-事件类型：`start` / `epoch` / `log` / `done` / `error` / `exit` / `close`。
+事件类型：`start` / `run` / `epoch` / `log` / `done` / `error` / `exit` / `close`。
 `close` 带任务最终状态，客户端收到即可收流。
+
+`run` 在训练**真正开跑之前**发出，`data` 形如：
+
+```
+event: run
+data: {"type":"run","run_id":"20260101-120000-D-Fire-train-yolo11s"}
+```
+
+它是唯一一条能覆盖「中途被暂停」的现场线索：被暂停的任务永远走不到 `done`，
+只会到 `close`，若等到 `done` 才知道 `run_id`，界面就不知道该续哪个现场。
+`run_id` 是**现场目录名**（`runs/training/` 下那一层），不是归档名——设了
+`experiment` 时两者不同，而 `resume_run_id` 认的是前者。
 
 - **指标键与 `/api/train/curves` 完全一致**，因此实时曲线与历史曲线可以复用
   同一套图表配置
@@ -550,6 +562,10 @@ data: {"type":"epoch","epoch":1,"epochs":3,
 
 停止训练。返回 `{"stopped": true|false}`（false 表示任务不在 `running` 状态，
 例如已经停过了）。
+
+界面上这个按钮叫「**暂停训练**」而不是「停止」：实际语义确实是结束进程树
+（不是挂起），但现场留得住——`last.pt` 带着优化器状态，`results.csv` 已追加到
+第 N 轮——下一次训练可以从第 N+1 轮接上。接口路径保留 `stop` 未改名。
 
 **结束的是整棵进程树**（Windows 走 `taskkill /F /T`）：只终止直接子进程会留下
 DataLoader 的 `workers` 个子进程，它们变成孤儿继续占着显存，下一次训练可能因此

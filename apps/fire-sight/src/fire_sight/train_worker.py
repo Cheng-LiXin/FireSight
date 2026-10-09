@@ -6,9 +6,13 @@
 协议 —— 每行一个 JSON 对象，写在**真正的** stdout 上：
 
     {"type":"start", "epochs": 50, "dataset": "demo_fire"}
+    {"type":"run",   "run_id": "20260926-190635-D-Fire-train-yolo11n"}
     {"type":"epoch", "epoch": 1, "epochs": 50, "metrics": {...}, "losses": {...}}
     {"type":"done",  "run_id": "...", "best_pt": "..."}
     {"type":"error", "message": "..."}
+
+`run` 在训练**真正开跑之前**发出，是唯一一条能覆盖「中途被暂停」的现场线索：
+暂停的任务走不到 done，父进程只能靠它把界面上的任务和 runs/ 下那个目录对上。
 
 ultralytics 自己会往 stdout 打大量日志，所以本模块导入的第一件事就是把
 sys.stdout 改道到 stderr——父进程照常把 stderr 当日志流转发，协议流保持干净。
@@ -66,7 +70,13 @@ def main(argv: List[str]) -> int:
         config = TrainConfig(**cfg)
         emit({"type": "start", "epochs": config.epochs, "dataset": config.dataset})
 
-        result = train_yolo(config, on_epoch=lambda info: emit({"type": "epoch", **info}))
+        result = train_yolo(
+            config,
+            on_epoch=lambda info: emit({"type": "epoch", **info}),
+            # 开跑前先报现场名：被暂停的任务没有 done 事件，这是界面唯一能拿到的
+            # 「该续哪个现场」。
+            on_run=lambda run_id: emit({"type": "run", "run_id": run_id}),
+        )
 
         emit(
             {

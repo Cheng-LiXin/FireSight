@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -368,3 +369,180 @@ def test_train_config_has_resume_default_empty():
     from fire_sight_platform.runtime_config.base import TrainConfig
 
     assert TrainConfig(dataset="x").resume == ""
+
+
+# --------------------------------------------------------------------------
+# 现场名上报：必须早于 model.train()
+#
+# 网页端要在「任务还没跑完」时就知道这次训练落到哪个现场。等到训练结束才说，
+# 被暂停的任务永远等不到那一刻——用户点了暂停，界面就再也说不出该续哪个现场。
+# 所以这两条测的不是「回调被调了」，而是**调用顺序**。
+# --------------------------------------------------------------------------
+
+
+class _FakeYOLO:
+    """假的 YOLO：只记下「train 被调用时，on_run 已经报过了吗」。"""
+
+    def __init__(self, model, seen: list, log: list):
+        self._seen = seen
+        self._log = log
+
+    def add_callback(self, event, handler):  # pragma: no cover - 本组不传 on_epoch
+        self._log.append(("add_callback", event))
+
+    def train(self, **kwargs):
+        # 这一行就是判据：走到 train 时 on_run 必须已经报过了
+        self._log.append(("train", list(self._seen)))
+        from types import SimpleNamespace
+
+        return SimpleNamespace(save_dir=kwargs.get("project", ""))
+
+
+def _fake_yolo_factory(seen: list, log: list):
+    class YOLO(_FakeYOLO):
+        def __init__(self, model):
+            super().__init__(model, seen, log)
+
+    return YOLO
+
+
+def test_fresh_run_reports_the_experiment_name_before_training(tmp_path, monkeypatch):
+    """上报的是**现场目录名**（runs/training 下的那一层），不是归档名。
+
+    设了 experiment 时两者不同，而 resume_run_id 认的是前者——报错了界面就会去
+    续一个不存在的现场。
+    """
+    import fire_sight_platform.training.service as svc
+    from fire_sight_platform.runtime_config.base import TrainConfig
+
+    monkeypatch.setattr(svc, "_resolve_dataset_yaml", lambda _d: tmp_path / "x.yaml")
+    monkeypatch.setattr(svc, "RUNS_DIR", tmp_path / "runs")
+
+    seen: list = []
+    log: list = []
+    cfg = TrainConfig(dataset="x", epochs=1, experiment="我的实验")
+
+    svc._train_fresh(cfg, None, lambda rid: seen.append(rid), _fake_yolo_factory(seen, log))
+
+    assert seen == ["我的实验"]
+    assert log == [("train", ["我的实验"])], "on_run 必须早于 model.train()"
+
+
+def test_fresh_run_without_experiment_reports_the_generated_run_id(tmp_path, monkeypatch):
+    import fire_sight_platform.training.service as svc
+    from fire_sight_platform.runtime_config.base import TrainConfig
+
+    monkeypatch.setattr(svc, "_resolve_dataset_yaml", lambda _d: tmp_path / "x.yaml")
+    monkeypatch.setattr(svc, "RUNS_DIR", tmp_path / "runs")
+
+    seen: list = []
+    log: list = []
+    cfg = TrainConfig(dataset="D-Fire/raw", model="yolo11s.pt", epochs=1)
+
+    _, run_id, _ = svc._train_fresh(
+        cfg, None, lambda rid: seen.append(rid), _fake_yolo_factory(seen, log)
+    )
+
+    # 没设 experiment 时两者相同：现场目录就叫这个
+    assert seen == [run_id]
+    assert log == [("train", [run_id])]
+
+
+def test_resume_reports_the_checkpoint_scene_before_training(tmp_path, monkeypatch):
+    """续训的现场名来自检查点里的 `info["name"]`——就是那个正在被追加的目录。
+
+    报错的话「继续训练」会指向另一个现场，等于在错误的目录上接着跑。
+    """
+    import types
+
+    from fire_sight_platform.runtime_config.base import TrainConfig
+    from fire_sight_platform.training import service as svc
+
+    path = tmp_path / "现场A" / "weights" / "last.pt"
+    make_checkpoint(path, done_epochs=10, total=50, stripped=False)
+
+    seen: list = []
+    log: list = []
+
+    fake = types.ModuleType("ultralytics")
+    fake.YOLO = _fake_yolo_factory(seen, log)
+    # 必须换 sys.modules 而不是属性：_train_from_checkpoint 里是函数内 import
+    monkeypatch.setitem(sys.modules, "ultralytics", fake)
+
+    _, run_id, _ = svc._train_from_checkpoint(
+        TrainConfig(resume=str(path)), None, lambda rid: seen.append(rid)
+    )
+
+    assert run_id == "现场A"
+    assert seen == ["现场A"]
+    assert log == [("train", ["现场A"])], "on_run 必须早于 model.train()"
+
+
+def test_a_refused_checkpoint_never_reports_a_run_id(tmp_path, monkeypatch):
+    """拒绝路径上不能先报现场再抛异常——界面会拿到一个不该出现的「可续」提示。"""
+    from fire_sight_platform.runtime_config.base import TrainConfig
+    from fire_sight_platform.training.service import _train_from_checkpoint
+
+    path = tmp_path / "weights" / "last.pt"
+    make_checkpoint(path, done_epochs=30, total=30, stripped=True)
+
+    seen: list = []
+    with pytest.raises(ValueError, match="优化器"):
+        _train_from_checkpoint(TrainConfig(resume=str(path)), None, lambda rid: seen.append(rid))
+
+    assert seen == []
+
+
+def test_a_broken_run_callback_does_not_kill_the_training(caplog):
+    """回调里抛异常不该毁掉一次几十分钟的训练。"""
+    from fire_sight_platform.training.service import _notify_run
+
+    def boom(_run_id: str) -> None:
+        raise RuntimeError("管道断了")
+
+    with caplog.at_level("ERROR"):
+        _notify_run(boom, "现场A")  # 不该抛出去
+
+    assert "上报 run_id 失败" in caplog.text
+    assert _notify_run(None, "现场A") is None
+
+
+# --------------------------------------------------------------------------
+# 子进程协议：run 事件确实发出去了，且在 done 之前
+# --------------------------------------------------------------------------
+
+
+def test_worker_emits_run_before_epochs_and_done(tmp_path, monkeypatch):
+    """父进程只认协议行。worker 少发一条 run，整条「暂停后还能续」的链路就断了。
+
+    `main` 每行都 flush 到 `_PROTOCOL`，所以这里换掉它就能把协议流整条截下来，
+    不必起真进程、也不必真加载 ultralytics。
+    """
+    import io
+    from types import SimpleNamespace
+
+    from fire_sight import train_worker
+    from fire_sight_platform.training import service as svc
+
+    def fake_train_yolo(config, on_epoch=None, on_run=None):
+        if on_run is not None:
+            on_run("20261009-170000-D-Fire-train-yolo11n")
+        if on_epoch is not None:
+            on_epoch({"epoch": 1, "epochs": 2, "metrics": {}, "losses": {}})
+        return SimpleNamespace(
+            run_id="20261009-170000-D-Fire-train-yolo11n", best_pt="b.pt", save_dir="s"
+        )
+
+    monkeypatch.setattr(svc, "train_yolo", fake_train_yolo)
+
+    cfg_path = tmp_path / "cfg.json"
+    cfg_path.write_text('{"dataset": "demo_fire", "epochs": 2}', encoding="utf-8")
+
+    buf = io.StringIO()
+    monkeypatch.setattr(train_worker, "_PROTOCOL", buf)
+
+    assert train_worker.main(["worker", str(cfg_path)]) == 0
+
+    lines = [json.loads(line) for line in buf.getvalue().splitlines() if line.strip()]
+    assert [line["type"] for line in lines] == ["start", "run", "epoch", "done"]
+    assert lines[1]["run_id"] == "20261009-170000-D-Fire-train-yolo11n"

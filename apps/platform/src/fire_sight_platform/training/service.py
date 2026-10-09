@@ -117,6 +117,7 @@ def read_checkpoint(path: Path | str) -> Dict[str, Any]:
 def _train_from_checkpoint(
     cfg: TrainConfig,
     on_epoch: Optional[Callable[[Dict[str, Any]], None]],
+    on_run: Optional[Callable[[str], None]] = None,
 ):
     """从 `cfg.resume`（现场目录的 last.pt）续训，返回 (results, run_id, data_yaml)。
 
@@ -146,6 +147,7 @@ def _train_from_checkpoint(
 
     run_id = info["name"] or Path(cfg.resume).parent.parent.name
     imgsz = info["imgsz"] or cfg.imgsz
+    _notify_run(on_run, run_id)
 
     logger.info("断点续训".center(60, "="))
     logger.info(f"  检查点  : {cfg.resume}")
@@ -171,14 +173,34 @@ def _train_from_checkpoint(
     return results, run_id, Path(info["data"]) if info["data"] else None
 
 
+def _notify_run(on_run: Optional[Callable[[str], None]], run_id: str) -> None:
+    """把 run_id 报给上层。**必须早于 model.train()**。
+
+    上层（网页端）要在「任务还没跑完」时就知道这次训练落到哪个现场。等到训练
+    结束才说，被暂停的任务永远等不到那一刻——用户点了暂停，界面就再也说不出
+    该续哪个现场。回调里抛异常不该毁掉一次几十分钟的训练，所以整条吞掉。
+    """
+    if on_run is None:
+        return
+    try:
+        on_run(run_id)
+    except Exception:  # noqa: BLE001
+        logger.exception("上报 run_id 失败（不中断训练）")
+
+
 def train_yolo(
     cfg: TrainConfig,
     on_epoch: Optional[Callable[[Dict[str, Any]], None]] = None,
+    on_run: Optional[Callable[[str], None]] = None,
 ) -> TrainResult:
     """按 TrainConfig 启动一次可归档的 YOLO 训练。
 
     on_epoch 每轮结束收到一次 {epoch, epochs, metrics, losses}。网页端据此推实时
     曲线；命令行不传即可，行为与从前一致。
+
+    on_run 在**训练真正开跑之前**收到一次 run_id（现场目录名）。网页端靠它把
+    「正在跑的任务」和 runs/ 下那个目录对上——训练被中途暂停时没有 done 事件，
+    只能在这里提前知道。
 
     `cfg.resume` 非空时走断点续训：见 `_train_from_checkpoint`。
     """
@@ -198,9 +220,9 @@ def train_yolo(
     log_device_info()
 
     if cfg.resume:
-        results, run_id, yaml_path = _train_from_checkpoint(cfg, on_epoch)
+        results, run_id, yaml_path = _train_from_checkpoint(cfg, on_epoch, on_run)
     else:
-        results, run_id, yaml_path = _train_fresh(cfg, on_epoch, YOLO)
+        results, run_id, yaml_path = _train_fresh(cfg, on_epoch, on_run, YOLO)
         logger.info(f"数据集: {yaml_path}")
 
     return _finish(results, cfg, run_id, yaml_path)
@@ -209,6 +231,7 @@ def train_yolo(
 def _train_fresh(
     cfg: TrainConfig,
     on_epoch: Optional[Callable[[Dict[str, Any]], None]],
+    on_run: Optional[Callable[[str], None]],
     YOLO,
 ):
     """常规训练：从预训练权重起一次新的现场。"""
@@ -230,6 +253,9 @@ def _train_fresh(
     exp = (cfg.experiment or "").strip()
     if exp.lower() in {"", "none", "null"}:
         exp = run_id
+    # 上报的是**现场目录名**（runs/training 下的那一层），不是归档名。两者只在
+    # 没设 experiment 时相同；resume_run_id 认的是前者，界面必须拿到对的那个。
+    _notify_run(on_run, exp)
     project = RUNS_DIR / "training"
     results = model.train(
         data=str(yaml_path),

@@ -257,8 +257,13 @@ class JobManager:
         if kind == "start":
             job.epochs = int(event.get("epochs") or job.epochs)
             job.dataset = str(event.get("dataset") or job.dataset)
+        elif kind == "run":
+            # 子进程开训前报的现场名。**不能只等 done**：用户一按暂停，这个任务
+            # 就再也走不到 done，界面于是不知道「继续训练」该续哪个现场。
+            job.run_id = event.get("run_id") or job.run_id
         elif kind == "done":
-            job.run_id = event.get("run_id")
+            # 兜住 None：run 事件已经报过的现场不该被一条缺字段的 done 抹掉
+            job.run_id = event.get("run_id") or job.run_id
         elif kind == "error":
             job.error = event.get("message")
         job.add_event(event)

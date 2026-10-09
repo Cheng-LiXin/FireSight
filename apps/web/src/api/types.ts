@@ -448,7 +448,9 @@ export interface TrainJob {
 
 /** SSE 事件。type 决定哪些字段有值，其余为 undefined。 */
 export interface TrainStreamEvent {
-  type: 'start' | 'epoch' | 'log' | 'done' | 'error' | 'exit' | 'close'
+  /** `run` 在训练真正开跑之前到达，带着现场名。被暂停的任务没有 `done`，
+   *  这是界面唯一能知道「该续哪个现场」的来源。 */
+  type: 'start' | 'run' | 'epoch' | 'log' | 'done' | 'error' | 'exit' | 'close'
   seq?: number
   epoch?: number
   epochs?: number

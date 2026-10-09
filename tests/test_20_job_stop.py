@@ -185,6 +185,70 @@ def test_real_crash_is_still_recorded_as_failed(jobs_env):
 
 
 # --------------------------------------------------------------------------
+# 现场名：不能只等 done
+# --------------------------------------------------------------------------
+
+
+def test_run_event_records_the_run_id_before_done(jobs_env):
+    """被暂停的任务**永远走不到 done**，界面只能靠 run 事件知道该续哪个现场。
+
+    这条挂了的话，「暂停 → 继续训练」在按钮区就没有落点：界面说不出上次训练
+    落在 runs/ 下哪个目录。
+    """
+    job = jobs_env.manager.start({"dataset": "demo_fire", "epochs": 1})
+    assert job.run_id is None
+
+    jobs_env.manager._absorb(job, {"type": "run", "run_id": "20261009-170000-D-Fire-train-yolo11n"})
+
+    assert job.run_id == "20261009-170000-D-Fire-train-yolo11n"
+
+    # 暂停收尾：走不到 done，现场名必须还在
+    jobs_env.manager.stop(job.id)
+    assert settle(job) == "stopped"
+    assert job.run_id == "20261009-170000-D-Fire-train-yolo11n"
+
+
+def test_done_event_does_not_erase_the_reported_run_id(jobs_env):
+    """done 缺 run_id 时不能把 run 事件报过的现场抹成 None。
+
+    两个事件说的应当是同一个现场；真出现分歧也宁可留早先那个——它已经显示给
+    用户了，中途换一个等于让「继续训练」指向别处。
+    """
+    job = jobs_env.manager.start({"dataset": "demo_fire", "epochs": 1})
+    jobs_env.manager._absorb(job, {"type": "run", "run_id": "现场A"})
+    jobs_env.manager._absorb(job, {"type": "done"})
+
+    assert job.run_id == "现场A"
+
+
+def test_run_event_is_forwarded_to_the_stream(jobs_env):
+    """SSE 层不用改：凡是进事件缓冲的都会透传出去，界面按 type 分发。"""
+    from fire_sight.api.routers import train as train_router
+
+    jobs_mod = jobs_env
+    job = jobs_mod.TrainJob(id="jrun", dataset="demo", epochs=1, status="running")
+    jobs_mod.manager._absorb(job, {"type": "run", "run_id": "现场B"})
+    jobs_mod.manager._jobs[job.id] = job
+    jobs_mod.manager._order.append(job.id)
+
+    async def scenario() -> str:
+        resp = await train_router.stream_job(job.id, since=0, last_event_id="")
+        gen = resp.body_iterator
+        first = await asyncio.wait_for(anext(gen), timeout=5)
+        return first
+
+    try:
+        first = asyncio.run(scenario())
+    finally:
+        jobs_mod.manager._jobs.pop(job.id, None)
+        jobs_mod.manager._order.remove(job.id)
+        job.status = "done"
+
+    assert "event: run" in first
+    assert "现场B" in first
+
+
+# --------------------------------------------------------------------------
 # 重启训练：要给出可照做的提示，而不是含糊的「train 占用」
 # --------------------------------------------------------------------------
 
