@@ -1,7 +1,7 @@
 {
   "name": "fire-sight-web",
   "private": true,
-  "version": "1.9.4",
+  "version": "1.9.5",
   "type": "module",
   "description": "FireSight 值班控制台前端",
   "scripts": {
