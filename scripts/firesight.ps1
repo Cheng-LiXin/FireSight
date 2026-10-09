@@ -30,11 +30,6 @@
 .PARAMETER Build
     start 前强制重建前端（npm run build）
 
-.PARAMETER AutoBuild
-    start 时只要检测到前端源码比 dist 新就自动重建（默认关闭）。
-    启动.cmd 传的就是这个：桌面双击进来的路径不该要求人记得加 -Build，
-    而漏重建的后果是「页面看起来没改」，排查起来最费时间。
-
 .PARAMETER Foreground
     前台运行，Ctrl+C 即停（默认后台运行并把日志写进 .runtime/logs）
 
@@ -55,7 +50,6 @@ param(
     [int]$Port = 8000,
     [switch]$Dev,
     [switch]$Build,
-    [switch]$AutoBuild,
     [switch]$Foreground,
     [switch]$Force
 )
@@ -229,39 +223,17 @@ function Invoke-Build {
 }
 
 function Test-DistStale {
-    <#
-        返回 'missing' / 'stale' / 'ok'。
-
-        判据是「有没有比产物更晚的输入文件」，比较对象必须覆盖**所有**进入
-        打包的输入，少一类就会出现「我改了它，页面却没变」：
-          · src/          —— 组件与样式
-          · index.html    —— Vite 的 HTML 入口，标题与 favicon 都在里面
-          · public/       —— 原样拷贝，不参与 hash 比对
-          · .env*         —— 会被 vite 读进去注入 define
-          · 根配置文件    —— vite / package / tsconfig
-    #>
+    <# 返回 'missing' / 'stale' / 'ok' #>
     if (-not (Test-Path $DistIndex)) { return 'missing' }
     $built = (Get-Item $DistIndex).LastWriteTime
-
-    $candidates = @()
-
-    $candidates += Get-ChildItem (Join-Path $WebDir 'src') -Recurse -File -ErrorAction SilentlyContinue
-
-    $pub = Join-Path $WebDir 'public'
-    if (Test-Path $pub) {
-        $candidates += Get-ChildItem $pub -Recurse -File -ErrorAction SilentlyContinue |
-            Where-Object { $_.FullName -notmatch '[\\/](node_modules|dist)[\\/]' }
+    $src = Get-ChildItem (Join-Path $WebDir 'src') -Recurse -File -ErrorAction SilentlyContinue |
+        Sort-Object LastWriteTime -Descending | Select-Object -First 1
+    $cfg = Get-ChildItem $WebDir -File -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -match '^(vite|package|tsconfig).*' } |
+        Sort-Object LastWriteTime -Descending | Select-Object -First 1
+    foreach ($f in @($src, $cfg)) {
+        if ($f -and $f.LastWriteTime -gt $built) { return 'stale' }
     }
-
-    $candidates += Get-ChildItem $WebDir -File -ErrorAction SilentlyContinue |
-        Where-Object { $_.Name -match '^(vite\.|package\.json$|tsconfig|index\.html$)' -or $_.Name -like '.env*' }
-
-    $newest = $candidates |
-        Where-Object { $_.FullName -ne $DistIndex } |
-        Sort-Object LastWriteTime -Descending |
-        Select-Object -First 1
-
-    if ($newest -and $newest.LastWriteTime -gt $built) { return 'stale' }
     return 'ok'
 }
 
@@ -294,19 +266,10 @@ function Invoke-Start {
 
     # 前端产物
     $state = Test-DistStale
-    if ($Build -or $AutoBuild) {
-        if ($state -eq 'ok') {
-            Write-Ok '前端产物是最新的'
-        } elseif ($state -eq 'missing') {
+    if ($Build -or $state -eq 'missing') {
+        if ($state -eq 'missing' -and -not $Build) {
             Write-Warn 'apps/web/dist 不存在——没有它就没有控制台界面，先构建'
-            if (-not (Invoke-Build)) { return 1 }
-        } else {
-            # -AutoBuild 命中：只有这里会「什么都不问就动手」，
-            # 因为这是用户双击启动时就给出的授权，不是脚本自作主张。
-            if (-not (Invoke-Build)) { return 1 }
         }
-    } elseif ($state -eq 'missing') {
-        Write-Warn 'apps/web/dist 不存在——没有它就没有控制台界面，先构建'
         if (-not (Invoke-Build)) { return 1 }
     } elseif ($state -eq 'stale') {
         Write-Warn '前端源码比 dist 新，页面可能不是最新的：'
@@ -460,7 +423,7 @@ function Invoke-Status {
     $distState = Test-DistStale
     switch ($distState) {
         'ok' { Write-Host '  前端产物：最新' }
-        'stale' { Write-Warn '前端产物：源码更新了但没重建（启动.cmd 会自动重建，命令行用 start -Build）' }
+        'stale' { Write-Warn '前端产物：源码更新了但没重建（start -Build）' }
         'missing' { Write-Warn '前端产物：不存在（start 会自动构建）' }
     }
 
