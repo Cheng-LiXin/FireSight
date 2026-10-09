@@ -12,6 +12,7 @@ from fire_sight_platform.common.performance_utils import time_it
 from fire_sight_platform.common.system_utils import log_device_info
 from fire_sight_platform.runtime_config.base import TrainConfig
 from fire_sight_platform.training.archive import archive_best_weight, make_run_id
+from fire_sight_platform.training.catalog import training_weight
 from fire_sight_platform.training.result import extract_metrics, log_train_metrics
 
 logger = logging.getLogger(__name__)
@@ -242,7 +243,14 @@ def _train_fresh(
         f"workers={cfg.workers} fraction={cfg.fraction} cache={cfg.cache}"
     )
 
-    model = YOLO(cfg.model)
+    # 权重名先解析成绝对路径再交给 ultralytics。不解析的话它会按 CWD 找，
+    # 而 CWD 是仓库根——下载也就落在那儿，绕开了受管的 weights_dir，
+    # 于是界面（只认受管目录）把本机明明有的权重标成「需下载」。
+    # 注意**不改写 cfg.model**：归档里的 train_config.yaml 与 run_id 都记这个值，
+    # 记成绝对路径会让现场不可移植。
+    weights_path = training_weight(cfg.model)
+    logger.info(f"权重: {cfg.model} -> {weights_path}")
+    model = YOLO(str(weights_path))
     if on_epoch is not None:
         # 用 on_fit_epoch_end 而非 on_train_epoch_end：后者触发时本轮验证还没跑，
         # 指标会慢一轮（第一轮全是 0）。ultralytics 也是在这一刻写 results.csv，

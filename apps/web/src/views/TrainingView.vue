@@ -421,8 +421,8 @@ async function stopTraining(): Promise<void> {
 async function loadModels(): Promise<void> {
   try {
     modelOptions.value = await api.trainModels()
-    // 默认值改成**本机已有的第一个**，而不是写死 yolo11n：标尺模型在本机没有
-    // 权重文件，写死它会让第一次训练先卡在下载上。
+    // 默认值改成**本机已有的第一个**，而不是写死 yolo11n：本机有哪些权重是
+    // 运行时事实（受管目录与仓库根都算），写死一个名字会在它缺失时先卡下载。
     if (!modelOptions.value.some((m) => m.name === form.value.model)) {
       const first = modelOptions.value.find((m) => m.present)
       if (first) form.value.model = first.name

@@ -22,14 +22,17 @@ for extra in (
 def _find_weights() -> Path | None:
     # 先找训练出来的火情权重。yolo11n.pt 是 COCO 预训练，在火情图上检出的是
     # 无关类别（实测 cls=62），拿它当夹具会让「应当出告警」这类断言永远失败。
+    # 兜底的 yolo11n.pt 走 catalog 解析（受管目录优先、仓库根兜底），别自己拼
+    # 根目录路径：权重一度就落在根目录，现在归位到 .runtime/ultralytics/weights/。
+    from fire_sight_platform.training.catalog import resolve_weight
+
     candidates = [
         *sorted((ROOT / "models" / "trained").glob("*/best.pt"), reverse=True),
-        ROOT / "yolo11n.pt",
     ]
     for p in candidates:
         if p.exists():
             return p
-    return None
+    return resolve_weight("yolo11n.pt")
 
 
 def test_infer_config_defaults():

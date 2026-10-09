@@ -79,9 +79,12 @@ def test_infer_service_batch(tmp_path):
     import cv2
 
     from fire_sight.services import InferService
+    from fire_sight_platform.training.catalog import resolve_weight
 
-    weights = ROOT / "yolo11n.pt"
-    if not weights.exists():
+    # 同样走 catalog 解析：预训练权重的落点是 .runtime/ultralytics/weights/，
+    # 根目录那条老路已经归位，不要再自己拼路径。
+    weights = resolve_weight("yolo11n.pt")
+    if weights is None:
         cands = sorted((ROOT / "models" / "trained").glob("*/best.pt"))
         if not cands:
             pytest.skip("no weights")

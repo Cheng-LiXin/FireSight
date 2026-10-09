@@ -334,3 +334,27 @@ def test_start_job_conflicts_with_held_gpu_lock(client, tmp_path, monkeypatch):
 def test_job_list_empty_initially(client):
     body = client.get("/api/train/jobs").json()
     assert isinstance(body, list)
+
+
+def test_models_endpoint_reports_a_weight_kept_in_the_repo_root(client, tmp_path, monkeypatch):
+    """回归：根目录里的 yolo11n.pt 曾被这条接口标成「需下载」。
+
+    界面按 `present` 挑默认模型，而 `yolo11n` 是标定基准（现役对照模型），
+    被标 loss 会让默认值漂到 yolo11s 上——训练预算与对照关系一起变形。
+    """
+    from fire_sight_platform.training import catalog
+
+    root = tmp_path / "root"
+    root.mkdir()
+    (root / "yolo11n.pt").write_bytes(b"x" * 4096)
+    monkeypatch.setattr(catalog, "ROOT_DIR", root)
+    monkeypatch.setattr(catalog, "RUNTIME_ULTRALYTICS_DIR", tmp_path / "runtime")
+
+    body = client.get("/api/train/models").json()
+    by_stem = {o["stem"]: o for o in body}
+
+    assert [o["stem"] for o in body] == list(catalog.FAMILIES)
+    assert by_stem["yolo11n"]["present"] is True
+    assert by_stem["yolo11n"]["name"] == "yolo11n.pt"
+    assert by_stem["yolo11n"]["size_mb"] is not None
+    assert by_stem["yolo11l"]["present"] is False

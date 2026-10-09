@@ -292,8 +292,10 @@ def list_model_options() -> List[ModelOption]:
 
     之前界面里「模型」是一个自由文本输入框，用户得自己记得 `yolo11s.pt` 这个
     拼写；写错了要等训练起起来才报「找不到权重」。这里把可选清单一次给全，
-    并如实标出 `present`——本机只有 n/s/m 三个权重，l/x 要联网下载，
-    离线时选了就是一次明确的失败，不如提前说。
+    并如实标出 `present`——`present=false` 表示本机没有，选了会联网下载，
+    离线时就是一次明确的失败，不如提前说。
+
+    判据在 `catalog.list_options`：受管目录与仓库根都认（详见该模块文档）。
     """
     from fire_sight_platform.training.catalog import list_options
 

@@ -8,14 +8,20 @@
 权重的落点由 `runtime_env` 钉在 `.runtime/ultralytics/weights/`（改道自 C 盘，
 见该模块的文档）。ultralytics 自己会在缺失时联网下载，但**本机离线或没网时
 就会失败**，所以这里如实标出 `present`，让用户自己决定要不要选它。
+
+**「本机有没有」要认两个落点**：受管目录，以及仓库根。后者不是历史包袱而是
+ultralytics 的真实行为——它解析裸名时先看当前工作目录（见
+`ultralytics.utils.downloads.attempt_download_asset`），而训练子进程的 CWD 正是
+仓库根。只认受管目录会把根目录里躺着的权重标成「需下载」，连带把默认模型顶到
+另一个上去（`6d56afb` 引入下拉时就是这么错到现在的）。
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import List, Optional
+from pathlib import Path
 
-from fire_sight_platform.common.paths import RUNTIME_ULTRALYTICS_DIR
+from fire_sight_platform.common.paths import ROOT_DIR, RUNTIME_ULTRALYTICS_DIR
 from fire_sight_platform.training import vram
 
 # 候选家族，按「由小到大」列出——这是本项目实验过/要实验的顺序。
@@ -53,7 +59,7 @@ class ModelOption:
     #: 权重文件是否已在本机（缺失时 ultralytics 会尝试联网下载）
     present: bool
     #: 本地文件大小（MB），缺失时为 None
-    size_mb: Optional[float]
+    size_mb: float | None
     #: 显存规模因子是否有**实测**依据（False 表示按未知模型保守估）
     measured: bool
     factor: float
@@ -61,27 +67,77 @@ class ModelOption:
 
 
 def weights_dir():
-    """预训练权重的落点（与 runtime_env 的钉定保持一致）。"""
+    """预训练权重的受管落点（与 runtime_env 的钉定保持一致）。"""
     return RUNTIME_ULTRALYTICS_DIR / "weights"
 
 
 def weight_path(stem: str):
+    """受管落点里的权重文件；**不保证存在**（存在性判断用 `resolve_weight`）。"""
     return weights_dir() / f"{stem}.pt"
 
 
-def list_options() -> List[ModelOption]:
+def resolve_weight(name: str) -> Path | None:
+    """把权重名（`yolo11s.pt` 或一条路径）解析成本机上真实存在的文件。
+
+    顺序与 ultralytics 自己的查找对齐，否则界面说「已就绪」而训练进程报
+    「找不到权重」：
+
+    1. 绝对路径——就认它；
+    2. 带目录的相对路径——先按调用方的工作目录，再按仓库根；
+    3. 裸名——受管目录 `.runtime/ultralytics/weights/`（即 `SETTINGS["weights_dir"]`），
+       再仓库根。仓库根这条不是历史包袱：`attempt_download_asset` 先看 CWD，
+       而训练子进程的 CWD 正是仓库根。
+
+    返回的一定是**绝对路径**，调用方可以直接喂给 `YOLO()`，不必再猜 CWD。
+    只读文件系统，不联网、不 import torch。
+    """
+    path = Path(name).expanduser()
+    if path.is_absolute():
+        candidates: list[Path] = [path]
+    elif path.parent != Path("."):
+        candidates = [path, ROOT_DIR / path, weights_dir() / path.name, ROOT_DIR / path.name]
+    else:
+        candidates = [weights_dir() / path.name, ROOT_DIR / path.name]
+
+    for cand in candidates:
+        try:
+            if cand.is_file():
+                return cand.resolve()
+        except OSError:
+            continue
+    return None
+
+
+def training_weight(name: str) -> Path:
+    """训练时该喂给 `YOLO()` 的权重路径——**一定是一条绝对路径**。
+
+    找到了就用找到的那一份；没找到就把落点钉在受管目录里，让 ultralytics 下载
+    时写进去。不钉的话它按 `safe_download` 的默认行为落到 CWD（＝仓库根），
+    权重从此散在两个地方，界面也就又看不见了——这个 bug 就是这么来的。
+    """
+    found = resolve_weight(name)
+    if found is not None:
+        return found
+
+    path = Path(name).expanduser()
+    if path.is_absolute():
+        return path
+    return weights_dir() / path.name
+
+
+def list_options() -> list[ModelOption]:
     """全部候选模型，附本机是否已有权重。
 
     只读文件系统，不联网、不 import torch——这个函数会被 `/api/train/models`
     每次调用，必须是毫秒级的。
     """
-    out: List[ModelOption] = []
+    out: list[ModelOption] = []
     for stem in FAMILIES:
-        path = weight_path(stem)
-        size_mb: Optional[float] = None
+        path = resolve_weight(f"{stem}.pt")
+        size_mb: float | None = None
         present = False
         try:
-            if path.is_file():
+            if path is not None:
                 present = True
                 size_mb = round(path.stat().st_size / 1024 / 1024, 1)
         except OSError:
