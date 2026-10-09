@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from fire_sight.alerting import EventStore
-from fire_sight_platform.common.paths import MODELS_DIR
 
 
 class StatsService:
@@ -171,21 +170,3 @@ class StatsService:
             return 0.0
         fp = sum(1 for r in rows if int(r.get("is_false_positive") or 0) == 1)
         return round(fp / len(rows), 4)
-
-    def model_metrics(self) -> Dict[str, Any]:
-        trained = MODELS_DIR / "trained"
-        if not trained.exists():
-            return {}
-        latest = sorted([p for p in trained.iterdir() if p.is_dir()], reverse=True)
-        if not latest:
-            return {}
-        run = latest[0]
-        metrics = {}
-        mf = run / "metrics.txt"
-        if mf.exists():
-            for line in mf.read_text(encoding="utf-8").splitlines():
-                if "=" in line:
-                    k, v = line.split("=", 1)
-                    metrics[k.strip()] = v.strip()
-        metrics["run_id"] = run.name
-        return metrics

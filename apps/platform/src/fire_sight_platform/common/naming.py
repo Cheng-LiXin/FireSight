@@ -31,11 +31,3 @@ def safe_child(root: Path, *parts: str) -> Path:
     if resolved != base and base not in resolved.parents:
         raise ValueError(f"路径越出 {base}: {'/'.join(parts)} -> {resolved}")
     return resolved
-
-
-def dataset_stem(name: str) -> str:
-    return sanitize(name)
-
-
-def split_stem(dataset: str, seed: int) -> str:
-    return f"{sanitize(dataset)}-seed{seed}"

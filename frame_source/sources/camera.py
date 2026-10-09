@@ -64,10 +64,20 @@ class CameraSource(FrameSource):
         self.max_read_failures = max(1, int(max_read_failures))
         self.is_stream = is_stream_url(device)
         self._cap = self._open()
-        if self._cap is not None:
+        try:
+            if not self._cap.isOpened():
+                # 打不开就当场失败。留着一个没打开的 capture，迭代只会一直
+                # 读不出帧、被 max_read_failures 判成「断线」，界面上的表现是
+                # 「监控已启动但永远没画面」——比起启动即报错，这种更难查。
+                raise RuntimeError(f"摄像头打开失败: {device}")
             fps = float(self._cap.get(cv2.CAP_PROP_FPS) or 0.0)
             if fps > 0:
                 self.fps = fps
+        except Exception:
+            # 打开失败/取属性失败都要把句柄还回去，否则摄像头会被一直占着，
+            # 重试时打不开同一个设备。
+            self.close()
+            raise
 
     def _open(self):
         if self.is_stream:

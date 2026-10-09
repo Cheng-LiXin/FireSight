@@ -20,6 +20,11 @@ class VideoFileSource(FrameSource):
         if not self.path.exists():
             raise FileNotFoundError(f"视频不存在: {self.path}")
         self._cap = cv2.VideoCapture(str(self.path))
+        if not self._cap.isOpened():
+            # 文件在、但解不开（编码不支持、文件截断）：不抛的话迭代会安静地
+            # 结束，上层以为「视频就这么多帧」，实际一帧都没读到。
+            self.close()
+            raise RuntimeError(f"视频无法解码: {self.path}")
         fps = float(self._cap.get(cv2.CAP_PROP_FPS) or 0.0)
         if fps > 0:
             self.fps = fps

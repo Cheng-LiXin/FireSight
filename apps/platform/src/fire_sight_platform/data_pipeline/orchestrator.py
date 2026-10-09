@@ -135,10 +135,6 @@ class DatasetPipeline:
             logger.warning(f"稀有类别: {rare}")
 
         stems = sorted({p.stem for p in images_src.iterdir() if p.is_file()})
-        labels_by_stem = {
-            p.stem: [ln.split()[0] for ln in p.read_text(encoding="utf-8").splitlines() if ln.strip()]
-            for p in stage.glob("*.txt")
-        }
         splits = split_dataset(
             self.split_strategy,
             stems,
@@ -146,7 +142,6 @@ class DatasetPipeline:
             self.val_rate,
             self.test_rate,
             self.seed,
-            labels_by_stem=labels_by_stem,
         )
 
         counts = materialize(

@@ -46,14 +46,6 @@ class InferStats:
     events: List[dict] = field(default_factory=list)
 
 
-def _xyxy_from_ultralytics(boxes) -> List[tuple]:
-    out = []
-    for b in boxes:
-        xyxy = b.xyxy[0].tolist()
-        out.append(tuple(float(x) for x in xyxy))
-    return out
-
-
 def _finalize_stopped_clips(executor, writing: List[tuple], store) -> None:
     """停止路径的后台收尾：等片段写完再回填路径，最后关 store。
 

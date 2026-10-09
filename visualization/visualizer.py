@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Dict, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -13,12 +13,10 @@ from visualization.core.types import Detection
 # 火灾场景默认配色 (BGR)
 DEFAULT_COLORS: Dict[str, Tuple[int, int, int]] = {
     "fire": (0, 64, 255),      # 橙红
-    "fire": (0, 64, 255),
     "smoke": (160, 160, 160),  # 灰
 }
 
 DEFAULT_LABEL_MAP: Dict[str, str] = {
-    "fire": "明火",
     "fire": "明火",
     "smoke": "烟雾",
 }
@@ -45,7 +43,7 @@ class BeautifyVisualizer:
     ) -> np.ndarray:
         out = image.copy()
         for det in detections:
-            color = det.color if det.color else self.color_for(det.name)
+            color = det.color if det.color is not None else self.color_for(det.name)
             x1, y1, x2, y2 = int(det.x1), int(det.y1), int(det.x2), int(det.y2)
             draw_rounded_box(out, x1, y1, x2, y2, color, thickness=2)
             label = self.label_mapping.get(det.name, det.name)

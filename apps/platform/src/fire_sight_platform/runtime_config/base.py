@@ -2,15 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, Literal, Optional
+from typing import Optional
 
 from pydantic import BaseModel, Field
-
-ConfigSource = Literal["default", "yaml", "cli"]
-
-
-class ConfigMetadata(BaseModel):
-    source: ConfigSource = "default"
 
 
 class BaseConfig(BaseModel):
@@ -21,10 +15,6 @@ class BaseConfig(BaseModel):
     device: str = Field(default="0", description="cuda 设备号或 cpu")
 
     model_config = {"protected_namespaces": ()}
-
-    def sources_summary(self) -> Dict[str, str]:
-        """由子类/合并器填充;基类给空表。"""
-        return {}
 
 
 class TrainConfig(BaseConfig):
