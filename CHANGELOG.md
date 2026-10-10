@@ -18,6 +18,122 @@
 
 ## [Unreleased]
 
+2026-10-09 代码审查的落地。三条 Critical 属于同一类——**用户输入直接进文件系统**，
+三条都端到端复现过真实损失：兜底路由取得到仓库所在盘符下的任意文件；`--name ../../OUTSIDE`
+真的 `rmtree` 掉了工作区外的 `precious.txt`；训练实验名能把整轮训练的产物写到工作区之外，
+还进不了归档（`archived_runs()` 只 rglob `models/trained/`，那些产物此后没人管得到）。
+改法统一为「`resolve()` 之后判包含性」的白名单式夹取——即使将来目录位置变了，
+逃逸也不会重新出现。
+
+Required 22 项做完 19 项（未做：R3、R14、R20；R22 的 cmd.exe 拼接那半确认不做）。
+这一批里最值钱的不是修了多少条，而是几条「出错时给出一个看起来正常的错误结论」
+被揪出来：路径解析错会把完好的数据集判成「没有任何图像样本」，缺一整个类别
+反倒比轻微失衡判得更轻，缩略图缓存文件会被当成一个样本让整条流水线中止。
+
+### 修复
+
+- **三条 Critical（用户输入 → 文件系统）**：
+  - **SPA 兜底路由任意文件读取**（`/{full_path:path}` 直接 `WEB_DIST / full_path`）。
+    dist 在仓库根下三层，`GET /../../../AGENTS.md` 返回 200 与文件真实内容；
+    用真实 uvicorn + 原始 socket 绕过客户端归一化复核过，逃逸范围是仓库所在盘符下
+    任意文件（同一条探针取到了仓库外的一个 `.md` 和一个 3.6 MB `.mp4`）。
+    这是本仓唯一缺口——同目录其它接口都有纪律（`get_artifact` 校验 `Path(name).name != name`，
+    `get_clip` 校验片段在事件目录内），兜底路由漏了这一层。
+  - **`fs-transform --name` 破坏性穿越**：`out_root` 无包含性校验就一路流到
+    `shutil.rmtree(out_root / "images" / <split>)`。`--dataset` 同样来自命令行，
+    一起在 `common/naming.py` 的 `safe_child(root, *parts)` 收口。Windows 上
+    `Path("a") / "/b"` 会**丢掉 a** 直接变成 `\b`，所以「以 `/` 开头」也必须拦，
+    不能只拦 `..`。**显式传入的** raw_root / processed_root 原样保留——那是调用方
+    自己的选择，不是用户输入。
+  - **训练实验名与归档名写出工作区**：`experiment` 是裸 str，流进 ultralytics 的
+    `increment_path`。实测 `increment_path(Path('E:/FireSight/runs/training') / '../../../../EvilExp')`
+    解析到 `E:\EvilExp`——一次几十分钟的训练白跑。API 层 `field_validator` 与
+    service 层 `_assert_run_name` 两道都补（CLI 走同一个函数，不能只靠调用方守规矩），
+    archive 层同样拒绝含路径语义的 run_id。
+- **GPU 锁的 `acquire`/`release` 收敛到所有者常量**。`release(who)` 认不出持有者时
+  是**静默 no-op**，而生产调用点一律不传 who，于是收尾线程迟到时会把别人刚拿到的锁
+  一并放掉——此后这台机器既起不了训练也做不了评估，界面只显示「GPU 正被占用」，
+  锁再也还不回去。改成 `OWNER_TRAIN/EVAL/INFER/MONITOR` 常量，不写字符串字面量是因为
+  拼错字面量恰好退化成上面那种无声失效，而写错常量名会在启动时就报错。
+- **质检快照把完好的数据集判成「没有任何图像样本」**。`train:`/`val:`/`test:` 是相对路径时
+  按进程 CWD 解析，而 ultralytics/roboflow 的标准写法是「`path:` 给绝对根 + 划分给相对子路径」。
+  现在相对值一律相对数据集自己的 `path`（或 yaml 所在目录）解析，并删掉目录不存在时
+  静默换路径的回退——它把「配置写错了」藏成看不懂的空划分。同时归一化列表取值的
+  `train:`（多目录），快照构建失败也降级成一条 ERROR 结果而不是让整轮体检带 traceback 死掉、
+  报告一个字都产不出来。
+- **缺一整个类别反倒判得比轻微失衡轻**。失衡比只在「出现过的 class id」上取 min，
+  于是「整个类别一框都没有」被算成 1.0 判 PASS；补进一个少数类框立刻变 WARNING 100.0。
+  缺类比失衡严重得多，现在分母按声明过的类别取，0 框直接 ERROR 并点名。
+- **`Thumbs.db` 让整条转换流水线中止**。`stems` 不过滤后缀，Windows 自带的 `Thumbs.db`
+  （以及 macOS 的 `.DS_Store`）被当成一个样本，物化时 `_copy_pair` 抛
+  `FileNotFoundError: 缺少图像: Thumbs`。现在只收图片，且一个都没有时明确报出来。
+- **图片后缀三份名单**：质检那份含 `.webm`（把视频当图片，要求一个视频必须配 `.txt` 标注），
+  API 那份少 `.bmp`（BMP 图件既不出现在训练现场清单里、也取不出来）。
+  现在 `constants.IMAGE_EXTENSIONS` 是唯一真相。
+- **概览的 `days` 完全没有边界**，而下面按它逐日补点：`days=100000000` 会算到
+  `OverflowError: date value out of range` 变成 500，负值/0 则安静地回一个空序列。
+  这个参数直接来自 query string，等于把一次查询变成无界循环与无界内存。
+  现在 `Query(30, ge=1, le=365)`，越界统一 422。
+- **事件列表翻页开两条连接**：路由为「记录」和「总数」各建一个 EventService，
+  每个又各建一个 EventStore，而 `EventStore.__init__` 带着建表脚本与老库回填 UPDATE——
+  一次翻页 = 2 条 SQLite 连接 + 2 次建表 + 2 次全表 UPDATE。现在 `list_page()`
+  在同一连接的上下文中先查行再查总数，语义完全一致。
+- **关键筛选被乱序响应覆盖**。EventsView 每敲一个键就整页重取且没有竞态守卫，
+  慢的旧响应回来会把新结果盖掉（仓里 TrainingView 的 `limitsSeq` 早就记着这个坑）。
+  现在取数带序号，被顶掉的那次不碰状态。**验证这条时踩过一个坑**：第一版探针是假通过的，
+  因为真实接口 `limit=20`，全量与筛选后都可能返回 20 行，行数区分不出谁赢——
+  验证竞态必须让两次响应可区分。
+- **整月没有告警时误报率显示 0.0%**。`?? 0` 把「无从谈起」和「有告警但零误报」
+  撞成了同一个数（后端空月返回的也是 0.0 而非 null，所以只判 null 不改变任何显示）。
+  改用 `total` 区分：空月显示「—」且不带百分号。
+- **没有 `nvidia-smi` 的机器上 `status` 直接崩**。脚本设了 `$ErrorActionPreference = 'Stop'`，
+  而缺失的原生命令抛的是 `CommandNotFoundException`——`2>$null` 抑制不住它。
+  开发这台有 RTX 4060，所以本机从不暴露，换台展示机才炸。现在先 `Get-Command` 问一声。
+- **`Stop-Endpoint` 把 taskkill 的输出丢进 `Out-Null`、退出码也不看**，失败只能靠
+  8 秒后的端口复检反推。现在收下输出并逐轮重置 `$LASTEXITCODE`，判据取**消息而不是退出码**
+  ——实测 `128` 同时表示「进程不存在」和「拒绝访问」，不足以分类。
+- **批量检测缺参数时静默 return**。按钮只在 `busy || !sourceKey` 时禁用，
+  所以「选了数据源但模型列表还没加载出来」是能点到的，点下去既没反应也没提示。
+- **前端两处泄漏**：`limitsTimer` 是全仓唯一没被收掉的定时器，卸载后 300ms 那次
+  `loadLimits` 仍会发出并写到已卸载的组件上；`runBatch` 的静默返回见上条。
+
+### 变更
+
+- **清掉 A/D/F 三类残留**：`apps/fire-sight/src/fire_sight/web/{pages,ui}`
+  （1c49ae0 删除 Streamlit 前端后留下的空目录）、从未有内容的 `shots/`、
+  以及 `models/trained/`、`scripts/`、`apps/platform/configs/` 三个兄弟数已不为 0 的
+  `.gitkeep`。`apps/fire-sight/configs/` 与 `models/pretrained/` 两个保留，它们还在占位。
+- **清掉 G 类零引用符号**，并让帧源工厂真正走注册表。`@register_source` 在跑、`_REGISTRY` 在填，
+  但 `create_frame_source` 走写死的 `elif` 直接 new 具体类——注册表唯一消费者是测试里的
+  `list_sources()`，后果是「加一种源要改两处」，而注册表看起来像扩展点。顺带把
+  `get_factory` 的 `KeyError` 统一成 `ValueError`（类型名写错和路径识别不出是同一类调用错误），
+  `register_source` 加重复注册保护。
+- **`visualization` 两个真 bug**：`DEFAULT_COLORS`/`DEFAULT_LABEL_MAP` 各有一个重复的
+  `"fire"` 键（ruff F601）；`Detection.color` 默认 `(0, 255, 0)` 而元组恒为真，导致
+  `det.color if det.color else ...` 永远走前半支——真正的问题是**默认配色表从来没生效过**，
+  不传 color 的框一律画成绿色。默认改成 `None`，判空改成 `is not None`
+  （纯黑 `(0,0,0)` 是合法覆盖色，真值判断会把它当成「没传」）。
+- **`frame_source` 两个源补 `isOpened()` 检查**：打不开时留着一个未打开的 capture，
+  迭代会一路读不出帧、被 `max_read_failures` 判成「断线」，界面表现为
+  「监控已启动但永远没画面」，比启动即报错难查得多。
+- **`constants.SplitStrategy.STRATIFIED_MULTILABEL` 删掉**。注册表里只有 `random`，
+  调用方按常量传进去只会拿到「未知划分策略」。删常量而不是补实现，是因为没有这个需求，
+  留着一个假的选项比没有选项更容易误导。连带删掉只为它存在的 `requires_labels` 标记与
+  `labels_by_stem` 穿参链。
+- **审查报告从 `.runtime/` 挪进 `docs/reviews/`**，与代码同版本管理——`.runtime/`
+  是 gitignore 的运行产物目录，README 明说「可随时删」，把一份 700+ 行的审查结论
+  放在那里等于没归档。同时同步三处被审查推翻的文档断言（`PendingView.vue` 已删，
+  `S6` 里关于 `shots/` 的说明失效）。
+
+### 测试
+
+- 后端 **346 → 396 passed**，前端 E2E **48 passed / 6 skipped → 52 passed / 6 skipped**。
+- 新增回归测试逐条都做过负向验证（把修复改回旧形态，测试必须变红），
+  包括两条源码扫描型断言：生产调用点的 `GPU_LOCK.acquire/release` 不得空参或写字面量。
+  穿越类用例覆盖 7 种写法，且 `test_spa_traversal_blocked_via_raw_asgi` 手写 ASGI scope
+  直接驱动应用，因为 httpx 会在客户端就把 `..` 归一化掉。
+- 两条 e2e 竞态回归刻意**打桩可区分数据**而不是用真实响应，理由见上文。
+
 ## [v1.9.6] — 2026-10-09
 
 训练表单的「模型」下拉把仓库根目录里的 `yolo11n.pt` 标成「（需下载）」，连带把默认
