@@ -97,12 +97,19 @@ def main(argv: list[str] | None = None) -> int:
     results = validate_dataset(yaml_path)
 
     out_dir = _report_dir(yaml_path, args.dataset, args.out_dir)
-    # rough counts from results not needed; read snapshot quickly
+    # 报告抬头要的两个计数。快照可能构建失败（yaml 写坏 / 路径类型不对），
+    # 那时 run_all_checks 已经把它降级成一条 ERROR 结果——报告照出，计数填 0，
+    # 而不是让整条 CLI 在这里再抛一次 traceback（2026-10-09 代码审查 R6）。
     from fire_sight_platform.data_validation.snapshot import build_snapshot
 
-    ctx = build_snapshot(yaml_path)
-    n_images = sum(len(v) for v in ctx.splits.values())
-    n_labels = sum(1 for files in ctx.label_files.values() for _ in files)
+    try:
+        ctx = build_snapshot(yaml_path)
+        n_images = sum(len(v) for v in ctx.splits.values())
+        n_labels = sum(1 for files in ctx.label_files.values() for _ in files)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(f"快照构建失败，报告计数按 0 出: {exc}")
+        n_images = 0
+        n_labels = 0
 
     html_path = render_html_report(
         results,

@@ -13,7 +13,26 @@ logger = logging.getLogger(__name__)
 
 
 def run_all_checks(yaml_path: Path) -> List[CheckResult]:
-    ctx = build_snapshot(yaml_path)
+    """跑全部 check。
+
+    `build_snapshot` 也在守卫里：yaml 写坏、路径类型不对（比如 `train:` 是列表
+    而某天又多了一种写法）都不该让整轮体检带 traceback 死掉。此前它在 try 之外，
+    一个 `TypeError` 就能让 `fs-validate` 连报告都产不出来（2026-10-09 代码审查 R6）。
+    """
+    try:
+        ctx = build_snapshot(yaml_path)
+    except Exception as exc:  # noqa: BLE001
+        from fire_sight_platform.data_validation.registry import CheckSeverity
+
+        logger.error("数据快照构建失败: %s", exc)
+        return [
+            CheckResult(
+                "snapshot",
+                CheckSeverity.ERROR,
+                f"无法解析数据集 yaml（{yaml_path}）: {exc}",
+                ["检查 yaml 里的 path/train/val/test 是否为字符串或字符串列表"],
+            )
+        ]
     results: List[CheckResult] = []
     for entry in get_all_checks():
         try:

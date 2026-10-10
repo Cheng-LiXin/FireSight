@@ -37,6 +37,10 @@ class SplitStrategy:
 
 DEFAULT_SPLIT_STRATEGY: str = SplitStrategy.RANDOM
 
+# 图片后缀的唯一真相。曾经有三份互不相同的清单：这里的、`data_validation/snapshot.py`
+# 里含 `.webm`（把视频当图片，于是要求一个视频必须有 `.txt` 标注）、以及
+# `api/deps.py` 里少 `.bmp` 的那份（2026-10-09 代码审查 R8）。判断「这是不是一张图」
+# 的地方一律引这里，不再各自定义。
 IMAGE_EXTENSIONS: Tuple[str, ...] = (".jpg", ".jpeg", ".png", ".bmp", ".webp")
 
 

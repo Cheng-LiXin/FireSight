@@ -286,6 +286,28 @@ def test_artifact_rejects_non_image(client, fake_run):
     assert r.status_code == 404
 
 
+def test_artifact_accepts_every_extension_the_pipeline_calls_an_image(client, fake_run):
+    """回归 R8：现场图件用的后缀清单曾比别处少一个 `.bmp`。
+
+    同一份图像后缀在三处各写一遍，其中 `deps.IMAGE_SUFFIXES` 漏了 `.bmp`，
+    于是 BMP 图件既不出现在清单里、也取不出来。现在统一引
+    `constants.IMAGE_EXTENSIONS`，这条测试钉住「清单里的每一种后缀都能被端到端取到」。
+    """
+    from fire_sight.api import deps
+    from fire_sight_platform.common.constants import IMAGE_EXTENSIONS
+
+    run_root = deps.find_training_run(fake_run).root
+    for ext in IMAGE_EXTENSIONS:
+        (run_root / f"sample{ext}").write_bytes(b"\x89PNG\r\n\x1a\n")
+
+    names = {a["name"] for a in client.get("/api/train/artifacts", params={"run_id": fake_run}).json()}
+
+    for ext in IMAGE_EXTENSIONS:
+        assert f"sample{ext}" in names, ext
+        r = client.get("/api/train/artifact", params={"run_id": fake_run, "name": f"sample{ext}"})
+        assert r.status_code == 200, ext
+
+
 def test_runs_empty_when_no_training_dir(tmp_path, monkeypatch):
     from fire_sight.api import deps
 

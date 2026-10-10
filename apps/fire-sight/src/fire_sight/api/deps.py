@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from fire_sight.services.model_service import ActiveModelStore, ActiveState
+from fire_sight_platform.common.constants import IMAGE_EXTENSIONS
 from fire_sight_platform.common.paths import (
     DATA_DIR,
     MODELS_DIR,
@@ -346,16 +347,19 @@ _ARTIFACT_KINDS = (
     ("train_batch", "batch"),
     ("val_batch", "batch"),
 )
-IMAGE_SUFFIXES = (".png", ".jpg", ".jpeg", ".webp")
 
 
 def run_artifacts(run_root: Path) -> List[Dict[str, Any]]:
-    """训练现场的图件清单。只列顶层文件，不递归进 weights/。"""
+    """训练现场的图件清单。只列顶层文件，不递归进 weights/。
+
+    后缀清单引 `constants.IMAGE_EXTENSIONS`，不再本地维护——这里原本少一个
+    `.bmp`，与另两处对不上（2026-10-09 代码审查 R8）。
+    """
     out: List[Dict[str, Any]] = []
     if not run_root.is_dir():
         return out
     for p in sorted(run_root.iterdir()):
-        if not p.is_file() or p.suffix.lower() not in IMAGE_SUFFIXES:
+        if not p.is_file() or p.suffix.lower() not in IMAGE_EXTENSIONS:
             continue
         kind = "other"
         for needle, label in _ARTIFACT_KINDS:

@@ -70,6 +70,12 @@ def _tips(results: List[CheckResult]) -> List[str]:
                 tips.append("按 YOLO `class cx cy w h`（0~1 归一化）修复非法标签行。")
             elif r.name == "split_uniqueness":
                 tips.append("重新划分并物化，确保同一 stem 只出现在一个 split。")
+            elif r.name == "class_balance":
+                # 「整个类别一个框都没有」是 ERROR（见 class_balance 的注释）：
+                # 训练出来的是一个不会识别该类的模型，比比例失衡严重得多。
+                tips.append("有类别没有任何标注框：先确认该类别是否本该出现，再补样本或从 names 里去掉它。")
+            elif r.name == "snapshot":
+                tips.append("数据集 yaml 没能解析：检查 path/train/val/test 的取值与类型。")
         if r.severity == CheckSeverity.WARNING:
             if r.name == "class_balance":
                 tips.append("补充稀有类别样本，或对少数类做增强（注意负样本）。")

@@ -158,6 +158,52 @@ def test_safe_child_blocks_windows_root_swap(tmp_path):
 
 
 # --------------------------------------------------------------------------
+# 图像目录里的非图片文件
+# --------------------------------------------------------------------------
+
+
+def test_non_image_files_in_images_dir_do_not_break_transform(demo_yolo):
+    """回归 R7：`images/` 里的 `Thumbs.db` 曾让整条流水线中止。
+
+    stems 从 `images/` 目录里取全部文件的 stem，没有后缀过滤。Windows 会往有
+    图片的目录里塞 `Thumbs.db`，于是 `materializer._copy_pair` 拿 "Thumbs" 去找
+    图像、找不到就 `FileNotFoundError: 缺少图像: Thumbs` —— 一次目录浏览的副产物
+    把整批数据挡在门外。
+    """
+    raw, tmp_path = demo_yolo
+    from fire_sight_platform.data_pipeline.orchestrator import run_transform
+
+    images_dir = raw / "images"
+    (images_dir / "Thumbs.db").write_bytes(b"\x00\x00\x00\x00")
+    (images_dir / "notes.txt").write_text("随手笔记", encoding="utf-8")
+
+    r = run_transform("demo_fire", source_format="yolo", seed=42)
+
+    assert sum(r.split_counts.values()) == 12, "非图片文件不占样本名额"
+    copied = {
+        p.name
+        for split in ("train", "val", "test")
+        for p in (r.processed_root / "images" / split).glob("*")
+    }
+    assert not any("Thumbs" in n or n.endswith(".txt") for n in copied)
+
+
+def test_empty_images_dir_says_so(demo_yolo):
+    """`images/` 里一个图片都没有时要说清，而不是抛 `缺少图像: <空>`。"""
+    raw, tmp_path = demo_yolo
+    import shutil
+
+    from fire_sight_platform.data_pipeline.orchestrator import run_transform
+
+    shutil.rmtree(raw / "images")
+    (raw / "images").mkdir()
+    (raw / "images" / "Thumbs.db").write_bytes(b"\x00\x00\x00\x00")
+
+    with pytest.raises(FileNotFoundError, match="没有图片"):
+        run_transform("demo_fire", source_format="yolo", seed=42)
+
+
+# --------------------------------------------------------------------------
 # 类别契约必须被强制
 # --------------------------------------------------------------------------
 

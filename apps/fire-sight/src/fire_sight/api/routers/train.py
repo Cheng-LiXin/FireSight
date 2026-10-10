@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field, field_validator
 from fire_sight.api import deps
 from fire_sight.api.jobs import TERMINAL_STATUSES, manager
 from fire_sight.api.schemas import ArtifactInfo, CurvesResponse, ModelOption, TrainRun
+from fire_sight_platform.common.constants import IMAGE_EXTENSIONS
 from fire_sight_platform.common.paths import PROCESSED_DATA_DIR, RAW_DATA_DIR
 
 router = APIRouter(prefix="/api/train", tags=["train"])
@@ -297,7 +298,7 @@ def get_artifact(run_id: str = Query(...), name: str = Query(...)) -> FileRespon
         raise HTTPException(status_code=400, detail="图件名不合法")
 
     target = run.root / name
-    if not target.is_file() or target.suffix.lower() not in deps.IMAGE_SUFFIXES:
+    if not target.is_file() or target.suffix.lower() not in IMAGE_EXTENSIONS:
         raise HTTPException(status_code=404, detail=f"图件不存在: {name}")
     return FileResponse(target)
 

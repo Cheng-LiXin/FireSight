@@ -14,6 +14,7 @@ from fire_sight_platform.common.constants import (
     DEFAULT_SPLIT_STRATEGY,
     DEFAULT_TRAIN_RATE,
     DEFAULT_VAL_RATE,
+    IMAGE_EXTENSIONS,
     assert_canonical_class_order,
 )
 from fire_sight_platform.common import paths as paths_mod
@@ -134,7 +135,22 @@ class DatasetPipeline:
         if rare:
             logger.warning(f"稀有类别: {rare}")
 
-        stems = sorted({p.stem for p in images_src.iterdir() if p.is_file()})
+        # 只收图片。不过滤的话 Windows 自带的 `Thumbs.db`（还有 macOS 的
+        # `.DS_Store`）会被当成一个样本，物化时找不到对应图像，
+        # `materializer._copy_pair` 抛 `FileNotFoundError: 缺少图像: Thumbs`
+        # 直接中止整条流水线（2026-10-09 代码审查 R7）。
+        stems = sorted(
+            {
+                p.stem
+                for p in images_src.iterdir()
+                if p.is_file() and p.suffix.lower() in IMAGE_EXTENSIONS
+            }
+        )
+        if not stems:
+            raise FileNotFoundError(
+                f"{images_src} 下没有图片（后缀 {IMAGE_EXTENSIONS}）——"
+                "确认原始数据的图像放在 images/ 里"
+            )
         splits = split_dataset(
             self.split_strategy,
             stems,
