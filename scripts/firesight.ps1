@@ -460,7 +460,16 @@ function Invoke-Status {
         'missing' { Write-Warn '前端产物：不存在（start 会自动构建）' }
     }
 
-    $gpu = & nvidia-smi --query-gpu=name,memory.used,memory.total --format=csv,noheader 2>$null
+    # 先问有没有这个命令。脚本第 63 行设了 $ErrorActionPreference='Stop'，
+    # 而缺失的原生命令抛的是 CommandNotFoundException——`2>$null` 抑制不住它，
+    # 于是在没有 nvidia-smi 的机器上 status 直接崩（开发的这台有 RTX 4060，
+    # 所以本机从不暴露；换台展示机才炸）。2026-10-09 代码审查 R15。
+    $gpu = $null
+    if (Get-Command nvidia-smi -ErrorAction SilentlyContinue) {
+        $gpu = & nvidia-smi --query-gpu=name,memory.used,memory.total --format=csv,noheader 2>$null
+    } else {
+        Write-Host '  GPU：未找到 nvidia-smi（按 CPU 运行）' -ForegroundColor DarkGray
+    }
     if ($gpu) {
         Write-Host "  GPU：$gpu"
         # 守卫是按**总量**算预算的（不是按可用量），所以别人占着显存时这里必须提醒：
