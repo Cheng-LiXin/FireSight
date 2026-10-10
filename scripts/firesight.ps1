@@ -181,6 +181,7 @@ function Stop-Endpoint([int]$P, [string]$Label) {
         return $true
     }
 
+    $killFailed = $false
     foreach ($lp in $pids) {
         $top = Get-TreeTop $lp
         $info = Get-ProcInfo $top
@@ -190,7 +191,27 @@ function Stop-Endpoint([int]$P, [string]$Label) {
         if ($top -ne $lp) {
             Write-Host "       （监听者是 PID $lp，它是 PID $top 的子进程——转发器链）" -ForegroundColor DarkGray
         }
-        & taskkill /F /T /PID $top 2>&1 | Out-Null
+        # 不能把 taskkill 的报错丢进 Out-Null：那样失败就只能靠下面 8 秒的端口复检
+        # 反推，而「杀了没杀掉」和「端口被旁人抢了」两种原因长得一模一样。
+        #
+        # 退出码**不足以**判断成败：实测 128 既是「进程不存在」（benign，它自己先退了），
+        # 也是「拒绝访问 / 关键系统进程」（真失败）——`taskkill /F /T /PID 0` 就返回 128
+        # 且输出 Access is denied。所以判据是**消息**：只有带 ERROR 又不是 not found
+        # 的那几行才算真出错；「not found」与「SUCCESS」都不算。
+        # $LASTEXITCODE 是全局变量，每轮都必须先重置、读完立刻再重置，
+        # 否则下一轮读到的是上一轮留下的值。
+        $LASTEXITCODE = 0
+        $out = @(& taskkill /F /T /PID $top 2>&1)
+        $code = $LASTEXITCODE
+        $LASTEXITCODE = 0
+        $lines = @($out | ForEach-Object { "$_".Trim() } | Where-Object { $_ })
+        $realErrors = @($lines | Where-Object { $_ -match 'ERROR' -and $_ -notmatch 'not found' })
+        if ($realErrors.Count -gt 0) {
+            $killFailed = $true
+            Write-Warn "结束 PID $top 失败：taskkill 退出码 $code — $(Shorten ($realErrors -join ' '))"
+        } elseif ($code -ne 0) {
+            Write-Host "       （PID $top 在这中间自己退出了，无需再结束）" -ForegroundColor DarkGray
+        }
     }
 
     for ($i = 0; $i -lt 20; $i++) {
@@ -199,6 +220,9 @@ function Stop-Endpoint([int]$P, [string]$Label) {
             Write-Ok "$Label（$P）：已停止，端口已释放"
             return $true
         }
+    }
+    if ($killFailed) {
+        Write-Warn '上面有 taskkill 报错，端口仍被占用多半就是它——先看那一行再判断是谁在抢'
     }
     Write-Bad "$Label（$P）：端口仍被占用（PID $((Get-ListeningPids $P) -join ','))——可能有别的进程在抢"
     return $false

@@ -342,3 +342,98 @@ test('写错的筛选值不会安静地返回空——后端 400 会显示出来
   expect(res.status()).toBe(400)
   expect(await res.text()).toContain('flame')
 })
+
+/**
+ * 连续输入的关键词不逐字发请求。
+ *
+ * 关键词是连续输入，逐字取数既是无谓的负载，也让乱序响应有了可乘之机。
+ * 这条断言的是「防抖真的在」，而不是某一次请求快慢——所以不依赖真实数据。
+ */
+test('关键词连续输入只发一次取数请求（防抖）', async ({ page }) => {
+  const hits: string[] = []
+  await page.route('**/api/events?**', async (route) => {
+    hits.push(route.request().url())
+    await route.fallback()
+  })
+
+  await page.goto('/events')
+  await awaitData(page)
+  await page.waitForTimeout(300)
+  const before = hits.length
+
+  // 每 60ms 敲一个字，间隔远小于 300ms 的防抖窗口
+  const box = page.locator('.tray input').first()
+  await box.click()
+  for (const ch of ['北', '门', '大', '街']) {
+    await page.keyboard.type(ch)
+    await page.waitForTimeout(60)
+  }
+  await page.waitForTimeout(1200)
+
+  expect(
+    hits.length - before,
+    `4 次连续输入应因防抖收敛为 1 次取数，实际 ${hits.length - before} 次`,
+  ).toBe(1)
+})
+
+/**
+ * 慢的旧响应不能覆盖快的新结果。
+ *
+ * 用打桩数据把两次响应做成可区分的（旧=全量 3 条、新=筛选后 2 条），
+ * 并让先发出的那次固定慢 1500ms。没有序号守卫时，旧响应最后落地，
+ * 屏上就会留回全量列表——那正是 `TrainingView.limitsSeq` 记着的坑。
+ *
+ * 注意：不能靠「真实数据的行数」来判断。真实接口的 limit=20，全量与筛选后
+ * 都可能是 20 行，行数根本区分不出来（本探针第一版就是这么假通过的）。
+ */
+test('慢的旧响应不会覆盖快的新结果（乱序守卫）', async ({ page }) => {
+  const mk = (id: string, msg: string, rs: 'pending' | 'confirmed') => ({
+    event_id: id,
+    ts: '2026-10-01T10:00:00',
+    frame_index: 1,
+    labels: ['fire'],
+    conf: 0.9,
+    location: '北门',
+    message: msg,
+    has_clip: false,
+    is_false_positive: false,
+    review_status: rs,
+  })
+
+  await page.route('**/api/events?**', async (route) => {
+    const status = new URL(route.request().url()).searchParams.get('status')
+    if (status !== 'pending') {
+      await new Promise((r) => setTimeout(r, 1500))
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          items: [mk('A1', '旧-全量-1', 'confirmed'), mk('A2', '旧-全量-2', 'confirmed'), mk('A3', '旧-全量-3', 'confirmed')],
+          total: 3,
+          limit: 20,
+          offset: 0,
+        }),
+      })
+      return
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        items: [mk('P1', '新-待处置-1', 'pending'), mk('P2', '新-待处置-2', 'pending')],
+        total: 2,
+        limit: 20,
+        offset: 0,
+      }),
+    })
+  })
+
+  await page.goto('/events')
+  await page.waitForTimeout(600)
+  // 初始请求还在路上，此刻切一个离散筛选（立即取数，不等防抖）
+  await page.locator('.tray select').nth(1).selectOption('pending')
+  await page.waitForTimeout(2500)
+
+  const msgs = await page.locator('table.fs-ledger tbody tr td.msg').allInnerTexts()
+  expect(msgs, '慢的旧响应把列表覆盖回去了').toEqual(['新-待处置-1', '新-待处置-2'])
+})

@@ -56,3 +56,65 @@ test('从控制台能进大屏，大屏能回控制台', async ({ page }) => {
   await page.getByRole('link', { name: '返回控制台' }).click()
   await expect(page.getByText('当前风险')).toBeVisible()
 })
+
+/** 打桩月度统计。返回体形状照 `MonthDetail`/`MonthlyStats`。 */
+function stubMonthly(total: number, falsePositives: number, rate: number) {
+  return {
+    months: [{ month: '2026-10', count: total, fire: total, smoke: 0, false_positives: falsePositives, avg_conf: 0.9 }],
+    detail: {
+      month: '2026-10',
+      total,
+      fire: total,
+      smoke: 0,
+      false_positives: falsePositives,
+      pending: 0,
+      false_positive_rate: rate,
+      avg_conf: 0.9,
+      hourly: Array.from({ length: 24 }, () => 0),
+      mom_pct: null,
+    },
+  }
+}
+
+/**
+ * 空月不把「无从谈起」画成「0.0%」。
+ *
+ * 后端在整月无告警时也返回 `false_positive_rate: 0.0`（`stats_service.month_detail`），
+ * 与「有告警但零误报」的真 0% 是同一个数。界面必须靠 `total` 把两者分开：
+ * 空月显示「—」且不带百分号，而不是摊一个 0.0% 给用户。
+ */
+test('整月无告警时误报率显示「—」而不是 0.0%', async ({ page }) => {
+  await page.route('**/api/stats/monthly**', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(stubMonthly(0, 0, 0)),
+    })
+  })
+
+  await page.goto('/bigscreen')
+
+  const kpi = page.locator('.kpi').filter({ hasText: '误报率' })
+  await expect(kpi.locator('.kpi__value')).toContainText('—')
+  // 「—%」是错的样子：百分号必须跟着数字一起藏
+  await expect(kpi.locator('.kpi__unit')).toHaveCount(0)
+  await expect(kpi.locator('.kpi__sub')).toContainText('这个月没有告警')
+})
+
+/** 有告警但零误报，是真的 0.0%——要显示出来，不能被当成「没有数据」。 */
+test('有告警但零误报时误报率是真的 0.0%', async ({ page }) => {
+  await page.route('**/api/stats/monthly**', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(stubMonthly(5, 0, 0)),
+    })
+  })
+
+  await page.goto('/bigscreen')
+
+  const kpi = page.locator('.kpi').filter({ hasText: '误报率' })
+  await expect(kpi.locator('.kpi__value')).toContainText('0.0')
+  await expect(kpi.locator('.kpi__unit')).toHaveText('%')
+  await expect(kpi.locator('.kpi__sub')).toContainText('0 条已标误报')
+})
