@@ -147,7 +147,7 @@ def _prepare(weights: str, device: str, conf: float, iou: float):
 
 def _with_gpu(fn):
     try:
-        with deps.gpu_job("infer"):
+        with deps.gpu_job(deps.OWNER_INFER):
             return fn()
     except deps.GpuBusy as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc

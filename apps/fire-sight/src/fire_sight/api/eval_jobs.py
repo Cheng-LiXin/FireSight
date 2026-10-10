@@ -116,7 +116,7 @@ class EvalManager:
         # 同一个 run 选两次没有意义，去重但保序
         ordered = list(dict.fromkeys(run_ids))
 
-        if not deps.GPU_LOCK.acquire("eval"):
+        if not deps.GPU_LOCK.acquire(deps.OWNER_EVAL):
             raise deps.GpuBusy(deps.GPU_LOCK.holder)
 
         job = EvalJob(
@@ -138,7 +138,7 @@ class EvalManager:
             thread.start()
         except Exception:
             # 抢到的锁必须还回去，否则这台机器再也起不了训练或评估
-            deps.GPU_LOCK.release()
+            deps.GPU_LOCK.release(deps.OWNER_EVAL)
             with self._lock:
                 self._jobs.pop(job.id, None)
             raise
@@ -184,7 +184,7 @@ class EvalManager:
             job.error = f"{type(exc).__name__}: {exc}"
         finally:
             job.finished_at = datetime.now().isoformat(timespec="seconds")
-            deps.GPU_LOCK.release()
+            deps.GPU_LOCK.release(deps.OWNER_EVAL)
 
 
 manager = EvalManager()

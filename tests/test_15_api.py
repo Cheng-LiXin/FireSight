@@ -103,6 +103,63 @@ def test_gpu_lock_release_checks_ownership():
     assert lock.status()["holder"] is None
 
 
+def test_gpu_job_releases_the_lock_it_took():
+    """R9：`gpu_job` 曾经调无参 `release()`，退出时会放掉别人刚拿到的锁。
+
+    它自己知道 `who`，就该用它来放——收尾线程迟到时错放一次，GPU 互斥就静默
+    失效了。
+    """
+    from fire_sight.api import deps
+
+    deps.GPU_LOCK.release()
+    try:
+        with deps.gpu_job(deps.OWNER_INFER):
+            assert deps.GPU_LOCK.holder == deps.OWNER_INFER
+        assert deps.GPU_LOCK.holder is None, "gpu_job 退出后必须把锁还回来"
+    finally:
+        deps.GPU_LOCK.release()
+
+
+def test_gpu_job_refuses_and_keeps_the_existing_holder():
+    """拿不到锁时抛错，且**不能**顺手把别人的锁放掉。"""
+    from fire_sight.api import deps
+
+    deps.GPU_LOCK.release()
+    assert deps.GPU_LOCK.acquire(deps.OWNER_TRAIN) is True
+    try:
+        with pytest.raises(deps.GpuBusy):
+            with deps.gpu_job(deps.OWNER_INFER):
+                pass
+        assert deps.GPU_LOCK.holder == deps.OWNER_TRAIN, "被拒的请求动到了持有者的锁"
+    finally:
+        deps.GPU_LOCK.release()
+
+
+def test_production_call_sites_pass_an_owner_constant():
+    """R9 的根因防复发：生产代码里不许出现无主的 release / 字面量的 who。
+
+    `release(who)` 认不出持有者时是静默 no-op，拼错一个字母就等于锁永远还不
+    回去——此后这台机器既起不了训练也做不了评估。所以生产调用点必须共用
+    `deps.OWNER_*` 常量，让拼错在 import/NameError 阶段就炸出来，而不是运行时
+    无声失效。
+    """
+    import re
+
+    src = ROOT / "apps" / "fire-sight" / "src" / "fire_sight"
+    no_owner = re.compile(r"GPU_LOCK\.(acquire|release)\(\s*\)")
+    literal = re.compile(r"GPU_LOCK\.(acquire|release)\(\s*[\"']")
+
+    offenders = []
+    for path in sorted(src.rglob("*.py")):
+        for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            if line.lstrip().startswith("#"):
+                continue
+            if no_owner.search(line) or literal.search(line):
+                offenders.append(f"{path.relative_to(ROOT)}:{lineno}: {line.strip()}")
+
+    assert not offenders, "生产调用点未传持有者常量:\n" + "\n".join(offenders)
+
+
 # --------------------------------------------------------------------------
 # HTTP 契约
 # --------------------------------------------------------------------------

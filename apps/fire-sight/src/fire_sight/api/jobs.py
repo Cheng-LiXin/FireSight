@@ -121,7 +121,7 @@ class JobManager:
             if active.status == "stopping":
                 # 别只说「train 占用」——用户刚点过停止，这个提示会显得停止没生效。
                 raise deps.GpuBusy(f"训练 {active.id}（正在停止，几秒内释放）")
-            raise deps.GpuBusy("train")
+            raise deps.GpuBusy(deps.OWNER_TRAIN)
 
         # 训练优先：监控在占卡时自动让路，而不是丢一句 409 让用户自己去停。
         # 让路这件事必须写进任务事件——静默停掉会被当成监控自己崩了。
@@ -131,7 +131,7 @@ class JobManager:
                 monitor_note = "训练优先：已自动停止实时监控并释放显存。"
 
         # 先拿锁再起进程：拿不到就根本不该起
-        if not deps.GPU_LOCK.acquire("train"):
+        if not deps.GPU_LOCK.acquire(deps.OWNER_TRAIN):
             raise deps.GpuBusy(deps.GPU_LOCK.holder)
 
         job = TrainJob(
@@ -163,7 +163,7 @@ class JobManager:
                 bufsize=1,
             )
         except Exception as exc:  # noqa: BLE001 - 起不来就要把锁还回去
-            deps.GPU_LOCK.release()
+            deps.GPU_LOCK.release(deps.OWNER_TRAIN)
             job.status = "failed"
             job.error = f"无法启动训练进程: {exc}"
             job.finished_at = datetime.now().isoformat(timespec="seconds")
@@ -305,7 +305,7 @@ class JobManager:
                     job.error = job.error or f"训练进程退出码 {code}"
         job.add_event({"type": "exit", "code": code, "status": job.status})
 
-        deps.GPU_LOCK.release()
+        deps.GPU_LOCK.release(deps.OWNER_TRAIN)
         # 权重被替换或新增，模型缓存作废
         deps.clear_infer_cache()
 

@@ -31,6 +31,15 @@ EVENTS_DB: Path = Path(
 # 用户显式指定的「当前权重」。默认 models/active.json（gitignore，见 model_service）。
 ACTIVE_MODEL_STORE = ActiveModelStore(MODELS_DIR / "active.json")
 
+# GPU 锁的所有者名。acquire 与 release 必须用**同一份字面量**：release(who) 认不出
+# 持有者时会静默 no-op（见 GpuLock.release），锁再也还不回去，这台机器此后既起不了
+# 训练也做不了评估，而界面上只看到「GPU 正被占用」。收敛成常量就是为了让拼错
+# 变成 ImportError/NameError，而不是运行期的无声失效。
+OWNER_TRAIN = "train"
+OWNER_EVAL = "eval"
+OWNER_INFER = "infer"
+OWNER_MONITOR = "monitor"
+
 
 class GpuLock:
     """显存互斥：8GB 下训练与推理不能并行。
@@ -65,8 +74,12 @@ class GpuLock:
 
         任务是靠状态判断自己该收工的，状态可见与锁归还之间总有一小段窗口；
         不认持有者的 release 在迟到时会把别人刚拿到的锁一并放掉，而 GPU 互斥
-        放错一次就是静默失效（与锁原本要防的 OOM 同源）。不传 `who` 保持原语义
-        ——既有调用点都在确认自己持有之后才调。
+        放错一次就是静默失效（与锁原本要防的 OOM 同源）。
+
+        **所有生产调用点都必须传 `who`**，且用上面的 `OWNER_*` 常量而不是字面量：
+        认不出持有者时本函数是静默 no-op，拼错一个字母就等于锁永远还不回去，
+        此后这台机器既起不了训练也做不了评估，界面上只显示「GPU 正被占用」。
+        不传 `who` 只留给测试里手工清理用。
         """
         if who is not None and self._holder != who:
             return
@@ -215,7 +228,7 @@ def gpu_job(who: str):
     try:
         yield
     finally:
-        GPU_LOCK.release()
+        GPU_LOCK.release(who)
 
 
 def resolve_device(requested: str) -> str:

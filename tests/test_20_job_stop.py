@@ -174,6 +174,44 @@ def test_stopped_job_settles_to_stopped_not_failed(jobs_env):
     assert jobs.manager.running() is None
 
 
+class _ExitedProc:
+    """已经退出的假进程，只为驱动 `_reap` 的收尾段。"""
+
+    returncode = 0
+    stdout = None
+    stderr = None
+
+    def wait(self, timeout=None):
+        return 0
+
+
+def test_reap_only_releases_the_train_lock_it_owns(jobs_env):
+    """R9：`_reap` 是收尾线程，状态可见与锁归还之间有一小段窗口。
+
+    它以前调无参 `release()`，迟到的收尾会把**下一个任务刚拿到的锁**一并放掉，
+    GPU 互斥放错一次就是静默失效（界面只显示「GPU 正被占用」，之后谁也起不来）。
+    用 `OWNER_TRAIN` 认持有者之后就只放得开自己那一把。
+    """
+    from fire_sight.api import deps, jobs
+
+    deps.GPU_LOCK.release()
+
+    # 正常情形：锁是 train 自己的，收尾就该还回去
+    job = jobs.TrainJob(id="reap-a", dataset="demo_fire", epochs=1)
+    assert deps.GPU_LOCK.acquire(deps.OWNER_TRAIN) is True
+    jobs.manager._reap(job, _ExitedProc())
+    assert deps.GPU_LOCK.holder is None, "train 自己的锁没还回来"
+
+    # 迟到情形：锁已经被 eval 拿走了，收尾不能再动它
+    late = jobs.TrainJob(id="reap-b", dataset="demo_fire", epochs=1)
+    assert deps.GPU_LOCK.acquire(deps.OWNER_EVAL) is True
+    try:
+        jobs.manager._reap(late, _ExitedProc())
+        assert deps.GPU_LOCK.holder == deps.OWNER_EVAL, "迟到的收尾放掉了别人的锁"
+    finally:
+        deps.GPU_LOCK.release()
+
+
 def test_real_crash_is_still_recorded_as_failed(jobs_env):
     jobs = jobs_env
     job = jobs.manager.start({"dataset": "demo_fire", "epochs": 1})
