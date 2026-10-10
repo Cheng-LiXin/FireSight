@@ -14,16 +14,15 @@ SplitFn = Callable[..., Dict[str, List[str]]]
 class StrategyEntry:
     name: str
     func: SplitFn
-    requires_labels: bool
 
 
 _REGISTRY: Dict[str, StrategyEntry] = {}
 _loaded = False
 
 
-def register_strategy(name: str, requires_labels: bool = False):
+def register_strategy(name: str):
     def decorator(func: SplitFn) -> SplitFn:
-        _REGISTRY[name] = StrategyEntry(name=name, func=func, requires_labels=requires_labels)
+        _REGISTRY[name] = StrategyEntry(name=name, func=func)
         return func
 
     return decorator
@@ -44,8 +43,3 @@ def get_strategy(name: str) -> StrategyEntry:
     if name not in _REGISTRY:
         raise KeyError(f"未知划分策略: {name}, 可选={list(_REGISTRY)}")
     return _REGISTRY[name]
-
-
-def list_strategies() -> List[str]:
-    _lazy_init()
-    return sorted(_REGISTRY)

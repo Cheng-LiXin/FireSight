@@ -71,11 +71,6 @@ def weights_dir():
     return RUNTIME_ULTRALYTICS_DIR / "weights"
 
 
-def weight_path(stem: str):
-    """受管落点里的权重文件；**不保证存在**（存在性判断用 `resolve_weight`）。"""
-    return weights_dir() / f"{stem}.pt"
-
-
 def resolve_weight(name: str) -> Path | None:
     """把权重名（`yolo11s.pt` 或一条路径）解析成本机上真实存在的文件。
 

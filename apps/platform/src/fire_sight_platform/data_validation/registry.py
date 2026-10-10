@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict, List
 
 from fire_sight_platform.common.registry_utils import import_submodules
 
@@ -49,16 +49,15 @@ CheckFn = Callable[[CheckContext], CheckResult]
 class CheckEntry:
     name: str
     func: CheckFn
-    severity_hint: CheckSeverity
 
 
 _REGISTRY: Dict[str, CheckEntry] = {}
 _loaded = False
 
 
-def check(name: str, severity_hint: CheckSeverity = CheckSeverity.WARNING):
+def check(name: str):
     def decorator(func: CheckFn) -> CheckFn:
-        _REGISTRY[name] = CheckEntry(name=name, func=func, severity_hint=severity_hint)
+        _REGISTRY[name] = CheckEntry(name=name, func=func)
         return func
 
     return decorator
@@ -77,13 +76,3 @@ def _lazy_init() -> None:
 def get_all_checks() -> List[CheckEntry]:
     _lazy_init()
     return [_REGISTRY[k] for k in sorted(_REGISTRY)]
-
-
-def get_check(name: str) -> CheckEntry:
-    _lazy_init()
-    return _REGISTRY[name]
-
-
-def list_check_names() -> List[str]:
-    _lazy_init()
-    return sorted(_REGISTRY)

@@ -35,6 +35,11 @@ def archive_best_weight(
     best_pt = Path(best_pt)
     if not best_pt.exists():
         raise FileNotFoundError(f"找不到 best.pt: {best_pt}")
+    # run_id 可能来自用户输入的 experiment（见 service.run_training 的说明），
+    # 任由 `..` 进来就会把归档写到 models/trained 之外——而归档扫描只认
+    # 这一层目录，那些权重此后就成了没人管得到的孤儿。这里按目录名单段收口。
+    if run_id in {"", ".", ".."} or "/" in run_id or "\\" in run_id or ":" in run_id:
+        raise ValueError(f"归档名只能是单个目录名，不含路径分隔符: {run_id!r}")
     out = TRAINED_MODELS_DIR / run_id
     out.mkdir(parents=True, exist_ok=True)
     dest_pt = out / "best.pt"

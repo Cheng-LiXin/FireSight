@@ -26,14 +26,3 @@ class CLILoader:
 
 def _drop_none(d: Dict[str, Any]) -> Dict[str, Any]:
     return {k: v for k, v in d.items() if v is not None}
-
-
-def load_all_sources(
-    yaml_path: Path | None = None,
-    cli_overrides: Dict[str, Any] | None = None,
-) -> Dict[str, Dict[str, Any]]:
-    """返回 {"yaml": {...}, "cli": {...}}。"""
-    return {
-        "yaml": YAMLLoader().load(yaml_path) if yaml_path else {},
-        "cli": CLILoader().load(cli_overrides or {}),
-    }

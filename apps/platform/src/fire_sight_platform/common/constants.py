@@ -18,17 +18,6 @@ class AnnotationFormat:
         return (cls.PASCAL_VOC, cls.COCO, cls.YOLO)
 
 
-class Task:
-    """任务类型:检测/分割。"""
-
-    DETECT = "detect"
-    SEGMENT = "segment"
-
-    @classmethod
-    def all(cls) -> Tuple[str, ...]:
-        return (cls.DETECT, cls.SEGMENT)
-
-
 DEFAULT_RANDOM_STATE: int = 42
 DEFAULT_TRAIN_RATE: float = 0.8
 DEFAULT_VAL_RATE: float = 0.1
@@ -36,18 +25,22 @@ RATE_EPSILON: float = 1e-6
 
 
 class SplitStrategy:
-    """划分策略名。"""
+    """划分策略名。
+
+    只列**已实现**的策略：注册表里的键就是这里的取值。曾经写过一个
+    `stratified_multilabel`，但从未实现，文档与常量因此对外宣称了一个
+    并不存在的策略（2026-10-09 代码审查 R21），已删除。
+    """
 
     RANDOM = "random"
-    STRATIFIED_MULTILABEL = "stratified_multilabel"
-
-    @classmethod
-    def all(cls) -> Tuple[str, ...]:
-        return (cls.RANDOM, cls.STRATIFIED_MULTILABEL)
 
 
 DEFAULT_SPLIT_STRATEGY: str = SplitStrategy.RANDOM
 
+# 图片后缀的唯一真相。曾经有三份互不相同的清单：这里的、`data_validation/snapshot.py`
+# 里含 `.webm`（把视频当图片，于是要求一个视频必须有 `.txt` 标注）、以及
+# `api/deps.py` 里少 `.bmp` 的那份（2026-10-09 代码审查 R8）。判断「这是不是一张图」
+# 的地方一律引这里，不再各自定义。
 IMAGE_EXTENSIONS: Tuple[str, ...] = (".jpg", ".jpeg", ".png", ".bmp", ".webp")
 
 

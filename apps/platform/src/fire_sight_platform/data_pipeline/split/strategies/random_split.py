@@ -8,14 +8,13 @@ from fire_sight_platform.data_pipeline.split.registry import register_strategy
 from fire_sight_platform.data_pipeline.split.strategies._common import seeded_shuffled, three_way_counts, validate_rates
 
 
-@register_strategy("random", requires_labels=False)
+@register_strategy("random")
 def random_split(
     stems: Sequence[str],
     train_rate: float,
     val_rate: float,
     test_rate: float,
     seed: int,
-    labels_by_stem: Dict[str, List[str]] | None = None,
 ) -> Dict[str, List[str]]:
     validate_rates(train_rate, val_rate, test_rate)
     ordered = seeded_shuffled(stems, seed)

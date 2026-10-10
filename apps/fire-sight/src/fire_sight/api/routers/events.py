@@ -103,14 +103,19 @@ def list_events(
 ) -> EventPage:
     """事件列表，新→旧。空库返回空数组而不是报错——首次部署就是这个状态。"""
     _validate(label, status)
-    svc = _service()
-    items = [
-        _to_info(r)
-        for r in _query(keyword, label, status, start, end, limit, offset)
-    ]
-    total = svc.count_events(
-        keyword=keyword, label=label, status=_sql_status(status), start=start, end=end
+    # 行与总数走同一条连接：以前这里建两个 EventService，各自又建一个
+    # EventStore（含建表脚本 + 老库回填 UPDATE），一次翻页翻倍做两遍
+    # （2026-10-09 代码审查 R1）。
+    rows, total = _service().list_page(
+        keyword=keyword,
+        label=label,
+        status=_sql_status(status),
+        start=start,
+        end=end,
+        limit=limit,
+        offset=offset,
     )
+    items = [_to_info(r) for r in rows]
     return EventPage(items=items, total=total, limit=limit, offset=offset)
 
 

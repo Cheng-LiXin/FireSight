@@ -103,6 +103,63 @@ def test_gpu_lock_release_checks_ownership():
     assert lock.status()["holder"] is None
 
 
+def test_gpu_job_releases_the_lock_it_took():
+    """R9：`gpu_job` 曾经调无参 `release()`，退出时会放掉别人刚拿到的锁。
+
+    它自己知道 `who`，就该用它来放——收尾线程迟到时错放一次，GPU 互斥就静默
+    失效了。
+    """
+    from fire_sight.api import deps
+
+    deps.GPU_LOCK.release()
+    try:
+        with deps.gpu_job(deps.OWNER_INFER):
+            assert deps.GPU_LOCK.holder == deps.OWNER_INFER
+        assert deps.GPU_LOCK.holder is None, "gpu_job 退出后必须把锁还回来"
+    finally:
+        deps.GPU_LOCK.release()
+
+
+def test_gpu_job_refuses_and_keeps_the_existing_holder():
+    """拿不到锁时抛错，且**不能**顺手把别人的锁放掉。"""
+    from fire_sight.api import deps
+
+    deps.GPU_LOCK.release()
+    assert deps.GPU_LOCK.acquire(deps.OWNER_TRAIN) is True
+    try:
+        with pytest.raises(deps.GpuBusy):
+            with deps.gpu_job(deps.OWNER_INFER):
+                pass
+        assert deps.GPU_LOCK.holder == deps.OWNER_TRAIN, "被拒的请求动到了持有者的锁"
+    finally:
+        deps.GPU_LOCK.release()
+
+
+def test_production_call_sites_pass_an_owner_constant():
+    """R9 的根因防复发：生产代码里不许出现无主的 release / 字面量的 who。
+
+    `release(who)` 认不出持有者时是静默 no-op，拼错一个字母就等于锁永远还不
+    回去——此后这台机器既起不了训练也做不了评估。所以生产调用点必须共用
+    `deps.OWNER_*` 常量，让拼错在 import/NameError 阶段就炸出来，而不是运行时
+    无声失效。
+    """
+    import re
+
+    src = ROOT / "apps" / "fire-sight" / "src" / "fire_sight"
+    no_owner = re.compile(r"GPU_LOCK\.(acquire|release)\(\s*\)")
+    literal = re.compile(r"GPU_LOCK\.(acquire|release)\(\s*[\"']")
+
+    offenders = []
+    for path in sorted(src.rglob("*.py")):
+        for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            if line.lstrip().startswith("#"):
+                continue
+            if no_owner.search(line) or literal.search(line):
+                offenders.append(f"{path.relative_to(ROOT)}:{lineno}: {line.strip()}")
+
+    assert not offenders, "生产调用点未传持有者常量:\n" + "\n".join(offenders)
+
+
 # --------------------------------------------------------------------------
 # HTTP 契约
 # --------------------------------------------------------------------------
@@ -168,6 +225,104 @@ def test_unknown_api_path_stays_json_404(client):
     r = client.get("/api/definitely-not-a-route")
     assert r.status_code == 404
     assert r.json()["detail"] == "Not Found"
+
+
+def test_spa_does_not_escape_dist(tmp_path, monkeypatch):
+    """回归：兜底路由必须把候选路径夹在 dist/ 内。
+
+    dist 位于仓库根下三层，早先直接 `WEB_DIST / full_path` 而未归一化，
+    于是 `/../../../AGENTS.md` 能读到工作区里的任意文件（用真实 uvicorn
+    验证过：200 text/markdown）。这里自建一份 dist，不依赖前端是否构建过。
+    """
+    pytest.importorskip("fastapi")
+    from fastapi.testclient import TestClient
+
+    from fire_sight.api import app as app_mod
+
+    dist = tmp_path / "dist"
+    (dist / "assets").mkdir(parents=True)
+    (dist / "index.html").write_text("<!doctype html>index", encoding="utf-8")
+    secret = tmp_path / "secret.txt"
+    secret.write_text("TOP-SECRET", encoding="utf-8")
+
+    monkeypatch.setattr(app_mod, "WEB_DIST", dist)
+    probe = TestClient(app_mod.create_app())
+
+    # 深链接必须仍然交回 index.html（历史的真实 bug）
+    ok = probe.get("/detect")
+    assert ok.status_code == 200
+    assert "text/html" in ok.headers["content-type"]
+
+    # 各种逃逸写法都不许把 dist 外的文件吐出来
+    for path in (
+        "/../secret.txt",
+        "/../../secret.txt",
+        "/..%2fsecret.txt",
+        "/%2e%2e/secret.txt",
+        "/%2e%2e%2fsecret.txt",
+        "/assets/../../secret.txt",
+    ):
+        r = probe.get(path)
+        assert "TOP-SECRET" not in r.text, f"{path} 泄漏了 dist 外的文件"
+
+
+def test_spa_traversal_blocked_via_raw_asgi(tmp_path, monkeypatch):
+    """同上，但绕过客户端对 `..` 的归一化，直接驱动 ASGI 应用。"""
+    pytest.importorskip("fastapi")
+    from starlette.testclient import TestClient as RawTestClient
+
+    from fire_sight.api import app as app_mod
+
+    dist = tmp_path / "dist"
+    (dist / "assets").mkdir(parents=True)
+    (dist / "index.html").write_text("<!doctype html>index", encoding="utf-8")
+    (tmp_path / "secret.txt").write_text("TOP-SECRET", encoding="utf-8")
+
+    monkeypatch.setattr(app_mod, "WEB_DIST", dist)
+    asgi = app_mod.create_app()
+
+    # httpx 会在客户端就把 `..` 归一化掉，所以这里手写 scope
+    def raw_get(target: str) -> bytes:
+        import anyio
+
+        captured: dict = {}
+
+        async def receive():
+            return {"type": "http.request", "body": b"", "more_body": False}
+
+        async def send(message):
+            if message["type"] == "http.response.body":
+                captured.setdefault("body", b"")
+                captured["body"] += message.get("body", b"")
+
+        scope = {
+            "type": "http",
+            "asgi": {"version": "3.0", "spec_version": "2.3"},
+            "http_version": "1.1",
+            "method": "GET",
+            "scheme": "http",
+            "path": target,
+            "raw_path": target.encode(),
+            "query_string": b"",
+            "root_path": "",
+            "headers": [(b"host", b"testserver")],
+            "client": ("127.0.0.1", 12345),
+            "server": ("testserver", 80),
+        }
+        anyio.run(asgi, scope, receive, send)
+        return captured.get("body", b"")
+
+    for target in (
+        "/../secret.txt",
+        "/../../secret.txt",
+        "/../../../secret.txt",
+        "/..%2f..%2fsecret.txt",
+    ):
+        body = raw_get(target)
+        assert b"TOP-SECRET" not in body, f"{target} 泄漏了 dist 外的文件"
+        # 未命中就交回 index.html，而不是 500 / 空
+        assert b"<!doctype html>" in body
+
 
 
 def test_system_status_shape(client):
@@ -252,6 +407,25 @@ def test_daily_series_is_continuous(client, seeded_db, monkeypatch):
     for prev, cur in zip(dates, dates[1:]):
         assert (cur - prev) == timedelta(days=1), f"{prev} -> {cur} 有断档"
     assert dates[-1] == datetime.now().date()
+
+
+def test_overview_rejects_out_of_range_days(client, seeded_db, monkeypatch):
+    """回归 R2：`days` 以前没有任何上界。
+
+    路由里的补点循环是 `range(days - 1, -1, -1)`，一个 `days=100000000`
+    直接抛未捕获的 `OverflowError: date value out of range` 变成 500；
+    负值/0 则静默返回空序列。现在由 Query 校验统一给出 422。
+    """
+    from fire_sight.api import deps
+
+    monkeypatch.setattr(deps, "EVENTS_DB", seeded_db)
+
+    for bad in (0, -5, 100000000):
+        assert client.get(f"/api/overview?days={bad}").status_code == 422, bad
+
+    # 合法上界仍然可用
+    body = client.get("/api/overview?days=365").json()
+    assert len(body["daily"]) == 365
 
 
 def test_risk_levels_are_monotonic():

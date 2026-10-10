@@ -71,6 +71,89 @@ def test_camera_type_registered():
     assert "image_dir" in names
 
 
+def test_factory_dispatches_through_registry(monkeypatch):
+    """工厂必须真的查注册表。
+
+    从前 `create_frame_source` 是一串写死的 elif 直接 new 具体类，注册表
+    只被测试用 `list_sources()` 钉着——`@register_source` 注册了也白注册，
+    新加一种源得在两个地方各改一次。
+    """
+    import frame_source.core.registry as registry
+    from frame_source import create_frame_source
+
+    called = {}
+
+    def _sentinel(device, **kwargs):
+        called["device"] = device
+        return object()
+
+    monkeypatch.setitem(registry._REGISTRY, "camera", _sentinel)
+    out = create_frame_source("rtsp://1.2.3.4/live")
+    assert out is not None
+    assert called["device"] == "rtsp://1.2.3.4/live"
+
+
+def test_unknown_source_type_raises_value_error():
+    """类型名写错要和「路径识别不出」报同一种异常，调用方只需接一个。"""
+    from frame_source.core.registry import get_factory
+
+    with pytest.raises(ValueError, match="未知帧源类型"):
+        get_factory("no_such_source")
+
+
+def test_duplicate_source_registration_is_rejected():
+    """静默覆盖会让两个模块抢同一个名字，谁赢取决于导入顺序。"""
+    from frame_source.core.registry import register_source
+
+    with pytest.raises(ValueError, match="重复注册"):
+        register_source("camera")(lambda **kwargs: None)
+
+
+def test_camera_open_failure_is_reported_not_silent(monkeypatch):
+    """打不开摄像头必须当场报错，不能留个没打开的 capture 装成「已连上」。"""
+    import cv2
+
+    from frame_source.sources.camera import CameraSource
+
+    class _DeadCap:
+        def isOpened(self):
+            return False
+
+        def release(self):
+            pass
+
+        def get(self, _prop):
+            return 0.0
+
+    monkeypatch.setattr(cv2, "VideoCapture", lambda *a, **k: _DeadCap())
+    with pytest.raises(RuntimeError, match="摄像头打开失败"):
+        CameraSource(0)
+
+
+def test_video_that_cannot_be_decoded_raises(tmp_path, monkeypatch):
+    """文件在、但解不开：不抛的话迭代会安静结束，上层以为「视频就这么多帧」。"""
+    import cv2
+
+    from frame_source.sources.video import VideoFileSource
+
+    bogus = tmp_path / "broken.mp4"
+    bogus.write_bytes(b"not really a video")
+
+    class _DeadCap:
+        def isOpened(self):
+            return False
+
+        def release(self):
+            pass
+
+        def get(self, _prop):
+            return 0.0
+
+    monkeypatch.setattr(cv2, "VideoCapture", lambda *a, **k: _DeadCap())
+    with pytest.raises(RuntimeError, match="无法解码"):
+        VideoFileSource(bogus)
+
+
 # ----------------------------------------------------------------------
 # 停止信号：RTSP 断线时「停止」必须真的停得下来
 # ----------------------------------------------------------------------

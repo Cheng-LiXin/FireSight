@@ -286,6 +286,28 @@ def test_artifact_rejects_non_image(client, fake_run):
     assert r.status_code == 404
 
 
+def test_artifact_accepts_every_extension_the_pipeline_calls_an_image(client, fake_run):
+    """回归 R8：现场图件用的后缀清单曾比别处少一个 `.bmp`。
+
+    同一份图像后缀在三处各写一遍，其中 `deps.IMAGE_SUFFIXES` 漏了 `.bmp`，
+    于是 BMP 图件既不出现在清单里、也取不出来。现在统一引
+    `constants.IMAGE_EXTENSIONS`，这条测试钉住「清单里的每一种后缀都能被端到端取到」。
+    """
+    from fire_sight.api import deps
+    from fire_sight_platform.common.constants import IMAGE_EXTENSIONS
+
+    run_root = deps.find_training_run(fake_run).root
+    for ext in IMAGE_EXTENSIONS:
+        (run_root / f"sample{ext}").write_bytes(b"\x89PNG\r\n\x1a\n")
+
+    names = {a["name"] for a in client.get("/api/train/artifacts", params={"run_id": fake_run}).json()}
+
+    for ext in IMAGE_EXTENSIONS:
+        assert f"sample{ext}" in names, ext
+        r = client.get("/api/train/artifact", params={"run_id": fake_run, "name": f"sample{ext}"})
+        assert r.status_code == 200, ext
+
+
 def test_runs_empty_when_no_training_dir(tmp_path, monkeypatch):
     from fire_sight.api import deps
 
@@ -305,6 +327,83 @@ def test_start_job_rejects_unknown_dataset(client):
     """数据集找不到时不该把进程起起来——那只会白等一次模型加载。"""
     r = client.post("/api/train/jobs", json={"dataset": "根本不存在的数据集", "epochs": 1})
     assert r.status_code == 404
+
+
+@pytest.mark.parametrize(
+    "experiment",
+    [
+        "../../../../EvilExp",
+        "../EvilExp",
+        "..\\..\\EvilExp",
+        "sub/dir",
+        "sub\\dir",
+        "C:absolute",
+        "/absolute",
+    ],
+)
+def test_start_job_rejects_experiment_paths(client, experiment):
+    """回归：experiment 会变成 `runs/training/<name>` 的目录名，不能带路径语义。
+
+    ultralytics 的 increment_path 既不 resolve 也不夹取，实测
+    `increment_path(Path('E:/FireSight/runs/training') / '../../../../EvilExp')`
+    解析到 `E:\\EvilExp`——整轮训练会落到工作区之外，且归档扫不到。
+    这里必须是 422（pydantic 校验拒绝），不能是 201。
+    """
+    r = client.post(
+        "/api/train/jobs",
+        json={"dataset": "D-Fire/raw", "epochs": 1, "experiment": experiment},
+    )
+    assert r.status_code == 422, f"{experiment!r} 竟然被接受了: {r.status_code}"
+
+
+def test_start_job_accepts_a_plain_experiment_name(client, tmp_path, monkeypatch):
+    """正常实验名不受影响——校验不能把「我的实验」这种名字也挡掉。"""
+    from fire_sight.api import deps
+    import fire_sight_platform.training.service as svc
+
+    monkeypatch.setattr(svc, "_resolve_dataset_yaml", lambda _d: tmp_path / "x.yaml")
+    # 让显存守卫直接放行，避免测试机不同带来的差异
+    monkeypatch.setattr(deps, "vram_limits", lambda *a, **k: {"checked": False})
+
+    assert deps.GPU_LOCK.acquire("infer") is True
+    try:
+        r = client.post(
+            "/api/train/jobs",
+            json={"dataset": "任意", "epochs": 1, "experiment": "我的实验"},
+        )
+    finally:
+        deps.GPU_LOCK.release()
+
+    # 校验通过，于是走到抢锁那一步被 409 拦下——关键是不是 422
+    assert r.status_code == 409
+
+
+def test_run_training_refuses_a_traversing_experiment(tmp_path, monkeypatch):
+    """service 层再兜一道：训练是几十分钟的活，不能只靠 API 层守规矩。"""
+    import fire_sight_platform.training.service as svc
+    from fire_sight_platform.runtime_config.base import TrainConfig
+
+    monkeypatch.setattr(svc, "_resolve_dataset_yaml", lambda _d: tmp_path / "x.yaml")
+
+    with pytest.raises(ValueError, match="单个目录名"):
+        svc._train_fresh(
+            TrainConfig(dataset="x", epochs=1, experiment="../../../../EvilExp"),
+            None,
+            lambda _rid: None,
+            lambda _m: None,
+        )
+
+
+def test_archive_refuses_a_traversing_run_id(tmp_path, monkeypatch):
+    """归档名同理：`..` 会把 best.pt 写到 models/trained 之外成为孤儿。"""
+    from fire_sight_platform.training import archive
+
+    monkeypatch.setattr(archive, "TRAINED_MODELS_DIR", tmp_path / "trained")
+    best = tmp_path / "best.pt"
+    best.write_text("w", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="单个目录名"):
+        archive.archive_best_weight(best, "../../escaped")
 
 
 def test_unknown_job_is_404(client):

@@ -4,10 +4,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Dict, List, Tuple
+from typing import Callable, Dict, Tuple
 
 from fire_sight_platform.common.registry_utils import import_submodules
-from fire_sight_platform.common.constants import AnnotationFormat
 
 ConvertFn = Callable[[Path, Path, Path, Dict[str, int]], Tuple[int, int]]
 
@@ -40,13 +39,8 @@ def _lazy_init() -> None:
     _loaded = True
 
 
-def get_converter(name: str) -> ConverterFn:
+def get_converter(name: str) -> ConvertFn:
     _lazy_init()
     if name not in _REGISTRY:
         raise KeyError(f"未知标注格式: {name}, 可选={list(_REGISTRY)}")
     return _REGISTRY[name].func
-
-
-def list_converters() -> List[str]:
-    _lazy_init()
-    return sorted(_REGISTRY)

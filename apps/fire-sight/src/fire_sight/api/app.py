@@ -78,15 +78,20 @@ def create_app() -> FastAPI:
     if WEB_DIST.exists():
         app.mount("/assets", StaticFiles(directory=WEB_DIST / "assets"), name="assets")
 
+        dist_root = WEB_DIST.resolve()
+
         @app.get("/{full_path:path}", include_in_schema=False)
         def spa(full_path: str) -> FileResponse:
             if full_path.startswith("api/"):
                 # 未匹配的接口路径应显式 404，不要回一份 HTML
                 raise HTTPException(status_code=404, detail="Not Found")
-            candidate = WEB_DIST / full_path
-            if full_path and candidate.is_file():
+            # full_path 完全来自 URL。直接拼进来时,路径里的 `..` 会一路逃出
+            # dist/ —— dist 在仓库根下三层,`/../../../AGENTS.md` 就能读到
+            # 工作区里的任意文件。必须先归一化、再确认落点仍在 dist 内。
+            candidate = (dist_root / full_path).resolve()
+            if full_path and candidate.is_file() and candidate.is_relative_to(dist_root):
                 return FileResponse(candidate)
-            return FileResponse(WEB_DIST / "index.html")
+            return FileResponse(dist_root / "index.html")
 
     return app
 

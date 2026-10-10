@@ -14,9 +14,11 @@ from fire_sight_platform.common.constants import (
     DEFAULT_SPLIT_STRATEGY,
     DEFAULT_TRAIN_RATE,
     DEFAULT_VAL_RATE,
+    IMAGE_EXTENSIONS,
     assert_canonical_class_order,
 )
 from fire_sight_platform.common import paths as paths_mod
+from fire_sight_platform.common.naming import safe_child
 from fire_sight_platform.common.performance_utils import time_it
 from fire_sight_platform.data_pipeline.convert.service import convert_data_to_yolo
 from fire_sight_platform.data_pipeline.report import analyze_balance
@@ -68,9 +70,23 @@ class DatasetPipeline:
         # "D-Fire/train"，带斜杠表示原始数据集已自行切分），name 是产物目录名，
         # 默认与 dataset 相同。想要一个不同的产物名时显式传 name，
         # 不必再靠改动 dataset 去迁就路径。
+        #
+        # 两者都来自命令行，所以都必须夹在各自的数据根内：下游 materialize()
+        # 会 `shutil.rmtree(out_root/images/<split>)`，早先直接 `ROOT / name`
+        # 拼接时 `--name ../../OUTSIDE` 会真的删掉工作区外的目录（已实测复现）。
+        # 显式传入的 raw_root / processed_root 是调用方自己的选择（测试用临时
+        # 目录），不在这里改写。
         self.name = name or dataset
-        self.raw_root = Path(raw_root or (paths_mod.RAW_DATA_DIR / dataset))
-        self.out_root = Path(processed_root or (paths_mod.PROCESSED_DATA_DIR / self.name))
+        self.raw_root = (
+            Path(raw_root)
+            if raw_root is not None
+            else safe_child(paths_mod.RAW_DATA_DIR, dataset)
+        )
+        self.out_root = (
+            Path(processed_root)
+            if processed_root is not None
+            else safe_child(paths_mod.PROCESSED_DATA_DIR, self.name)
+        )
 
         self.class_names = (
             list(class_names) if class_names else list(DEFAULT_FIRE_SMOKE_CLASSES)
@@ -119,11 +135,22 @@ class DatasetPipeline:
         if rare:
             logger.warning(f"稀有类别: {rare}")
 
-        stems = sorted({p.stem for p in images_src.iterdir() if p.is_file()})
-        labels_by_stem = {
-            p.stem: [ln.split()[0] for ln in p.read_text(encoding="utf-8").splitlines() if ln.strip()]
-            for p in stage.glob("*.txt")
-        }
+        # 只收图片。不过滤的话 Windows 自带的 `Thumbs.db`（还有 macOS 的
+        # `.DS_Store`）会被当成一个样本，物化时找不到对应图像，
+        # `materializer._copy_pair` 抛 `FileNotFoundError: 缺少图像: Thumbs`
+        # 直接中止整条流水线（2026-10-09 代码审查 R7）。
+        stems = sorted(
+            {
+                p.stem
+                for p in images_src.iterdir()
+                if p.is_file() and p.suffix.lower() in IMAGE_EXTENSIONS
+            }
+        )
+        if not stems:
+            raise FileNotFoundError(
+                f"{images_src} 下没有图片（后缀 {IMAGE_EXTENSIONS}）——"
+                "确认原始数据的图像放在 images/ 里"
+            )
         splits = split_dataset(
             self.split_strategy,
             stems,
@@ -131,7 +158,6 @@ class DatasetPipeline:
             self.val_rate,
             self.test_rate,
             self.seed,
-            labels_by_stem=labels_by_stem,
         )
 
         counts = materialize(

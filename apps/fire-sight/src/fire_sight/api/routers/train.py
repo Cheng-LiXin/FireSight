@@ -14,11 +14,12 @@ from typing import Any, AsyncIterator, Dict, List, Optional
 
 from fastapi import APIRouter, Header, HTTPException, Query
 from fastapi.responses import FileResponse, StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from fire_sight.api import deps
 from fire_sight.api.jobs import TERMINAL_STATUSES, manager
 from fire_sight.api.schemas import ArtifactInfo, CurvesResponse, ModelOption, TrainRun
+from fire_sight_platform.common.constants import IMAGE_EXTENSIONS
 from fire_sight_platform.common.paths import PROCESSED_DATA_DIR, RAW_DATA_DIR
 
 router = APIRouter(prefix="/api/train", tags=["train"])
@@ -45,6 +46,42 @@ class TrainJobRequest(BaseModel):
     #: 非空时改为从该训练现场断点续训。除 device 外，请求里其余字段基本不生效——
     #: ultralytics 以检查点里的 train_args 为准（几何、epochs、lr 全取它）。
     resume_run_id: str = ""
+
+    @field_validator("experiment")
+    @classmethod
+    def _check_experiment(cls, value: str) -> str:
+        """实验名会经 `increment_path` 变成 `runs/training/<name>` 的目录名。
+
+        它不做 resolve、也不夹取，所以 `../../../../EvilExp` 会让整轮训练
+        （权重、results.csv、图件）落到工作区之外，还进不了归档。
+        这里只放行单个目录名，不给任何路径语义。
+        """
+        name = value.strip()
+        if not name:
+            return ""
+        if name in {".", ".."} or "/" in name or "\\" in name or ":" in name:
+            raise ValueError(f"实验名只能是单个目录名，不含路径分隔符: {value!r}")
+        if name != name.strip("."):
+            raise ValueError(f"实验名不能以点开头或结尾: {value!r}")
+        return name
+
+    @field_validator("dataset")
+    @classmethod
+    def _check_dataset(cls, value: str) -> str:
+        """数据集名允许 `D-Fire/raw` 这类相对子路径，但不许逃出 data/。
+
+        真正兜底的是 `_resolve_dataset_yaml` 的存在性检查，这里只挡掉
+        `..` 与绝对路径这类一眼可见的越界写法。
+        """
+        name = value.strip()
+        if not name:
+            raise ValueError("数据集不能为空")
+        if ":" in name or name.startswith(("/", "\\")):
+            raise ValueError(f"数据集应为 data/ 下的相对路径: {value!r}")
+        parts = name.replace("\\", "/").split("/")
+        if any(part in {"", ".", ".."} for part in parts):
+            raise ValueError(f"数据集路径不能含空段或 `..`: {value!r}")
+        return name
 
 
 def _read_args(run_root: Path) -> Dict[str, Any]:
@@ -261,7 +298,7 @@ def get_artifact(run_id: str = Query(...), name: str = Query(...)) -> FileRespon
         raise HTTPException(status_code=400, detail="图件名不合法")
 
     target = run.root / name
-    if not target.is_file() or target.suffix.lower() not in deps.IMAGE_SUFFIXES:
+    if not target.is_file() or target.suffix.lower() not in IMAGE_EXTENSIONS:
         raise HTTPException(status_code=404, detail=f"图件不存在: {name}")
     return FileResponse(target)
 

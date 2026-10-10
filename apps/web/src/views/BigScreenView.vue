@@ -14,7 +14,9 @@ import CountUp from '@/components/CountUp.vue'
 
 const stats = ref<MonthlyStats | null>(null)
 const error = ref('')
-const loading = ref(false)
+/** 是否正在取数。初值为 true：`onMounted` 一定会发一次请求，首帧就该说「在读」，
+ *  而不是先说一句「没有取得数据」再改口。挂载后由 `load()` 负责翻转。 */
+const loading = ref(true)
 
 function thisMonth(): string {
   const d = new Date()
@@ -47,7 +49,14 @@ const momText = computed(() => {
   }
 })
 
-const fpRateNum = computed(() => (detail.value?.false_positive_rate ?? 0) * 100)
+/** 误报率。后端在「这个月一条都没有」时也返回 0.0（`stats_service.month_detail`），
+ *  和「有一条以上、但一条误报都没有」的真相撞成同一个数。前者是「无从谈起」，
+ *  后者是真的 0%——所以用 `total` 区分，而不是把 0.0 直接当读数摊给用户看。 */
+const fpRate = computed<number | null>(() => {
+  const d = detail.value
+  if (!d || d.total === 0) return null
+  return d.false_positive_rate * 100
+})
 
 async function load() {
   loading.value = true
@@ -118,8 +127,12 @@ watch(month, load)
         </div>
         <div class="kpi">
           <div class="kpi__label">误报率</div>
-          <div class="kpi__value"><CountUp :value="fpRateNum" :digits="1" /><span class="kpi__unit">%</span></div>
-          <div class="kpi__sub">{{ detail.false_positives }} 条已标误报</div>
+          <div class="kpi__value">
+            <CountUp :value="fpRate ?? '—'" :digits="1" /><span v-if="fpRate !== null" class="kpi__unit">%</span>
+          </div>
+          <div class="kpi__sub">
+            {{ fpRate === null ? '这个月没有告警' : `${detail.false_positives} 条已标误报` }}
+          </div>
         </div>
         <div class="kpi">
           <div class="kpi__label">待复核</div>
@@ -157,7 +170,9 @@ watch(month, load)
       </section>
     </template>
 
-    <section v-else-if="!error" class="empty empty--inset">正在读取事件库…</section>
+    <section v-else-if="!error" class="empty empty--inset">
+      {{ loading ? '正在读取事件库…' : '没有取得该月的数据。' }}
+    </section>
   </div>
 </template>
 

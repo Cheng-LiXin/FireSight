@@ -10,7 +10,7 @@
  * 两态，只答得「是不是误报」；值班的人还要能区分「刚响还没看」和「确认过了但
  * 现场还没处理完」。状态与误报位由后端保证同步，这里不自己推导。
  */
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
 import { api, ApiError } from '@/api/client'
 import type { AlertEventInfo, EventReviewStatus, EventStatusFilter } from '@/api/types'
@@ -98,27 +98,38 @@ function stamp(ts: string): string {
   return (ts || '').replace('T', ' ')
 }
 
+/** 取数序号。关键词是连续输入，前后两次请求的返回顺序没有保证——没有这个序号，
+ *  慢的那次回来会覆盖快的结果（`TrainingView` 的 `limitsSeq` 记着同一个坑）。 */
+let loadSeq = 0
+
 async function load(): Promise<void> {
+  const issued = ++loadSeq
   busy.value = true
   error.value = null
   try {
     const base = { ...filters.value, limit: pageSize.value }
     let page = await api.events({ ...base, offset: offset.value })
+    if (issued !== loadSeq) return
     // 处置状态变化会让当前筛选下的「总数」变小，当前 offset 可能因此越界。
     // 夹回最后一页重取一次——否则用户看到一张空表，会以为数据没了。
     if (page.items.length === 0 && page.total > 0 && offset.value > 0) {
       offset.value = Math.max(0, (Math.ceil(page.total / pageSize.value) - 1) * pageSize.value)
       page = await api.events({ ...base, offset: offset.value })
+      if (issued !== loadSeq) return
     }
     items.value = page.items
     total.value = page.total
   } catch (e) {
+    if (issued !== loadSeq) return
     error.value = describe(e)
     items.value = []
     total.value = 0
   } finally {
-    busy.value = false
-    loaded.value = true
+    // 被更新的请求顶掉时不要碰 busy / loaded：那一次还在路上，状态归它管。
+    if (issued === loadSeq) {
+      busy.value = false
+      loaded.value = true
+    }
   }
 }
 
@@ -161,13 +172,55 @@ function toggleClip(row: AlertEventInfo): void {
   clipFailed.value = false
 }
 
-watch(filters, () => {
+/** 取数的防抖定时器。只有关键词走它，见下面的 watcher。 */
+let keywordTimer: ReturnType<typeof setTimeout> | undefined
+
+/** 立即取数。会取消在等的关键词防抖——离散选择比在等的输入更新，
+ *  不该让它先发一次、300ms 后再发一次。 */
+function loadNow(): void {
+  if (keywordTimer) {
+    clearTimeout(keywordTimer)
+    keywordTimer = undefined
+  }
   offset.value = 0
   void load()
-}, { deep: true })
-watch(pageSize, () => {
-  offset.value = 0
-  void load()
+}
+
+// 五个筛选字段**共用一个 watcher**。拆成两个的话，「重置筛选」会同时改到关键词与
+// 离散字段，于是立刻发一次、300ms 后再发一次——两次请求取的是同一份数据。
+// 合并之后按「这一趟谁变了」决定：离散字段变了就立即取数（点一下就该见结果），
+// 只有关键词变了才防抖。
+//
+// 注意 `filters.keyword` 本身是即时更新的，抖动的是「取数」而不是输入——
+// 导出链接的 href 直接取自 filters，跟着输入走才是对的。
+watch(
+  () => [
+    filters.value.keyword,
+    filters.value.label,
+    filters.value.status,
+    filters.value.start,
+    filters.value.end,
+  ],
+  (next, prev) => {
+    const discreteChanged = next.some((v, i) => i > 0 && v !== prev[i])
+    if (discreteChanged) {
+      loadNow()
+      return
+    }
+    if (next[0] === prev[0]) return
+    // 页码立刻归零：换筛选就该回到第一页，这是用户意图，不该等 300ms。
+    offset.value = 0
+    if (keywordTimer) clearTimeout(keywordTimer)
+    keywordTimer = setTimeout(() => {
+      keywordTimer = undefined
+      void load()
+    }, 300)
+  },
+)
+watch(pageSize, loadNow)
+
+onBeforeUnmount(() => {
+  if (keywordTimer) clearTimeout(keywordTimer)
 })
 
 onMounted(async () => {

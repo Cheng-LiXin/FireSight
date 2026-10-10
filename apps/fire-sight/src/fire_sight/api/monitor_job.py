@@ -139,10 +139,10 @@ class MonitorManager:
         """启动常驻监控。GPU 被占时抛 GpuBusy，由路由转 409。"""
         with self._lock:
             if self._state["status"] in ACTIVE:
-                raise deps.GpuBusy("monitor")
+                raise deps.GpuBusy(deps.OWNER_MONITOR)
 
         # 先拿锁再起线程：拿不到就根本不该起，也不要留半个线程
-        if not deps.GPU_LOCK.acquire("monitor"):
+        if not deps.GPU_LOCK.acquire(deps.OWNER_MONITOR):
             raise deps.GpuBusy(deps.GPU_LOCK.holder)
 
         try:
@@ -173,13 +173,13 @@ class MonitorManager:
             )
             self._thread.start()
         except FileNotFoundError as exc:
-            deps.GPU_LOCK.release("monitor")
+            deps.GPU_LOCK.release(deps.OWNER_MONITOR)
             raise ValueError(str(exc)) from exc
         except Exception:
             # 拿到锁之后到线程起来之前的任何一步失败（线程数耗尽等），
             # 都要把锁还回去——否则显存被一个永远不起的监控占着，直到重启服务。
             # 状态也要挪出 ACTIVE：留着 connecting 会让下次 start 直接被判「已占用」。
-            deps.GPU_LOCK.release("monitor")
+            deps.GPU_LOCK.release(deps.OWNER_MONITOR)
             with self._lock:
                 if self._state["status"] == "connecting":
                     self._state = self._blank()
@@ -256,9 +256,9 @@ class MonitorManager:
             raise deps.GpuBusy("monitor（正在停止，请稍候重试）")
 
         deadline = time.time() + timeout
-        while deps.GPU_LOCK.holder == "monitor" and time.time() < deadline:
+        while deps.GPU_LOCK.holder == deps.OWNER_MONITOR and time.time() < deadline:
             time.sleep(0.01)
-        if deps.GPU_LOCK.holder == "monitor":
+        if deps.GPU_LOCK.holder == deps.OWNER_MONITOR:
             raise deps.GpuBusy("monitor（正在停止，请稍候重试）")
         return True
 
@@ -318,7 +318,7 @@ class MonitorManager:
     def _release_lock(self) -> None:
         try:
             # 带上持有者身份：收尾线程迟到时不至于放掉别人刚拿到的锁
-            deps.GPU_LOCK.release("monitor")
+            deps.GPU_LOCK.release(deps.OWNER_MONITOR)
         except Exception as exc:  # noqa: BLE001 - 锁状态异常只记日志，别盖掉真实错误
             logger.warning(f"释放 GPU 锁失败: {exc}")
 

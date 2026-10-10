@@ -119,6 +119,34 @@ def test_pagination_does_not_overlap_or_drop(client):
     assert p1["total"] == p2["total"] == p3["total"] == 7
 
 
+def test_list_page_opens_one_connection_not_two(client, monkeypatch):
+    """回归 R1：一次翻页曾经开两条 EventStore 连接。
+
+    路由为「记录」和「总数」各建一个 EventService，每个又各建一个 EventStore；
+    而 `EventStore.__init__` 里跑建表脚本 + 老库回填 UPDATE，于是每页 = 2 条连接
+    + 2 次建表 + 2 次全表 UPDATE。现在两条查询共用一条连接。
+
+    这里直接数 `EventStore.__init__` 的调用次数——它是「开了几条连接」的唯一信号。
+    """
+    from fire_sight.alerting import EventStore
+
+    calls = []
+    original = EventStore.__init__
+
+    def counting_init(self, db_path):
+        calls.append(db_path)
+        original(self, db_path)
+
+    monkeypatch.setattr(EventStore, "__init__", counting_init)
+
+    body = client.get("/api/events", params={"limit": 3}).json()
+
+    assert len(calls) == 1, f"一次翻页应只建一条连接，实际 {len(calls)} 条"
+    # 语义不能因为合并连接而变
+    assert body["total"] == 7
+    assert len(body["items"]) == 3
+
+
 def test_filter_by_label(client):
     fire = client.get("/api/events", params={"label": "fire"}).json()
     smoke = client.get("/api/events", params={"label": "smoke"}).json()
