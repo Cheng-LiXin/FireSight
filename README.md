@@ -474,13 +474,13 @@ venv 是在这条入口加进 `pyproject.toml` 之前装的（`.venv\Scripts\` �
 欢迎提 Issue 与 PR。提交前请确保：
 
 ```bash
-pytest tests apps/platform/tests -q      # 后端，预期 346 passed
+pytest tests apps/platform/tests -q      # 后端，预期 396 passed
 cd apps/web && npm run typecheck         # 前端类型检查通过
-npm run test:e2e                         # 前端端到端（需先起 fs-serve），预期 48 passed / 6 skipped
+npm run test:e2e                         # 前端端到端（需先起 fs-serve），预期 52 passed / 6 skipped
 ```
 
-前端 E2E 用 Playwright 驱动系统已装的 Edge，不下载自带浏览器。10 个 spec 共 54 条用例，
-本机实测 **48 passed / 6 skipped（约 53 秒）**。跳过的 6 条都是**按需跳过**而非渲染坏了：
+前端 E2E 用 Playwright 驱动系统已装的 Edge，不下载自带浏览器。10 个 spec 共 58 条用例，
+本机实测 **52 passed / 6 skipped（约 64 秒）**。跳过的 6 条都是**按需跳过**而非渲染坏了：
 
 - **续训 3 条**（`resume.spec.ts`）依赖「存在未跑完、优化器状态还在」的现场。
   判断依据是训练记录里的 `resumable` 字段，而不是现场是否还在磁盘上：当前所有现场都跑完了，
