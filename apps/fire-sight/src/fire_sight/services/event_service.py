@@ -5,7 +5,7 @@ from __future__ import annotations
 import csv
 import io
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from fire_sight.alerting import REVIEW_STATUSES, EventStore
 
@@ -78,6 +78,40 @@ class EventService:
             return store.count_events(
                 keyword=keyword, label=label, status=status, start=start, end=end
             )
+
+    def list_page(
+        self,
+        keyword: str = "",
+        label: str = "",
+        status: str = "",
+        start: str = "",
+        end: str = "",
+        limit: int = 200,
+        offset: int = 0,
+    ) -> Tuple[List[Dict[str, Any]], int]:
+        """一次翻页要的两件事：行 + 总数，共用一条连接。
+
+        列表页必须同时给出记录与总数。此前路由为这两件事各建一个 EventService、
+        每个再各建一个 EventStore，而 `EventStore.__init__` 里带着建表脚本与老库
+        回填 UPDATE——于是一次翻页 = 2 条 SQLite 连接 + 2 次建表 + 2 次全表
+        UPDATE，每个用户每次翻页都重来（2026-10-09 代码审查 R1）。
+
+        两条查询在同一条连接上串行执行，语义与分开做完全一致。
+        """
+        with self._store() as store:
+            rows = store.query_events(
+                keyword=keyword,
+                label=label,
+                status=status,
+                start=start,
+                end=end,
+                limit=limit,
+                offset=offset,
+            )
+            total = store.count_events(
+                keyword=keyword, label=label, status=status, start=start, end=end
+            )
+        return rows, total
 
     def get_event(self, event_id: str) -> Optional[Dict[str, Any]]:
         with self._store() as store:

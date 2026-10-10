@@ -352,6 +352,25 @@ def test_daily_series_is_continuous(client, seeded_db, monkeypatch):
     assert dates[-1] == datetime.now().date()
 
 
+def test_overview_rejects_out_of_range_days(client, seeded_db, monkeypatch):
+    """回归 R2：`days` 以前没有任何上界。
+
+    路由里的补点循环是 `range(days - 1, -1, -1)`，一个 `days=100000000`
+    直接抛未捕获的 `OverflowError: date value out of range` 变成 500；
+    负值/0 则静默返回空序列。现在由 Query 校验统一给出 422。
+    """
+    from fire_sight.api import deps
+
+    monkeypatch.setattr(deps, "EVENTS_DB", seeded_db)
+
+    for bad in (0, -5, 100000000):
+        assert client.get(f"/api/overview?days={bad}").status_code == 422, bad
+
+    # 合法上界仍然可用
+    body = client.get("/api/overview?days=365").json()
+    assert len(body["daily"]) == 365
+
+
 def test_risk_levels_are_monotonic():
     """风险分档必须单调：置信度越高，档位不得倒退。"""
     from fire_sight.api.routers.overview import _risk_from

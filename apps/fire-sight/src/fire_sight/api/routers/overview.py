@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Tuple
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 
 from fire_sight.api import deps
 from fire_sight.api.schemas import (
@@ -116,8 +116,15 @@ def _model_metrics() -> Tuple[ModelMetrics, Dict[str, Any]]:
 
 
 @router.get("/overview", response_model=Overview)
-def get_overview(days: int = 30) -> Overview:
-    """仪表盘一次性拉取，避免前端打多个请求再拼装。"""
+def get_overview(days: int = Query(30, ge=1, le=365)) -> Overview:
+    """仪表盘一次性拉取，避免前端打多个请求再拼装。
+
+    `days` 必须夹上下界：下面按它逐日补点（`range(days - 1, -1, -1)`），
+    无上界等于把一次查询变成无界内存与循环；`days=100000000` 更会一路
+    算到 `OverflowError: date value out of range` 变成 500，而负值/0 会
+    安静地回一个空序列（2026-10-09 代码审查 R2）。同仓 `routers/stats.py`
+    的 `months` 就是正确范例。
+    """
     from fire_sight.services import EventService, StatsService
 
     rows: List[Dict[str, Any]] = []
