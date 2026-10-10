@@ -445,7 +445,18 @@ onMounted(async () => {
   }
 })
 
-onBeforeUnmount(disconnect)
+// 定时器与在途请求都要在卸载时收掉。原先只 disconnect() 了 SSE，
+// `limitsTimer` 还挂在事件循环上，300ms 后仍会发一次请求并写到已卸载的组件上
+// ——这是全仓唯一的定时器泄漏（2026-10-09 代码审查 R16）。
+// 序号自增让在途的那次 loadLimits 回来时直接作废，不再写 limits。
+onBeforeUnmount(() => {
+  disconnect()
+  if (limitsTimer) {
+    clearTimeout(limitsTimer)
+    limitsTimer = undefined
+  }
+  limitsSeq++
+})
 </script>
 
 <template>

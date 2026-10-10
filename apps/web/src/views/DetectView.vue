@@ -166,7 +166,19 @@ async function runSingle(): Promise<void> {
 }
 
 async function runBatch(): Promise<void> {
-  if (!sourceKey.value || !weights.value) return
+  // 与 runSingle 同一条纪律：缺参数不是「无事发生」，要说清是哪一样没就绪。
+  // 按钮只在 busy || !sourceKey 时禁用，所以「选了数据源但没权重」能点到，
+  // 静默 return 就是点了没反应也没提示（2026-10-09 代码审查 R18）。
+  if (!weights.value) {
+    error.value = modelsLoading.value
+      ? '模型列表尚未加载完成，请稍候重试'
+      : '没有可用的模型，请先运行 fs-train 训练一次'
+    return
+  }
+  if (!sourceKey.value) {
+    error.value = '请先选择数据源'
+    return
+  }
   busy.value = true
   error.value = null
   try {
