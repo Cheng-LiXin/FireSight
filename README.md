@@ -1,6 +1,6 @@
 # FireSight · 基于 YOLO 的火灾烟雾智能预警系统
 
-[![version](https://img.shields.io/badge/version-v1.9.0-blue)](CHANGELOG.md)
+[![version](https://img.shields.io/badge/version-v1.9.6-blue)](CHANGELOG.md)
 [![python](https://img.shields.io/badge/python-3.12-3776ab)](https://www.python.org/)
 [![vue](https://img.shields.io/badge/vue-3-42b883)](https://vuejs.org/)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
@@ -69,7 +69,7 @@ D-Fire 的原始标注恰好就是 `0=smoke / 1=fire`，与本契约一致（已
 ### 环境要求
 
 - Python **3.10+**（开发环境为 3.12.13）
-- Node.js **18+**（仅构建前端时需要，开发环境为 22.20.0）
+- Node.js **18+**（仅构建前端时需要，开发环境为 24.21.0）
 - 可选：NVIDIA GPU + CUDA（GPU 训练与推理；CPU 亦可运行，只是慢）
 
 ### 安装
@@ -314,13 +314,14 @@ FireSight/
 
 ## 实测结果
 
-YOLO11s 在 D-Fire 上训练 100 epochs（采用提供方划分 `data/raw/D-Fire`，
+YOLO11s 在 D-Fire 上训练（采用提供方划分 `data/raw/D-Fire`，
 train / val / test = 14,122 / 3,099 / 4,306；`imgsz=640, batch=20, lr0=0.01,
-seed=42, patience=10, fraction=1.0`，RTX 4060 Laptop 8GB）：
+seed=42, patience=10, fraction=1.0`，RTX 4060 Laptop 8GB）：配置 `epochs=100`，
+实际在第 82 轮因 `patience=10` 早停，耗时约 4.2 小时。
 
-| 指标 | 数值 |
+| 指标（全部来自 **val**） | 数值 |
 |---|---|
-| mAP@50 | **0.792**（val）/ 0.793（test） |
+| mAP@50 | **0.792** |
 | mAP@50-95 | 0.471 |
 | 精确率 P | 0.789 |
 | 召回率 R | 0.733 |
@@ -329,6 +330,12 @@ seed=42, patience=10, fraction=1.0`，RTX 4060 Laptop 8GB）：
 混淆矩阵、PR 曲线等训练图件随每次运行归档在 `runs/training/<run>/`（本地文件，不入库）；
 泄漏量化的完整分析见
 [`docs/devlog/2026-09-28-新数据首训与泄漏的量化.md`](docs/devlog/2026-09-28-新数据首训与泄漏的量化.md)。
+
+> **`test` 划分（4,306 张）至今一次没用过。** 上表是 val 数字——选模型和汇报用的是同一份
+> 数据，`val` 已经被决策「用脏」了。评估接口本身支持选划分（`split=val|test`，默认 `val`），
+> 模型库的评估表单里就能把划分切成 `test`；`fs-val` 命令行目前只跑 `val`。
+> 系统尚未在 `test` 上取得一组独立的最终数字，这是后续要补的一步，待办见
+> [`docs/devlog/2026-09-28-新数据首训与泄漏的量化.md`](docs/devlog/2026-09-28-新数据首训与泄漏的量化.md)。
 
 召回（0.733）仍低于精确率（0.789）——**漏检是当前的主要短板**。可试的方向：
 更大输入尺寸、针对明火的定向数据增强，或按机位分组的划分来测真实泛化能力。
@@ -343,7 +350,12 @@ seed=42, patience=10, fraction=1.0`，RTX 4060 Laptop 8GB）：
 > 在模型库里标着**「旧数据不可比」**：新旧划分有 17,221 张交集，在旧 val 上评估会虚高
 > （旧 0.7897 vs 新 0.8626 mAP@50，虚高 0.0729），指标不可与新数据直接比。
 > 那份 processed 产物已于 2026-10-06 删除（可由 raw 用 seed 42 精确重建），
-> 因此这 4 个旧归档**已无法重新评估**，模型库仍按标记如实展示它们的历史指标。
+> 因此这 5 个旧归档**已无法重新评估**，模型库仍按标记如实展示它们的历史指标。
+
+模型库当前共 7 份归档，其中带「旧数据」标记的 5 份（数据集字段为 `D-Fire/train`）：
+`20260927-204643` / `20260927-194539` / `20260927-171606` / `20260927-112418` /
+`20260926-190635`。新数据下的两份是上表的 YOLO11s，以及一次 10 轮的 YOLO11n 冒烟训练
+`20261010-143319-D-Fire-raw-yolo11n`（mAP@50 0.618，不是调参结论，只用来验链路）。
 
 ### 数据集自带的质量问题
 
@@ -467,14 +479,18 @@ cd apps/web && npm run typecheck         # 前端类型检查通过
 npm run test:e2e                         # 前端端到端（需先起 fs-serve），预期 48 passed / 6 skipped
 ```
 
-前端 E2E 用 Playwright 驱动系统已装的 Edge，不下载自带浏览器。
-跳过的 6 条都是**按需跳过**而非渲染坏了，其中 3 条续训用例依赖「存在未跑完、
-优化器状态还在」的现场——数据集换代时那唯一一份可续训现场已随 `D-Fire/train`
-归档一并删除，所以要验续训链路得先新起一次中断的训练。
-余下 3 条各要一样东西：真调大模型（花钱，设 `FIRESIGHT_LLM_API_KEY`）、真跑训练
-（设 `FIRESIGHT_E2E_TRAIN=1`）、以及一份空归档（`models/trained/` 里有归档时空态
-提示那条就没得验）。详见
-[`docs/api/测试说明.md`](docs/api/测试说明.md)。
+前端 E2E 用 Playwright 驱动系统已装的 Edge，不下载自带浏览器。10 个 spec 共 54 条用例，
+本机实测 **48 passed / 6 skipped（约 53 秒）**。跳过的 6 条都是**按需跳过**而非渲染坏了：
+
+- **续训 3 条**（`resume.spec.ts`）依赖「存在未跑完、优化器状态还在」的现场。
+  判断依据是训练记录里的 `resumable` 字段，而不是现场是否还在磁盘上：当前所有现场都跑完了，
+  检查点里的优化器状态已被剥离（`resume_note` 会写明「只能拿该轮权重微调」），
+  所以这 3 条一直是跳过的——要验续训链路得先新起一次中途暂停的训练。
+- **大模型报告 1 条**：真调模型（花钱），设 `FIRESIGHT_LLM_API_KEY` 后执行。
+- **真实训练 1 条**：会真起一次训练，设 `FIRESIGHT_E2E_TRAIN=1` 后执行。
+- **模型库空态 1 条**：`models/trained/` 里有归档时，「无归档时给出方向」那条没得验。
+
+详见 [`docs/api/测试说明.md`](docs/api/测试说明.md)。
 
 ---
 
